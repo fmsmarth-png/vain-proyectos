@@ -15,6 +15,7 @@ import Inspeccion from './pages/Inspeccion';
 import InspeccionDepto from './pages/InspeccionDepto';
 import Revision from './pages/Revision';
 import ZonasComunes from './pages/ZonasComunes';
+import VisitaObra from './pages/VisitaObra';
 import MenuLateral from './components/MenuLateral';
 import { ThemeProvider } from './Context/ThemeContext';
 import { OfflineProvider } from './Context/OfflineContext';
@@ -152,6 +153,7 @@ const App: React.FC = () => {
                     <Route exact path="/inspeccion/depto" component={InspeccionDepto} />
                     <Route exact path="/revision"         component={Revision} />
                     <Route exact path="/zonas-comunes"    component={ZonasComunes} />
+                    <Route path="/visita-obra" component={VisitaObra} exact />
                     <Redirect exact from="/" to="/dashboard" />
                   </IonRouterOutlet>
                 </IonSplitPane>
