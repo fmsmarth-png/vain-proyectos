@@ -1,0 +1,693 @@
+import {
+  IonContent, IonPage, IonHeader, IonToolbar,
+  IonTitle, IonSpinner, IonModal, IonAlert, IonMenuButton
+} from '@ionic/react';
+import { useEffect, useState } from 'react';
+import { supabase } from '../supabase';
+import { useTheme } from '../Context/ThemeContext';
+import { lineaConfig, lineas } from '../utils/lineas';
+
+const ROLES = [
+  { value: 'jefe_terreno',          label: 'Jefe de Terreno' },
+  { value: 'prof_terminaciones',    label: 'Prof. Terminaciones' },
+  { value: 'director_obra',         label: 'Director de Obra' },
+  { value: 'administrador',         label: 'Administrador' },
+  { value: 'vendedor_inmobiliaria', label: 'Vendedor Inmobiliaria' },
+];
+
+const TIPOS_CAUSA = [
+  { value: 'estandar',       label: 'Causa Estándar' },
+  { value: 'tercero',        label: 'Otras Cuadrillas' },
+  { value: 'nombre_tercero', label: 'Nombre Tercero' },
+];
+
+const Admin: React.FC = () => {
+  const { theme } = useTheme();
+  const dark = theme === 'dark';
+
+  const bg            = dark ? '#000000' : '#f0f4f8';
+  const card          = dark ? '#0e0e0e'  : '#ffffff';
+  const cardAlt       = dark ? '#111111'  : '#f8fafc';
+  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const textPrimary   = dark ? '#f9fafb' : '#0f172a';
+  const textSecondary = dark ? '#6b7280' : '#64748b';
+  const textMuted     = dark ? '#444444' : '#94a3b8';
+  const toolbar       = dark ? '#000000' : '#1e3a5f';
+  const inputBg       = dark ? '#111111' : '#ffffff';
+  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
+  const sepLine       = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
+
+  const [seccion, setSeccion] = useState<'usuarios' | 'ambientes' | 'partidas' | 'causas' | 'proyectos' | 'ambientes_zc'>('usuarios');
+
+  const [usuarios, setUsuarios]       = useState<any[]>([]);
+  const [pendientes, setPendientes]   = useState<any[]>([]);
+  const [proyectos, setProyectos]     = useState<any[]>([]);
+  const [ambientes, setAmbientes]     = useState<any[]>([]);
+  const [partidas, setPartidas]       = useState<any[]>([]);
+  const [causas, setCausas]           = useState<any[]>([]);
+  const [ambientesZC, setAmbientesZC] = useState<any[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [guardando, setGuardando]     = useState(false);
+  const [error, setError]             = useState('');
+
+  const [filtroLineaUsuarios, setFiltroLineaUsuarios]   = useState('');
+  const [filtroLineaProyectos, setFiltroLineaProyectos] = useState('');
+
+  const [modalUsuario, setModalUsuario]       = useState(false);
+  const [modalAsignar, setModalAsignar]       = useState(false);
+  const [modalAmbiente, setModalAmbiente]     = useState(false);
+  const [modalPartida, setModalPartida]       = useState(false);
+  const [modalCausa, setModalCausa]           = useState(false);
+  const [modalAmbienteZC, setModalAmbienteZC] = useState(false);
+
+  const [nuevoEmail, setNuevoEmail]       = useState('');
+  const [nuevoNombre, setNuevoNombre]     = useState('');
+  const [nuevoPassword, setNuevoPassword] = useState('');
+  const [nuevoRol, setNuevoRol]           = useState('jefe_terreno');
+  const [nuevoLinea, setNuevoLinea]       = useState('');
+  const [nuevoAmbiente, setNuevoAmbiente] = useState('');
+  const [nuevoPartida, setNuevoPartida]   = useState('');
+  const [nuevaCausa, setNuevaCausa]       = useState('');
+  const [nuevaCausaTipo, setNuevaCausaTipo] = useState('estandar');
+  const [nuevoAmbienteZC, setNuevoAmbienteZC]               = useState('');
+  const [nuevoAmbienteZCSoloPiso1, setNuevoAmbienteZCSoloPiso1] = useState(false);
+
+  const [usuarioSel, setUsuarioSel]               = useState<any>(null);
+  const [proyectosSel, setProyectosSel]           = useState<string[]>([]);
+  const [proyectoPrincipal, setProyectoPrincipal] = useState<string>('');
+
+  const [alertEliminar, setAlertEliminar]     = useState(false);
+  const [itemEliminar, setItemEliminar]       = useState<any>(null);
+  const [tipoEliminar, setTipoEliminar]       = useState('');
+  const [alertRechazar, setAlertRechazar]     = useState(false);
+  const [usuarioRechazar, setUsuarioRechazar] = useState<any>(null);
+
+  useEffect(() => { cargar(); }, []);
+
+  const cargar = async () => {
+    setLoading(true);
+    const [u, p, a, pa, pend, c, azc] = await Promise.all([
+      supabase.from('usuarios').select('*, usuario_proyectos(proyecto_id, es_principal)').eq('estado', 'activo').order('nombre'),
+      supabase.from('proyectos').select('*').order('nombre'),
+      supabase.from('ambientes').select('*').order('nombre'),
+      supabase.from('partidas').select('*').order('nombre'),
+      supabase.from('usuarios').select('*').eq('estado', 'pendiente').order('nombre'),
+      supabase.from('causas').select('*').order('tipo').order('nombre'),
+      supabase.from('ambientes_zc').select('*').order('orden'),
+    ]);
+    setUsuarios(u.data ?? []);
+    setProyectos(p.data ?? []);
+    setAmbientes(a.data ?? []);
+    setPartidas(pa.data ?? []);
+    setPendientes(pend.data ?? []);
+    setCausas(c.data ?? []);
+    setAmbientesZC(azc.data ?? []);
+    setLoading(false);
+  };
+
+  // ── Usuarios ───────────────────────────────────────────────────────────────
+  const crearUsuario = async () => {
+    if (!nuevoEmail || !nuevoNombre || !nuevoPassword) { setError('Completa todos los campos'); return; }
+    setGuardando(true); setError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('https://swjmqtnhdtiwopexbezx.supabase.co/functions/v1/crear-usuario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ email: nuevoEmail, password: nuevoPassword, nombre: nuevoNombre, rol: nuevoRol, linea: nuevoLinea || null }),
+      });
+      const result = await response.json();
+      if (!response.ok) { setError(result.error ?? 'Error al crear usuario'); }
+      else { setNuevoEmail(''); setNuevoNombre(''); setNuevoPassword(''); setNuevoRol('jefe_terreno'); setNuevoLinea(''); setModalUsuario(false); cargar(); }
+    } catch (e: any) { setError('Error de conexión: ' + e.message); }
+    setGuardando(false);
+  };
+
+  const eliminarUsuario = async (usuario: any) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('https://swjmqtnhdtiwopexbezx.supabase.co/functions/v1/eliminar-usuario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ usuario_id: usuario.id }),
+      });
+      const result = await response.json();
+      if (!response.ok) { setError(result.error ?? 'Error al eliminar usuario'); }
+      else { cargar(); }
+    } catch (e: any) { setError('Error de conexión: ' + e.message); }
+  };
+
+  const aprobarUsuario  = async (u: any) => { await supabase.from('usuarios').update({ estado: 'activo' }).eq('id', u.id); cargar(); };
+  const rechazarUsuario = async () => { if (!usuarioRechazar) return; await eliminarUsuario(usuarioRechazar); setUsuarioRechazar(null); };
+
+  const cambiarRol = async (usuario: any, nuevoRol: string) => {
+    const { error } = await supabase.from('usuarios').update({ rol: nuevoRol }).eq('id', usuario.id);
+    if (error) { setError('Error al cambiar rol: ' + error.message); } else { cargar(); }
+  };
+
+  const cambiarLinea = async (usuario: any, linea: string) => {
+    await supabase.from('usuarios').update({ linea: linea || null }).eq('id', usuario.id);
+    cargar();
+  };
+
+  const cambiarLineaProyecto = async (proyId: string, linea: string) => {
+    await supabase.from('proyectos').update({ linea: linea || null }).eq('id', proyId);
+    cargar();
+  };
+
+  const abrirAsignar = (usuario: any) => {
+    setUsuarioSel(usuario);
+    const asignaciones = usuario.usuario_proyectos ?? [];
+    setProyectosSel(asignaciones.map((up: any) => up.proyecto_id));
+    const principal = asignaciones.find((up: any) => up.es_principal);
+    setProyectoPrincipal(principal?.proyecto_id ?? '');
+    setModalAsignar(true);
+  };
+
+  const guardarAsignacion = async () => {
+    if (proyectosSel.length > 0 && !proyectoPrincipal) { setError('Debes marcar un proyecto principal'); return; }
+    setGuardando(true); setError('');
+    await supabase.from('usuario_proyectos').delete().eq('usuario_id', usuarioSel.id);
+    if (proyectosSel.length > 0) {
+      await supabase.from('usuario_proyectos').insert(proyectosSel.map(pid => ({ usuario_id: usuarioSel.id, proyecto_id: pid, es_principal: pid === proyectoPrincipal })));
+    }
+    setModalAsignar(false); cargar(); setGuardando(false);
+  };
+
+  // ── Ambientes / Partidas / Causas ──────────────────────────────────────────
+  const crearAmbiente = async () => {
+    if (!nuevoAmbiente.trim()) { setError('Escribe un nombre'); return; }
+    setGuardando(true); setError('');
+    await supabase.from('ambientes').insert({ nombre: nuevoAmbiente.trim() });
+    setNuevoAmbiente(''); setModalAmbiente(false); cargar(); setGuardando(false);
+  };
+
+  const crearPartida = async () => {
+    if (!nuevoPartida.trim()) { setError('Escribe un nombre'); return; }
+    setGuardando(true); setError('');
+    await supabase.from('partidas').insert({ nombre: nuevoPartida.trim() });
+    setNuevoPartida(''); setModalPartida(false); cargar(); setGuardando(false);
+  };
+
+  const crearCausa = async () => {
+    if (!nuevaCausa.trim()) { setError('Escribe un nombre'); return; }
+    setGuardando(true); setError('');
+    const { error } = await supabase.from('causas').insert({ nombre: nuevaCausa.trim(), tipo: nuevaCausaTipo });
+    if (error) { setError('Error: ' + error.message); }
+    else { setNuevaCausa(''); setNuevaCausaTipo('estandar'); setModalCausa(false); cargar(); }
+    setGuardando(false);
+  };
+
+  // ── Ambientes ZC ───────────────────────────────────────────────────────────
+  const crearAmbienteZC = async () => {
+  if (!nuevoAmbienteZC.trim()) { setError('Escribe un nombre'); return; }
+  setGuardando(true); setError('');
+  const maxOrden = ambientesZC.reduce((m, a) => Math.max(m, a.orden ?? 0), 0);
+  const { error } = await supabase.from('ambientes_zc').insert({
+    nombre: nuevoAmbienteZC.trim(),
+    solo_piso_1: nuevoAmbienteZCSoloPiso1,
+    activo: true,
+    orden: maxOrden + 1,
+  });
+  if (error) { setError('Error: ' + error.message); setGuardando(false); return; }
+  setNuevoAmbienteZC('');
+  setNuevoAmbienteZCSoloPiso1(false);
+  setModalAmbienteZC(false);
+  setGuardando(false);
+  setTimeout(() => cargar(), 300);
+};
+
+  const toggleActivoZC = async (a: any) => {
+    await supabase.from('ambientes_zc').update({ activo: !a.activo }).eq('id', a.id);
+    cargar();
+  };
+
+  // ── Eliminar genérico ──────────────────────────────────────────────────────
+  const eliminar = async () => {
+    setAlertEliminar(false);
+    if (tipoEliminar === 'usuario')      { await eliminarUsuario(itemEliminar); return; }
+    if (tipoEliminar === 'ambiente')     { const { error } = await supabase.from('ambientes').delete().eq('id', itemEliminar.id);    if (error) { setError('Error: ' + error.message); return; } }
+    if (tipoEliminar === 'partida')      { const { error } = await supabase.from('partidas').delete().eq('id', itemEliminar.id);     if (error) { setError('Error: ' + error.message); return; } }
+    if (tipoEliminar === 'causa')        { const { error } = await supabase.from('causas').delete().eq('id', itemEliminar.id);      if (error) { setError('Error: ' + error.message); return; } }
+    if (tipoEliminar === 'ambiente_zc')  { const { error } = await supabase.from('ambientes_zc').delete().eq('id', itemEliminar.id); if (error) { setError('Error: ' + error.message); return; } }
+    cargar();
+  };
+
+  const toggleProyecto = (pid: string) => {
+    setProyectosSel(prev => {
+      const nuevo = prev.includes(pid) ? prev.filter(p => p !== pid) : [...prev, pid];
+      if (!nuevo.includes(proyectoPrincipal)) setProyectoPrincipal('');
+      return nuevo;
+    });
+  };
+
+  // ── Helpers visuales ───────────────────────────────────────────────────────
+  const tipoColor = (tipo: string) => tipo === 'estandar' ? '#60a5fa' : tipo === 'tercero' ? '#fbbf24' : '#a78bfa';
+
+  const inputStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
+  const labelStyle = { fontSize: 9, color: textMuted, display: 'block', marginBottom: 6, textTransform: 'uppercase' as any, letterSpacing: '1.5px', fontWeight: 600 };
+
+  const usuariosFiltrados  = filtroLineaUsuarios  ? usuarios.filter(u => u.linea === filtroLineaUsuarios)   : usuarios;
+  const proyectosFiltrados = filtroLineaProyectos ? proyectos.filter(p => p.linea === filtroLineaProyectos) : proyectos;
+
+  const LineaSelector = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+      <option value="">Sin línea</option>
+      {lineas.map(l => <option key={l} value={l}>{lineaConfig[l].label}</option>)}
+    </select>
+  );
+
+  const FiltroBotones = ({ valor, onChange }: { valor: string; onChange: (v: string) => void }) => (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+      <button onClick={() => onChange('')} style={{ height: 28, padding: '0 12px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: valor === '' ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: valor === '' ? '#fff' : textMuted, border: `0.5px solid ${valor === '' ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>Todas</button>
+      {lineas.map(l => (
+        <button key={l} onClick={() => onChange(l)} style={{ height: 28, padding: '0 10px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, background: valor === l ? lineaConfig[l].color + '20' : 'transparent', color: valor === l ? lineaConfig[l].color : textMuted, border: `0.5px solid ${valor === l ? lineaConfig[l].color + '60' : border}` }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: lineaConfig[l].color, flexShrink: 0 }} />
+          {lineaConfig[l].label.replace('Línea ', '')}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (loading) return (
+    <IonPage id="main-content">
+      <IonHeader>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
+          <IonMenuButton slot="start" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
+          <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Administración</IonTitle>
+        </IonToolbar>
+      </IonHeader>
+      <IonContent style={{ '--background': bg }}>
+        <div style={{ textAlign: 'center', marginTop: 100 }}><IonSpinner name="crescent" /></div>
+      </IonContent>
+    </IonPage>
+  );
+
+  return (
+    <IonPage id="main-content">
+      <IonHeader>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
+          <IonMenuButton slot="start" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
+          <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Administración</IonTitle>
+        </IonToolbar>
+      </IonHeader>
+
+      <IonContent style={{ '--background': bg }}>
+        <div style={{ padding: 16 }}>
+
+          {error && (
+            <div style={{ background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: '0.5px solid rgba(239,68,68,0.2)', borderRadius: 12, padding: '10px 14px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: dark ? '#f87171' : '#b91c1c' }}>{error}</span>
+              <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: dark ? '#f87171' : '#b91c1c', fontSize: 18, cursor: 'pointer' }}>×</button>
+            </div>
+          )}
+
+          {/* Tabs fila 1 */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            {(['usuarios', 'ambientes', 'partidas'] as const).map(s => (
+              <button key={s} onClick={() => setSeccion(s)} style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: seccion === s ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: seccion === s ? '#fff' : textMuted, border: `0.5px solid ${seccion === s ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>
+                {s === 'usuarios' ? `👥${pendientes.length > 0 ? ` (${pendientes.length})` : ''} Usuarios` : s === 'ambientes' ? '🚪 Ambientes' : '🔧 Partidas'}
+              </button>
+            ))}
+          </div>
+          {/* Tabs fila 2 */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+            {(['causas', 'proyectos', 'ambientes_zc'] as const).map(s => (
+              <button key={s} onClick={() => setSeccion(s)} style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: seccion === s ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: seccion === s ? '#fff' : textMuted, border: `0.5px solid ${seccion === s ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>
+                {s === 'causas' ? '⚠️ Causas' : s === 'proyectos' ? '🏗️ Proyectos' : '🏢 ZC'}
+              </button>
+            ))}
+          </div>
+
+          {/* ── USUARIOS ── */}
+          {seccion === 'usuarios' && (
+            <>
+              {pendientes.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 9, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 10 }}>⏳ Solicitudes pendientes ({pendientes.length})</div>
+                  {pendientes.map(u => (
+                    <div key={u.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 10, border: '0.5px solid rgba(251,191,36,0.25)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                        <div style={{ width: 38, height: 38, borderRadius: 10, background: dark ? 'rgba(251,191,36,0.08)' : '#fffbeb', border: '0.5px solid rgba(251,191,36,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fbbf24', flexShrink: 0 }}>
+                          {u.nombre?.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{u.nombre}</div>
+                          <div style={{ fontSize: 11, color: textSecondary }}>{u.email}</div>
+                          <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 2 }}>💼 {ROLES.find(r => r.value === u.rol)?.label ?? u.rol}</div>
+                          {u.proyecto_solicitado && <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>🏗️ {u.proyecto_solicitado}</div>}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => aprobarUsuario(u)} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', color: dark ? '#4ade80' : '#15803d', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>✓ Aprobar</button>
+                        <button onClick={() => { setUsuarioRechazar(u); setAlertRechazar(true); }} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.2)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>✗ Rechazar</button>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
+                </div>
+              )}
+
+              <button onClick={() => { setError(''); setModalUsuario(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>+ Crear usuario</button>
+              <FiltroBotones valor={filtroLineaUsuarios} onChange={setFiltroLineaUsuarios} />
+
+              {usuariosFiltrados.map(u => {
+                const principal    = u.usuario_proyectos?.find((up: any) => up.es_principal);
+                const proyPrincipal = proyectos.find(p => p.id === principal?.proyecto_id);
+                const lc = u.linea ? lineaConfig[u.linea] : null;
+                return (
+                  <div key={u.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#666' : '#fff', flexShrink: 0 }}>
+                        {u.nombre?.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.nombre}</div>
+                        <div style={{ fontSize: 11, color: textSecondary, marginTop: 1 }}>{u.email}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                          {lc && (<><div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color }} /><span style={{ fontSize: 10, color: lc.color, fontWeight: 600 }}>{lc.label}</span></>)}
+                          {proyPrincipal && <span style={{ fontSize: 10, color: dark ? '#60a5fa' : '#2563eb' }}>⭐ {proyPrincipal.nombre}</span>}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 10, color: textMuted }}>{Array.isArray(u.usuario_proyectos) ? u.usuario_proyectos.length : 0} proy.</div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                      <div>
+                        <label style={labelStyle}>rol</label>
+                        <select value={u.rol} onChange={e => cambiarRol(u, e.target.value)} style={{ ...inputStyle, marginBottom: 0, height: 36, fontSize: 12 }}>
+                          {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={labelStyle}>línea</label>
+                        <select value={u.linea ?? ''} onChange={e => cambiarLinea(u, e.target.value)} style={{ ...inputStyle, marginBottom: 0, height: 36, fontSize: 12 }}>
+                          <option value="">Sin línea</option>
+                          {lineas.map(l => <option key={l} value={l}>{lineaConfig[l].label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, borderTop: `0.5px solid ${border}`, paddingTop: 10 }}>
+                      <button onClick={() => abrirAsignar(u)} style={{ flex: 1, height: 32, borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}>📋 Proyectos</button>
+                      <button onClick={() => { setItemEliminar(u); setTipoEliminar('usuario'); setAlertEliminar(true); }} style={{ height: 32, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 11, cursor: 'pointer' }}>🗑️</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* ── AMBIENTES ── */}
+          {seccion === 'ambientes' && (
+            <>
+              <button onClick={() => { setError(''); setNuevoAmbiente(''); setModalAmbiente(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>+ Agregar ambiente</button>
+              {ambientes.map(a => (
+                <div key={a.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 12, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 14, color: textPrimary }}>{a.nombre}</span>
+                  <button onClick={() => { setItemEliminar(a); setTipoEliminar('ambiente'); setAlertEliminar(true); }} style={{ background: 'none', border: 'none', color: dark ? '#f87171' : '#b91c1c', fontSize: 18, cursor: 'pointer' }}>×</button>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* ── PARTIDAS ── */}
+          {seccion === 'partidas' && (
+            <>
+              <button onClick={() => { setError(''); setNuevoPartida(''); setModalPartida(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>+ Agregar partida</button>
+              {partidas.map(p => (
+                <div key={p.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 12, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 14, color: textPrimary }}>{p.nombre}</span>
+                  <button onClick={() => { setItemEliminar(p); setTipoEliminar('partida'); setAlertEliminar(true); }} style={{ background: 'none', border: 'none', color: dark ? '#f87171' : '#b91c1c', fontSize: 18, cursor: 'pointer' }}>×</button>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* ── CAUSAS ── */}
+          {seccion === 'causas' && (
+            <>
+              <button onClick={() => { setError(''); setNuevaCausa(''); setNuevaCausaTipo('estandar'); setModalCausa(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>+ Agregar causa</button>
+              {(['estandar', 'tercero', 'nombre_tercero'] as const).map(tipo => {
+                const grupo = causas.filter(c => c.tipo === tipo);
+                if (grupo.length === 0) return null;
+                return (
+                  <div key={tipo} style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 9, color: tipoColor(tipo), textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 8 }}>
+                      {TIPOS_CAUSA.find(t => t.value === tipo)?.label} ({grupo.length})
+                    </div>
+                    {grupo.map(c => (
+                      <div key={c.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 12, padding: '10px 14px', marginBottom: 6, border: `0.5px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: tipoColor(c.tipo) }} />
+                          <span style={{ fontSize: 13, color: textPrimary }}>{c.nombre}</span>
+                        </div>
+                        <button onClick={() => { setItemEliminar(c); setTipoEliminar('causa'); setAlertEliminar(true); }} style={{ background: 'none', border: 'none', color: dark ? '#f87171' : '#b91c1c', fontSize: 18, cursor: 'pointer' }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* ── PROYECTOS ── */}
+          {seccion === 'proyectos' && (
+            <>
+              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>Asigna línea y etapa a cada proyecto.</div>
+              <FiltroBotones valor={filtroLineaProyectos} onChange={setFiltroLineaProyectos} />
+              {proyectosFiltrados.map(p => {
+                const lc = p.linea ? lineaConfig[p.linea] : null;
+                return (
+                  <div key={p.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: textPrimary }}>{p.nombre}</div>
+                        {p.direccion && <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>📍 {p.direccion}</div>}
+                        {lc && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                            <div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color }} />
+                            <span style={{ fontSize: 10, color: lc.color, fontWeight: 600 }}>{lc.label}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                      <div>
+                        <label style={labelStyle}>etapa</label>
+                        <select value={p.etapa ?? 'obra'} onChange={async e => { await supabase.from('proyectos').update({ etapa: e.target.value }).eq('id', p.id); cargar(); }} style={{ ...inputStyle, marginBottom: 0, height: 36, fontSize: 12 }}>
+                          <option value="obra">🏗️ Obra</option>
+                          <option value="pre_entrega_postventa">🏠 Pre-entrega/PV</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={labelStyle}>línea</label>
+                        <select value={p.linea ?? ''} onChange={e => cambiarLineaProyecto(p.id, e.target.value)} style={{ ...inputStyle, marginBottom: 0, height: 36, fontSize: 12 }}>
+                          <option value="">Sin línea</option>
+                          {lineas.map(l => <option key={l} value={l}>{lineaConfig[l].label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ padding: '7px 10px', borderRadius: 8, background: p.etapa === 'pre_entrega_postventa' ? (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4') : (dark ? 'rgba(96,165,250,0.06)' : '#eff6ff'), border: `0.5px solid ${p.etapa === 'pre_entrega_postventa' ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(96,165,250,0.2)' : '#bfdbfe')}` }}>
+                      <span style={{ fontSize: 11, color: p.etapa === 'pre_entrega_postventa' ? (dark ? '#4ade80' : '#15803d') : (dark ? '#60a5fa' : '#1d4ed8') }}>
+                        {p.etapa === 'pre_entrega_postventa' ? '✓ Pre-entrega/Postventa' : '✓ Obra'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* ── AMBIENTES ZC ── */}
+          {seccion === 'ambientes_zc' && (
+            <>
+              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>
+                Ambientes disponibles en el formulario de observaciones de Zona Común.
+              </div>
+              <button onClick={() => { setError(''); setNuevoAmbienteZC(''); setNuevoAmbienteZCSoloPiso1(false); setModalAmbienteZC(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>
+                + Agregar ambiente ZC
+              </button>
+
+              {ambientesZC.map(a => (
+                <div key={a.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 12, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${a.activo ? border : (dark ? '#2a1a1a' : '#fecaca')}`, opacity: a.activo ? 1 : 0.5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, color: textPrimary, fontWeight: 500 }}>{a.nombre}</div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                        {a.solo_piso_1 && (
+                          <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: dark ? 'rgba(251,191,36,0.1)' : '#fffbeb', color: dark ? '#fbbf24' : '#a16207', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a' }}>
+                            Solo Piso 1
+                          </span>
+                        )}
+                        <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: a.activo ? (dark ? 'rgba(74,222,128,0.1)' : '#f0fdf4') : (dark ? 'rgba(239,68,68,0.1)' : '#fef2f2'), color: a.activo ? (dark ? '#4ade80' : '#15803d') : (dark ? '#f87171' : '#b91c1c'), border: `0.5px solid ${a.activo ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(239,68,68,0.2)' : '#fecaca')}` }}>
+                          {a.activo ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => toggleActivoZC(a)}
+                        style={{ height: 30, padding: '0 10px', borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}
+                      >
+                        {a.activo ? 'Desactivar' : 'Activar'}
+                      </button>
+                      <button
+                        onClick={() => { setItemEliminar(a); setTipoEliminar('ambiente_zc'); setAlertEliminar(true); }}
+                        style={{ background: 'none', border: 'none', color: dark ? '#f87171' : '#b91c1c', fontSize: 18, cursor: 'pointer' }}
+                      >×</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          <div style={{ height: 40 }} />
+        </div>
+
+        {/* Modal crear usuario */}
+        <IonModal isOpen={modalUsuario} onDidDismiss={() => setModalUsuario(false)} initialBreakpoint={0.9} breakpoints={[0, 0.9, 1]}>
+          <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nuevo usuario</div>
+            <label style={labelStyle}>nombre completo *</label>
+            <input value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)} placeholder="Ej: Juan Pérez" style={inputStyle} />
+            <label style={labelStyle}>correo *</label>
+            <input value={nuevoEmail} onChange={e => setNuevoEmail(e.target.value)} placeholder="juan@empresa.cl" type="email" style={inputStyle} />
+            <label style={labelStyle}>contraseña *</label>
+            <input value={nuevoPassword} onChange={e => setNuevoPassword(e.target.value)} placeholder="Mínimo 6 caracteres" type="password" style={inputStyle} />
+            <label style={labelStyle}>rol *</label>
+            <select value={nuevoRol} onChange={e => setNuevoRol(e.target.value)} style={inputStyle}>
+              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+            <label style={labelStyle}>línea</label>
+            <LineaSelector value={nuevoLinea} onChange={setNuevoLinea} />
+            <div style={{ marginBottom: 20 }} />
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px', borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca' }}>{error}</div>}
+            <button onClick={crearUsuario} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              {guardando ? 'Creando...' : 'Crear usuario'}
+            </button>
+            <button onClick={() => setModalUsuario(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </IonModal>
+
+        {/* Modal asignar proyectos */}
+        <IonModal isOpen={modalAsignar} onDidDismiss={() => setModalAsignar(false)} initialBreakpoint={0.75} breakpoints={[0, 0.75, 1]}>
+          <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>Asignar proyectos</div>
+            <div style={{ fontSize: 12, color: textSecondary, marginBottom: 20 }}>{usuarioSel?.nombre}</div>
+            {proyectos.map(p => {
+              const seleccionado = proyectosSel.includes(p.id);
+              const esPrincipal  = proyectoPrincipal === p.id;
+              return (
+                <div key={p.id} style={{ borderRadius: 12, marginBottom: 8, overflow: 'hidden', border: `0.5px solid ${seleccionado ? (dark ? 'rgba(37,99,235,0.4)' : '#bfdbfe') : border}` }}>
+                  <div onClick={() => toggleProyecto(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, background: seleccionado ? (dark ? 'rgba(37,99,235,0.08)' : '#eff6ff') : cardAlt, padding: '10px 14px', cursor: 'pointer' }}>
+                    <div style={{ width: 20, height: 20, borderRadius: 6, border: '1.5px solid', borderColor: seleccionado ? '#2563eb' : inputBorder, background: seleccionado ? '#2563eb' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0 }}>
+                      {seleccionado ? '✓' : ''}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: textPrimary }}>{p.nombre}</div>
+                      {p.direccion && <div style={{ fontSize: 11, color: textSecondary }}>{p.direccion}</div>}
+                    </div>
+                  </div>
+                  {seleccionado && (
+                    <div onClick={() => setProyectoPrincipal(esPrincipal ? '' : p.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', cursor: 'pointer', background: esPrincipal ? (dark ? 'rgba(251,191,36,0.08)' : '#fffbeb') : (dark ? '#111' : '#f9fafb'), borderTop: `0.5px solid ${border}` }}>
+                      <span style={{ fontSize: 14 }}>{esPrincipal ? '⭐' : '☆'}</span>
+                      <span style={{ fontSize: 11, color: esPrincipal ? (dark ? '#fbbf24' : '#a16207') : textMuted }}>{esPrincipal ? 'Proyecto principal' : 'Marcar como principal'}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+            <button onClick={guardarAsignacion} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 8 }}>
+              {guardando ? 'Guardando...' : 'Guardar asignación'}
+            </button>
+            <button onClick={() => setModalAsignar(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </IonModal>
+
+        {/* Modal nuevo ambiente */}
+        <IonModal isOpen={modalAmbiente} onDidDismiss={() => setModalAmbiente(false)} initialBreakpoint={0.35} breakpoints={[0, 0.35, 0.9]}>
+          <div style={{ padding: 24, background: card, height: '100%' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nuevo ambiente</div>
+            <label style={labelStyle}>nombre *</label>
+            <input value={nuevoAmbiente} onChange={e => setNuevoAmbiente(e.target.value)} placeholder="Ej: Terraza" style={inputStyle} />
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+            <button onClick={crearAmbiente} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              {guardando ? 'Guardando...' : 'Agregar'}
+            </button>
+          </div>
+        </IonModal>
+
+        {/* Modal nueva partida */}
+        <IonModal isOpen={modalPartida} onDidDismiss={() => setModalPartida(false)} initialBreakpoint={0.35} breakpoints={[0, 0.35, 0.9]}>
+          <div style={{ padding: 24, background: card, height: '100%' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nueva partida</div>
+            <label style={labelStyle}>nombre *</label>
+            <input value={nuevoPartida} onChange={e => setNuevoPartida(e.target.value)} placeholder="Ej: Impermeabilización" style={inputStyle} />
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+            <button onClick={crearPartida} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              {guardando ? 'Guardando...' : 'Agregar'}
+            </button>
+          </div>
+        </IonModal>
+
+        {/* Modal nueva causa */}
+        <IonModal isOpen={modalCausa} onDidDismiss={() => setModalCausa(false)} initialBreakpoint={0.45} breakpoints={[0, 0.45, 0.9]}>
+          <div style={{ padding: 24, background: card, height: '100%' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nueva causa</div>
+            <label style={labelStyle}>tipo *</label>
+            <select value={nuevaCausaTipo} onChange={e => setNuevaCausaTipo(e.target.value)} style={inputStyle}>
+              {TIPOS_CAUSA.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <label style={labelStyle}>nombre *</label>
+            <input value={nuevaCausa} onChange={e => setNuevaCausa(e.target.value)} placeholder={nuevaCausaTipo === 'estandar' ? 'Ej: Ejecución Deficiente' : nuevaCausaTipo === 'tercero' ? 'Ej: Daño de Otras Cuadrillas' : 'Ej: Soldador'} style={{ ...inputStyle, marginBottom: 20 }} />
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+            <button onClick={crearCausa} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              {guardando ? 'Guardando...' : 'Agregar'}
+            </button>
+            <button onClick={() => setModalCausa(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </IonModal>
+
+        {/* Modal nuevo ambiente ZC */}
+        <IonModal isOpen={modalAmbienteZC} onDidDismiss={() => setModalAmbienteZC(false)} initialBreakpoint={0.45} breakpoints={[0, 0.45, 0.9]}>
+          <div style={{ padding: 24, background: card, height: '100%' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nuevo ambiente ZC</div>
+            <label style={labelStyle}>nombre *</label>
+            <input value={nuevoAmbienteZC} onChange={e => setNuevoAmbienteZC(e.target.value)} placeholder="Ej: Sala de juegos" style={inputStyle} />
+            <div
+              onClick={() => setNuevoAmbienteZCSoloPiso1(!nuevoAmbienteZCSoloPiso1)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `0.5px solid ${nuevoAmbienteZCSoloPiso1 ? (dark ? 'rgba(251,191,36,0.3)' : '#fde68a') : border}`, background: nuevoAmbienteZCSoloPiso1 ? (dark ? 'rgba(251,191,36,0.06)' : '#fffbeb') : 'transparent', cursor: 'pointer', marginBottom: 20 }}
+            >
+              <div style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${nuevoAmbienteZCSoloPiso1 ? '#fbbf24' : inputBorder}`, background: nuevoAmbienteZCSoloPiso1 ? '#fbbf24' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0 }}>
+                {nuevoAmbienteZCSoloPiso1 ? '✓' : ''}
+              </div>
+              <div>
+                <div style={{ fontSize: 13, color: textPrimary, fontWeight: 500 }}>Solo disponible en Piso 1</div>
+                <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>Ej: Sala de Basura, Estacionamiento</div>
+              </div>
+            </div>
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+            <button onClick={crearAmbienteZC} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              {guardando ? 'Guardando...' : 'Agregar'}
+            </button>
+            <button onClick={() => setModalAmbienteZC(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </IonModal>
+
+        <IonAlert isOpen={alertEliminar} onDidDismiss={() => setAlertEliminar(false)}
+          header="¿Eliminar?"
+          message={tipoEliminar === 'usuario' ? `Se eliminará el usuario "${itemEliminar?.nombre}" permanentemente.` : `Se eliminará "${itemEliminar?.nombre}".`}
+          buttons={[{ text: 'Cancelar', role: 'cancel' }, { text: 'Eliminar', handler: () => { setAlertEliminar(false); eliminar(); } }]} />
+
+        <IonAlert isOpen={alertRechazar} onDidDismiss={() => setAlertRechazar(false)}
+          header="¿Rechazar solicitud?"
+          message={`Se eliminará la solicitud de "${usuarioRechazar?.nombre}" permanentemente.`}
+          buttons={[{ text: 'Cancelar', handler: () => setAlertRechazar(false) }, { text: 'Rechazar', handler: () => { setAlertRechazar(false); rechazarUsuario(); } }]} />
+
+      </IonContent>
+    </IonPage>
+  );
+};
+
+export default Admin;
