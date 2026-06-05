@@ -156,13 +156,16 @@ const Dashboard: React.FC = () => {
     </IonPage>
   );
 
-  const menuItems = [
-    { icon: '🏠', label: 'Inicio',     ruta: '/dashboard',  seccion: 'principal' },
-    { icon: '🏗️', label: 'Proyectos', ruta: '/proyectos',  seccion: 'principal' },
-    { icon: '📋', label: 'Inspección', ruta: '/inspeccion', seccion: 'principal' },
-    { icon: '📊', label: 'Reportes',   ruta: '/reportes',   seccion: 'principal' },
-    ...(usuario?.rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
-  ];
+const menuItems = [
+  { icon: '🏠', label: 'Inicio',     ruta: '/dashboard',  seccion: 'principal' },
+  { icon: '🏗️', label: 'Proyectos', ruta: '/proyectos',  seccion: 'principal' },
+  { icon: '📋', label: 'Inspección', ruta: '/inspeccion', seccion: 'principal' },
+  { icon: '📊', label: 'Reportes',   ruta: '/reportes',   seccion: 'principal' },
+  ...(['administrador', 'director_obra', 'prof_terminaciones'].includes(usuario?.rol)
+    ? [{ icon: '🔍', label: 'Visita de obra', ruta: '/visita-obra', seccion: 'principal' }]
+    : []),
+  ...(usuario?.rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
+];
 
   const pctAvance = avance && avance.total > 0 ? Math.round((avance.conObs / avance.total) * 100) : 0;
   const circumference = 2 * Math.PI * 26;

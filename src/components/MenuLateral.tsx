@@ -40,16 +40,18 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
     nombre?.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() ?? 'U';
 
   const rol = usuario?.rol;
-  const puedeRevisar = ['jefe_terreno', 'prof_terminaciones', 'director_obra', 'administrador'].includes(rol);
+const puedeRevisar = ['jefe_terreno', 'prof_terminaciones', 'director_obra', 'administrador'].includes(rol);
+const puedeVisitar = ['prof_terminaciones', 'director_obra', 'administrador'].includes(rol);
 
-  const menuItems = [
-    { icon: '🏠', label: 'Inicio',                    ruta: '/dashboard',  seccion: 'principal' },
-    { icon: '🏗️', label: 'Proyectos',                ruta: '/proyectos',  seccion: 'principal' },
-    { icon: '📋', label: 'Registrar Observaciones',   ruta: '/inspeccion', seccion: 'principal' },
-    ...(puedeRevisar ? [{ icon: '✅', label: 'Revisión de Observaciones', ruta: '/revision', seccion: 'principal' }] : []),
-    { icon: '📊', label: 'Reportes',                  ruta: '/reportes',   seccion: 'principal' },
-    ...(rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
-  ];
+const menuItems = [
+  { icon: '🏠', label: 'Inicio',                    ruta: '/dashboard',   seccion: 'principal' },
+  { icon: '🏗️', label: 'Proyectos',                ruta: '/proyectos',   seccion: 'principal' },
+  { icon: '📋', label: 'Registrar Observaciones',   ruta: '/inspeccion',  seccion: 'principal' },
+  ...(puedeRevisar  ? [{ icon: '✅', label: 'Revisión de Observaciones', ruta: '/revision',    seccion: 'principal' }] : []),
+  ...(puedeVisitar  ? [{ icon: '🔍', label: 'Visita de obra',            ruta: '/visita-obra', seccion: 'principal' }] : []),
+  { icon: '📊', label: 'Reportes',                  ruta: '/reportes',    seccion: 'principal' },
+  ...(rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
+];
 
   return (
     <IonMenu contentId="main-content" style={{ '--width': '75%', '--background': bgMenu }}>
