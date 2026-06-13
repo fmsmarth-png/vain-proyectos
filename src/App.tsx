@@ -16,6 +16,7 @@ import InspeccionDepto from './pages/InspeccionDepto';
 import Revision from './pages/Revision';
 import ZonasComunes from './pages/ZonasComunes';
 import VisitaObra from './pages/VisitaObra';
+import PostVenta from './pages/PostVenta';
 import MenuLateral from './components/MenuLateral';
 import { ThemeProvider } from './Context/ThemeContext';
 import { OfflineProvider } from './Context/OfflineContext';
@@ -25,7 +26,9 @@ import '@ionic/react/css/core.css';
 import '@ionic/react/css/normalize.css';
 import '@ionic/react/css/structure.css';
 import '@ionic/react/css/typography.css';
-import './theme/variables.css';
+import RevisionOG        from './pages/RevisionOG.tsx';
+import RevisionOGDetalle from './pages/RevisionOGDetalle';
+import RevisionOGResumen from './pages/RevisionOGResumen';import './theme/variables.css';
 
 setupIonicReact();
 
@@ -133,6 +136,9 @@ const App: React.FC = () => {
     </div>
   );
 
+  const puedeVisitar   = ['staff', 'administrador'].includes(usuario?.rol);
+const puedePostventa = usuario?.rol === 'administrador' || usuario?.puede_postventa === true;
+const puedeOG        = ['staff', 'administrador', 'prof_obra_gruesa'].includes(usuario?.rol ?? ''); // ← aquí
   return (
     <ThemeProvider>
       <OfflineProvider>
@@ -153,7 +159,22 @@ const App: React.FC = () => {
                     <Route exact path="/inspeccion/depto" component={InspeccionDepto} />
                     <Route exact path="/revision"         component={Revision} />
                     <Route exact path="/zonas-comunes"    component={ZonasComunes} />
-                    <Route path="/visita-obra" component={VisitaObra} exact />
+                    <Route exact path="/post-venta" component={PostVenta} />
+                    <Route exact path="/revision-og" render={() =>
+  puedeOG ? <RevisionOG /> : <Redirect to="/dashboard" />
+} />
+<Route exact path="/revision-og/detalle" render={() =>
+  puedeOG ? <RevisionOGDetalle /> : <Redirect to="/dashboard" />
+} />
+<Route exact path="/revision-og/resumen" render={() =>
+  puedeOG ? <RevisionOGResumen /> : <Redirect to="/dashboard" />
+} />
+                    {/* Visita de obra: solo staff y administrador */}
+                    <Route exact path="/visita-obra" render={() =>
+                      puedeVisitar ? <VisitaObra /> : <Redirect to="/dashboard" />
+                      
+                    } />
+                    
                     <Redirect exact from="/" to="/dashboard" />
                   </IonRouterOutlet>
                 </IonSplitPane>

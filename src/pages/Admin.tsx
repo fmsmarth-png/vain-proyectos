@@ -13,6 +13,7 @@ const ROLES = [
   { value: 'director_obra',         label: 'Director de Obra' },
   { value: 'administrador',         label: 'Administrador' },
   { value: 'vendedor_inmobiliaria', label: 'Vendedor Inmobiliaria' },
+  { value: 'staff',                 label: 'Staff' },
 ];
 
 const TIPOS_CAUSA = [
@@ -21,6 +22,120 @@ const TIPOS_CAUSA = [
   { value: 'nombre_tercero', label: 'Nombre Tercero' },
 ];
 
+// ─── Hook estadísticas usuario ────────────────────────────────────────────────
+const useStatsUsuario = (usuarioId: string | null) => {
+  const [stats, setStats]       = useState<any>(null);
+  const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    if (!usuarioId) { setStats(null); return; }
+    const cargar = async () => {
+      setCargando(true);
+      try {
+        const { data: regs } = await supabase
+          .from('registros')
+          .select('id, departamento_id, partida_id, partidas(nombre)')
+          .eq('creado_por', usuarioId);
+
+        const total        = regs?.length ?? 0;
+        const deptosUnicos = new Set(regs?.map(r => r.departamento_id) ?? []).size;
+
+        const conteoPartidas: Record<string, { nombre: string; count: number }> = {};
+        (regs ?? []).forEach(r => {
+          if (!r.partida_id) return;
+          const nombre = Array.isArray(r.partidas) ? r.partidas[0]?.nombre : (r.partidas as any)?.nombre ?? r.partida_id;
+          if (!conteoPartidas[r.partida_id]) conteoPartidas[r.partida_id] = { nombre, count: 0 };
+          conteoPartidas[r.partida_id].count++;
+        });
+        const partidaTop = Object.values(conteoPartidas).sort((a, b) => b.count - a.count)[0] ?? null;
+        setStats({ total, deptosUnicos, partidaTop });
+      } catch {}
+      setCargando(false);
+    };
+    cargar();
+  }, [usuarioId]);
+
+  return { stats, cargando };
+};
+
+// ─── ModalPerfil ─────────────────────────────────────────────────────────────
+interface ModalPerfilProps {
+  usuario: any; isOpen: boolean; onClose: () => void;
+  dark: boolean; card: string; border: string;
+  textPrimary: string; textSecondary: string; textMuted: string;
+}
+
+const ModalPerfil: React.FC<ModalPerfilProps> = ({
+  usuario, isOpen, onClose, dark, card, border, textPrimary, textSecondary, textMuted
+}) => {
+  const { stats, cargando } = useStatsUsuario(isOpen ? usuario?.id : null);
+  const lc = usuario?.linea ? lineaConfig[usuario.linea] : null;
+  const iniciales = (nombre: string) =>
+    nombre?.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase() ?? 'U';
+
+  const StatCard = ({ icon, valor, label, color }: { icon: string; valor: any; label: string; color?: string }) => (
+    <div style={{ flex: 1, background: dark ? '#111' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
+      <div style={{ fontSize: 20, marginBottom: 6 }}>{icon}</div>
+      <div style={{ fontSize: 28, fontWeight: 800, color: color ?? textPrimary, lineHeight: 1 }}>
+        {cargando ? <IonSpinner name="crescent" style={{ width: 20, height: 20 }} /> : valor}
+      </div>
+      <div style={{ fontSize: 10, color: textMuted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.8px' }}>{label}</div>
+    </div>
+  );
+
+  return (
+    <IonModal isOpen={isOpen} onDidDismiss={onClose} initialBreakpoint={0.75} breakpoints={[0, 0.75, 1]}>
+      <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, flexShrink: 0, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: dark ? '#666' : '#fff' }}>
+            {iniciales(usuario?.nombre ?? '')}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: textPrimary }}>{usuario?.nombre}</div>
+            <div style={{ fontSize: 12, color: textSecondary, marginTop: 2 }}>{usuario?.email}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, fontWeight: 600, background: dark ? 'rgba(96,165,250,0.1)' : '#eff6ff', color: dark ? '#60a5fa' : '#1d4ed8', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe' }}>
+                {ROLES.find(r => r.value === usuario?.rol)?.label ?? usuario?.rol}
+              </span>
+              {lc && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: lc.color }} />
+                  <span style={{ fontSize: 10, color: lc.color, fontWeight: 600 }}>{lc.label}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Actividad histórica</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <StatCard icon="📋" valor={stats?.total ?? '—'} label="Obs registradas" color={dark ? '#60a5fa' : '#2563eb'} />
+          <StatCard icon="🏠" valor={stats?.deptosUnicos ?? '—'} label="Deptos inspeccionados" color={dark ? '#4ade80' : '#15803d'} />
+        </div>
+
+        <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Partida más observada</div>
+        {cargando ? (
+          <div style={{ textAlign: 'center', padding: 20 }}><IonSpinner name="crescent" /></div>
+        ) : stats?.partidaTop ? (
+          <div style={{ background: dark ? '#111' : '#f8fafc', borderRadius: 14, padding: '14px 16px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: dark ? 'rgba(251,191,36,0.08)' : '#fffbeb', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔧</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{stats.partidaTop.nombre}</div>
+              <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>{stats.partidaTop.count} observación{stats.partidaTop.count > 1 ? 'es' : ''} registrada{stats.partidaTop.count > 1 ? 's' : ''}</div>
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: dark ? '#fbbf24' : '#a16207' }}>{stats.partidaTop.count}</div>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', color: textMuted, fontSize: 13, padding: '12px 0 20px' }}>Sin observaciones registradas aún</div>
+        )}
+
+        <button onClick={onClose} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, cursor: 'pointer' }}>Cerrar</button>
+      </div>
+    </IonModal>
+  );
+};
+
+// ─── Admin principal ──────────────────────────────────────────────────────────
 const Admin: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
@@ -59,6 +174,8 @@ const Admin: React.FC = () => {
   const [modalPartida, setModalPartida]       = useState(false);
   const [modalCausa, setModalCausa]           = useState(false);
   const [modalAmbienteZC, setModalAmbienteZC] = useState(false);
+  const [modalPerfil, setModalPerfil]         = useState(false);
+  const [usuarioPerfil, setUsuarioPerfil]     = useState<any>(null);
 
   const [nuevoEmail, setNuevoEmail]       = useState('');
   const [nuevoNombre, setNuevoNombre]     = useState('');
@@ -69,7 +186,7 @@ const Admin: React.FC = () => {
   const [nuevoPartida, setNuevoPartida]   = useState('');
   const [nuevaCausa, setNuevaCausa]       = useState('');
   const [nuevaCausaTipo, setNuevaCausaTipo] = useState('estandar');
-  const [nuevoAmbienteZC, setNuevoAmbienteZC]               = useState('');
+  const [nuevoAmbienteZC, setNuevoAmbienteZC]                   = useState('');
   const [nuevoAmbienteZCSoloPiso1, setNuevoAmbienteZCSoloPiso1] = useState(false);
 
   const [usuarioSel, setUsuarioSel]               = useState<any>(null);
@@ -105,7 +222,6 @@ const Admin: React.FC = () => {
     setLoading(false);
   };
 
-  // ── Usuarios ───────────────────────────────────────────────────────────────
   const crearUsuario = async () => {
     if (!nuevoEmail || !nuevoNombre || !nuevoPassword) { setError('Completa todos los campos'); return; }
     setGuardando(true); setError('');
@@ -150,6 +266,17 @@ const Admin: React.FC = () => {
     cargar();
   };
 
+  // ── NUEVO: toggle Post Venta ───────────────────────────────────────────────
+  const togglePostventa = async (usuario: any) => {
+    const nuevoValor = !usuario.puede_postventa;
+    const { error } = await supabase
+      .from('usuarios')
+      .update({ puede_postventa: nuevoValor })
+      .eq('id', usuario.id);
+    if (error) { setError('Error: ' + error.message); return; }
+    cargar();
+  };
+
   const cambiarLineaProyecto = async (proyId: string, linea: string) => {
     await supabase.from('proyectos').update({ linea: linea || null }).eq('id', proyId);
     cargar();
@@ -174,7 +301,6 @@ const Admin: React.FC = () => {
     setModalAsignar(false); cargar(); setGuardando(false);
   };
 
-  // ── Ambientes / Partidas / Causas ──────────────────────────────────────────
   const crearAmbiente = async () => {
     if (!nuevoAmbiente.trim()) { setError('Escribe un nombre'); return; }
     setGuardando(true); setError('');
@@ -198,38 +324,30 @@ const Admin: React.FC = () => {
     setGuardando(false);
   };
 
-  // ── Ambientes ZC ───────────────────────────────────────────────────────────
   const crearAmbienteZC = async () => {
-  if (!nuevoAmbienteZC.trim()) { setError('Escribe un nombre'); return; }
-  setGuardando(true); setError('');
-  const maxOrden = ambientesZC.reduce((m, a) => Math.max(m, a.orden ?? 0), 0);
-  const { error } = await supabase.from('ambientes_zc').insert({
-    nombre: nuevoAmbienteZC.trim(),
-    solo_piso_1: nuevoAmbienteZCSoloPiso1,
-    activo: true,
-    orden: maxOrden + 1,
-  });
-  if (error) { setError('Error: ' + error.message); setGuardando(false); return; }
-  setNuevoAmbienteZC('');
-  setNuevoAmbienteZCSoloPiso1(false);
-  setModalAmbienteZC(false);
-  setGuardando(false);
-  setTimeout(() => cargar(), 300);
-};
+    if (!nuevoAmbienteZC.trim()) { setError('Escribe un nombre'); return; }
+    setGuardando(true); setError('');
+    const maxOrden = ambientesZC.reduce((m, a) => Math.max(m, a.orden ?? 0), 0);
+    const { error } = await supabase.from('ambientes_zc').insert({
+      nombre: nuevoAmbienteZC.trim(), solo_piso_1: nuevoAmbienteZCSoloPiso1, activo: true, orden: maxOrden + 1,
+    });
+    if (error) { setError('Error: ' + error.message); setGuardando(false); return; }
+    setNuevoAmbienteZC(''); setNuevoAmbienteZCSoloPiso1(false); setModalAmbienteZC(false);
+    setGuardando(false); setTimeout(() => cargar(), 300);
+  };
 
   const toggleActivoZC = async (a: any) => {
     await supabase.from('ambientes_zc').update({ activo: !a.activo }).eq('id', a.id);
     cargar();
   };
 
-  // ── Eliminar genérico ──────────────────────────────────────────────────────
   const eliminar = async () => {
     setAlertEliminar(false);
-    if (tipoEliminar === 'usuario')      { await eliminarUsuario(itemEliminar); return; }
-    if (tipoEliminar === 'ambiente')     { const { error } = await supabase.from('ambientes').delete().eq('id', itemEliminar.id);    if (error) { setError('Error: ' + error.message); return; } }
-    if (tipoEliminar === 'partida')      { const { error } = await supabase.from('partidas').delete().eq('id', itemEliminar.id);     if (error) { setError('Error: ' + error.message); return; } }
-    if (tipoEliminar === 'causa')        { const { error } = await supabase.from('causas').delete().eq('id', itemEliminar.id);      if (error) { setError('Error: ' + error.message); return; } }
-    if (tipoEliminar === 'ambiente_zc')  { const { error } = await supabase.from('ambientes_zc').delete().eq('id', itemEliminar.id); if (error) { setError('Error: ' + error.message); return; } }
+    if (tipoEliminar === 'usuario')     { await eliminarUsuario(itemEliminar); return; }
+    if (tipoEliminar === 'ambiente')    { const { error } = await supabase.from('ambientes').delete().eq('id', itemEliminar.id);    if (error) { setError('Error: ' + error.message); return; } }
+    if (tipoEliminar === 'partida')     { const { error } = await supabase.from('partidas').delete().eq('id', itemEliminar.id);     if (error) { setError('Error: ' + error.message); return; } }
+    if (tipoEliminar === 'causa')       { const { error } = await supabase.from('causas').delete().eq('id', itemEliminar.id);       if (error) { setError('Error: ' + error.message); return; } }
+    if (tipoEliminar === 'ambiente_zc') { const { error } = await supabase.from('ambientes_zc').delete().eq('id', itemEliminar.id); if (error) { setError('Error: ' + error.message); return; } }
     cargar();
   };
 
@@ -241,7 +359,6 @@ const Admin: React.FC = () => {
     });
   };
 
-  // ── Helpers visuales ───────────────────────────────────────────────────────
   const tipoColor = (tipo: string) => tipo === 'estandar' ? '#60a5fa' : tipo === 'tercero' ? '#fbbf24' : '#a78bfa';
 
   const inputStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
@@ -273,7 +390,7 @@ const Admin: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonMenuButton slot="start" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
+          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Administración</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -287,7 +404,7 @@ const Admin: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonMenuButton slot="start" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
+          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Administración</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -335,7 +452,6 @@ const Admin: React.FC = () => {
                           <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{u.nombre}</div>
                           <div style={{ fontSize: 11, color: textSecondary }}>{u.email}</div>
                           <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 2 }}>💼 {ROLES.find(r => r.value === u.rol)?.label ?? u.rol}</div>
-                          {u.proyecto_solicitado && <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>🏗️ {u.proyecto_solicitado}</div>}
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -352,9 +468,10 @@ const Admin: React.FC = () => {
               <FiltroBotones valor={filtroLineaUsuarios} onChange={setFiltroLineaUsuarios} />
 
               {usuariosFiltrados.map(u => {
-                const principal    = u.usuario_proyectos?.find((up: any) => up.es_principal);
+                const principal     = u.usuario_proyectos?.find((up: any) => up.es_principal);
                 const proyPrincipal = proyectos.find(p => p.id === principal?.proyecto_id);
                 const lc = u.linea ? lineaConfig[u.linea] : null;
+                const tienePostventa = u.puede_postventa === true;
                 return (
                   <div key={u.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -364,13 +481,20 @@ const Admin: React.FC = () => {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.nombre}</div>
                         <div style={{ fontSize: 11, color: textSecondary, marginTop: 1 }}>{u.email}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
                           {lc && (<><div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color }} /><span style={{ fontSize: 10, color: lc.color, fontWeight: 600 }}>{lc.label}</span></>)}
                           {proyPrincipal && <span style={{ fontSize: 10, color: dark ? '#60a5fa' : '#2563eb' }}>⭐ {proyPrincipal.nombre}</span>}
+                          {/* Badge Post Venta */}
+                          {tienePostventa && (
+                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 6, background: dark ? 'rgba(74,222,128,0.08)' : '#f0fdf4', color: dark ? '#4ade80' : '#15803d', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0' }}>
+                              🔧 Post Venta
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div style={{ fontSize: 10, color: textMuted }}>{Array.isArray(u.usuario_proyectos) ? u.usuario_proyectos.length : 0} proy.</div>
                     </div>
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
                       <div>
                         <label style={labelStyle}>rol</label>
@@ -386,8 +510,50 @@ const Admin: React.FC = () => {
                         </select>
                       </div>
                     </div>
+
+                    {/* Toggle Post Venta */}
+                    {u.rol !== 'administrador' && (
+                      <div
+                        onClick={() => togglePostventa(u)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '8px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 10,
+                          background: tienePostventa
+                            ? (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4')
+                            : (dark ? '#111' : '#f8fafc'),
+                          border: `0.5px solid ${tienePostventa
+                            ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0')
+                            : border}`,
+                        }}
+                      >
+                        {/* toggle pill */}
+                        <div style={{
+                          width: 36, height: 20, borderRadius: 10, flexShrink: 0, position: 'relative',
+                          background: tienePostventa ? (dark ? '#4ade80' : '#15803d') : (dark ? '#222' : '#cbd5e1'),
+                          transition: 'background 0.2s',
+                        }}>
+                          <div style={{
+                            position: 'absolute', top: 2,
+                            left: tienePostventa ? 18 : 2,
+                            width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                            transition: 'left 0.2s',
+                          }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: tienePostventa ? (dark ? '#4ade80' : '#15803d') : textSecondary }}>
+                            🔧 Acceso a Post Venta
+                          </div>
+                          <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>
+                            {tienePostventa ? 'Habilitado' : 'Deshabilitado'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Botones */}
                     <div style={{ display: 'flex', gap: 8, borderTop: `0.5px solid ${border}`, paddingTop: 10 }}>
                       <button onClick={() => abrirAsignar(u)} style={{ flex: 1, height: 32, borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}>📋 Proyectos</button>
+                      <button onClick={() => { setUsuarioPerfil(u); setModalPerfil(true); }} style={{ flex: 1, height: 32, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.15)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 11, cursor: 'pointer' }}>👤 Perfil</button>
                       <button onClick={() => { setItemEliminar(u); setTipoEliminar('usuario'); setAlertEliminar(true); }} style={{ height: 32, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 11, cursor: 'pointer' }}>🗑️</button>
                     </div>
                   </div>
@@ -462,12 +628,7 @@ const Admin: React.FC = () => {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: textPrimary }}>{p.nombre}</div>
                         {p.direccion && <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>📍 {p.direccion}</div>}
-                        {lc && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
-                            <div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color }} />
-                            <span style={{ fontSize: 10, color: lc.color, fontWeight: 600 }}>{lc.label}</span>
-                          </div>
-                        )}
+                        {lc && (<div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}><div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color }} /><span style={{ fontSize: 10, color: lc.color, fontWeight: 600 }}>{lc.label}</span></div>)}
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
@@ -500,40 +661,21 @@ const Admin: React.FC = () => {
           {/* ── AMBIENTES ZC ── */}
           {seccion === 'ambientes_zc' && (
             <>
-              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>
-                Ambientes disponibles en el formulario de observaciones de Zona Común.
-              </div>
-              <button onClick={() => { setError(''); setNuevoAmbienteZC(''); setNuevoAmbienteZCSoloPiso1(false); setModalAmbienteZC(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>
-                + Agregar ambiente ZC
-              </button>
-
+              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>Ambientes disponibles en el formulario de observaciones de Zona Común.</div>
+              <button onClick={() => { setError(''); setNuevoAmbienteZC(''); setNuevoAmbienteZCSoloPiso1(false); setModalAmbienteZC(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>+ Agregar ambiente ZC</button>
               {ambientesZC.map(a => (
                 <div key={a.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 12, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${a.activo ? border : (dark ? '#2a1a1a' : '#fecaca')}`, opacity: a.activo ? 1 : 0.5 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 14, color: textPrimary, fontWeight: 500 }}>{a.nombre}</div>
                       <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                        {a.solo_piso_1 && (
-                          <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: dark ? 'rgba(251,191,36,0.1)' : '#fffbeb', color: dark ? '#fbbf24' : '#a16207', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a' }}>
-                            Solo Piso 1
-                          </span>
-                        )}
-                        <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: a.activo ? (dark ? 'rgba(74,222,128,0.1)' : '#f0fdf4') : (dark ? 'rgba(239,68,68,0.1)' : '#fef2f2'), color: a.activo ? (dark ? '#4ade80' : '#15803d') : (dark ? '#f87171' : '#b91c1c'), border: `0.5px solid ${a.activo ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(239,68,68,0.2)' : '#fecaca')}` }}>
-                          {a.activo ? 'Activo' : 'Inactivo'}
-                        </span>
+                        {a.solo_piso_1 && (<span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: dark ? 'rgba(251,191,36,0.1)' : '#fffbeb', color: dark ? '#fbbf24' : '#a16207', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a' }}>Solo Piso 1</span>)}
+                        <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: a.activo ? (dark ? 'rgba(74,222,128,0.1)' : '#f0fdf4') : (dark ? 'rgba(239,68,68,0.1)' : '#fef2f2'), color: a.activo ? (dark ? '#4ade80' : '#15803d') : (dark ? '#f87171' : '#b91c1c'), border: `0.5px solid ${a.activo ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(239,68,68,0.2)' : '#fecaca')}` }}>{a.activo ? 'Activo' : 'Inactivo'}</span>
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        onClick={() => toggleActivoZC(a)}
-                        style={{ height: 30, padding: '0 10px', borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}
-                      >
-                        {a.activo ? 'Desactivar' : 'Activar'}
-                      </button>
-                      <button
-                        onClick={() => { setItemEliminar(a); setTipoEliminar('ambiente_zc'); setAlertEliminar(true); }}
-                        style={{ background: 'none', border: 'none', color: dark ? '#f87171' : '#b91c1c', fontSize: 18, cursor: 'pointer' }}
-                      >×</button>
+                      <button onClick={() => toggleActivoZC(a)} style={{ height: 30, padding: '0 10px', borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}>{a.activo ? 'Desactivar' : 'Activar'}</button>
+                      <button onClick={() => { setItemEliminar(a); setTipoEliminar('ambiente_zc'); setAlertEliminar(true); }} style={{ background: 'none', border: 'none', color: dark ? '#f87171' : '#b91c1c', fontSize: 18, cursor: 'pointer' }}>×</button>
                     </div>
                   </div>
                 </div>
@@ -543,6 +685,14 @@ const Admin: React.FC = () => {
 
           <div style={{ height: 40 }} />
         </div>
+
+        {/* Modal perfil */}
+        <ModalPerfil
+          usuario={usuarioPerfil} isOpen={modalPerfil}
+          onClose={() => { setModalPerfil(false); setUsuarioPerfil(null); }}
+          dark={dark} card={card} border={border}
+          textPrimary={textPrimary} textSecondary={textSecondary} textMuted={textMuted}
+        />
 
         {/* Modal crear usuario */}
         <IonModal isOpen={modalUsuario} onDidDismiss={() => setModalUsuario(false)} initialBreakpoint={0.9} breakpoints={[0, 0.9, 1]}>
@@ -580,9 +730,7 @@ const Admin: React.FC = () => {
               return (
                 <div key={p.id} style={{ borderRadius: 12, marginBottom: 8, overflow: 'hidden', border: `0.5px solid ${seleccionado ? (dark ? 'rgba(37,99,235,0.4)' : '#bfdbfe') : border}` }}>
                   <div onClick={() => toggleProyecto(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, background: seleccionado ? (dark ? 'rgba(37,99,235,0.08)' : '#eff6ff') : cardAlt, padding: '10px 14px', cursor: 'pointer' }}>
-                    <div style={{ width: 20, height: 20, borderRadius: 6, border: '1.5px solid', borderColor: seleccionado ? '#2563eb' : inputBorder, background: seleccionado ? '#2563eb' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0 }}>
-                      {seleccionado ? '✓' : ''}
-                    </div>
+                    <div style={{ width: 20, height: 20, borderRadius: 6, border: '1.5px solid', borderColor: seleccionado ? '#2563eb' : inputBorder, background: seleccionado ? '#2563eb' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0 }}>{seleccionado ? '✓' : ''}</div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: textPrimary }}>{p.nombre}</div>
                       {p.direccion && <div style={{ fontSize: 11, color: textSecondary }}>{p.direccion}</div>}
@@ -612,9 +760,7 @@ const Admin: React.FC = () => {
             <label style={labelStyle}>nombre *</label>
             <input value={nuevoAmbiente} onChange={e => setNuevoAmbiente(e.target.value)} placeholder="Ej: Terraza" style={inputStyle} />
             {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
-            <button onClick={crearAmbiente} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-              {guardando ? 'Guardando...' : 'Agregar'}
-            </button>
+            <button onClick={crearAmbiente} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>{guardando ? 'Guardando...' : 'Agregar'}</button>
           </div>
         </IonModal>
 
@@ -625,9 +771,7 @@ const Admin: React.FC = () => {
             <label style={labelStyle}>nombre *</label>
             <input value={nuevoPartida} onChange={e => setNuevoPartida(e.target.value)} placeholder="Ej: Impermeabilización" style={inputStyle} />
             {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
-            <button onClick={crearPartida} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-              {guardando ? 'Guardando...' : 'Agregar'}
-            </button>
+            <button onClick={crearPartida} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>{guardando ? 'Guardando...' : 'Agregar'}</button>
           </div>
         </IonModal>
 
@@ -636,15 +780,11 @@ const Admin: React.FC = () => {
           <div style={{ padding: 24, background: card, height: '100%' }}>
             <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nueva causa</div>
             <label style={labelStyle}>tipo *</label>
-            <select value={nuevaCausaTipo} onChange={e => setNuevaCausaTipo(e.target.value)} style={inputStyle}>
-              {TIPOS_CAUSA.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
+            <select value={nuevaCausaTipo} onChange={e => setNuevaCausaTipo(e.target.value)} style={inputStyle}>{TIPOS_CAUSA.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</select>
             <label style={labelStyle}>nombre *</label>
             <input value={nuevaCausa} onChange={e => setNuevaCausa(e.target.value)} placeholder={nuevaCausaTipo === 'estandar' ? 'Ej: Ejecución Deficiente' : nuevaCausaTipo === 'tercero' ? 'Ej: Daño de Otras Cuadrillas' : 'Ej: Soldador'} style={{ ...inputStyle, marginBottom: 20 }} />
             {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
-            <button onClick={crearCausa} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-              {guardando ? 'Guardando...' : 'Agregar'}
-            </button>
+            <button onClick={crearCausa} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>{guardando ? 'Guardando...' : 'Agregar'}</button>
             <button onClick={() => setModalCausa(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>Cancelar</button>
           </div>
         </IonModal>
@@ -655,22 +795,15 @@ const Admin: React.FC = () => {
             <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nuevo ambiente ZC</div>
             <label style={labelStyle}>nombre *</label>
             <input value={nuevoAmbienteZC} onChange={e => setNuevoAmbienteZC(e.target.value)} placeholder="Ej: Sala de juegos" style={inputStyle} />
-            <div
-              onClick={() => setNuevoAmbienteZCSoloPiso1(!nuevoAmbienteZCSoloPiso1)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `0.5px solid ${nuevoAmbienteZCSoloPiso1 ? (dark ? 'rgba(251,191,36,0.3)' : '#fde68a') : border}`, background: nuevoAmbienteZCSoloPiso1 ? (dark ? 'rgba(251,191,36,0.06)' : '#fffbeb') : 'transparent', cursor: 'pointer', marginBottom: 20 }}
-            >
-              <div style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${nuevoAmbienteZCSoloPiso1 ? '#fbbf24' : inputBorder}`, background: nuevoAmbienteZCSoloPiso1 ? '#fbbf24' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0 }}>
-                {nuevoAmbienteZCSoloPiso1 ? '✓' : ''}
-              </div>
+            <div onClick={() => setNuevoAmbienteZCSoloPiso1(!nuevoAmbienteZCSoloPiso1)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `0.5px solid ${nuevoAmbienteZCSoloPiso1 ? (dark ? 'rgba(251,191,36,0.3)' : '#fde68a') : border}`, background: nuevoAmbienteZCSoloPiso1 ? (dark ? 'rgba(251,191,36,0.06)' : '#fffbeb') : 'transparent', cursor: 'pointer', marginBottom: 20 }}>
+              <div style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${nuevoAmbienteZCSoloPiso1 ? '#fbbf24' : inputBorder}`, background: nuevoAmbienteZCSoloPiso1 ? '#fbbf24' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0 }}>{nuevoAmbienteZCSoloPiso1 ? '✓' : ''}</div>
               <div>
                 <div style={{ fontSize: 13, color: textPrimary, fontWeight: 500 }}>Solo disponible en Piso 1</div>
                 <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>Ej: Sala de Basura, Estacionamiento</div>
               </div>
             </div>
             {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
-            <button onClick={crearAmbienteZC} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-              {guardando ? 'Guardando...' : 'Agregar'}
-            </button>
+            <button onClick={crearAmbienteZC} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>{guardando ? 'Guardando...' : 'Agregar'}</button>
             <button onClick={() => setModalAmbienteZC(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>Cancelar</button>
           </div>
         </IonModal>

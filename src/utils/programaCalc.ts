@@ -20,6 +20,17 @@ export interface PosicionActividad {
   estado: 'activa' | 'no_iniciada' | 'terminada';
 }
 
+export interface PosicionConContexto {
+  actividad: string;
+  cuadrilla: string;
+  tipo_secuencia: string;
+  frente: string | null;
+  estado: 'activa' | 'no_iniciada' | 'terminada';
+  orden: number;
+  diasRelativo: number;
+  diaEnFrente: number;
+}
+
 export interface ResultadoCalculo {
   diaObra: number;
   posiciones: PosicionActividad[];
@@ -107,44 +118,45 @@ export function posicionesPorTorre(
 }
 
 // Dado el frente_depto de un depto, retorna actividad teórica + contexto
+// Siempre retorna antes/despues aunque no haya actividad exactamente hoy
 export function actividadTeoricaDepto(
   frenteDepto: string,
   actividades: Actividad[],
   diaObra: number
 ): {
-  actual: (PosicionActividad & { orden: number }) | null;
-  antes: (PosicionActividad & { orden: number })[];
-  despues: (PosicionActividad & { orden: number })[];
+  actual: PosicionConContexto | null;
+  antes: PosicionConContexto[];
+  despues: PosicionConContexto[];
 } {
   const f = normalizarFrente(frenteDepto);
 
-  // Mapear todas las actividades activas con su frente en ese día
-  const conFrente = actividades
+  const conDiaEnFrente: PosicionConContexto[] = actividades
     .filter(a => a.activo && a.mapa_dias)
-    .map(act => ({
-      actividad: act.actividad,
-      cuadrilla: act.cuadrilla,
-      tipo_secuencia: act.tipo_secuencia,
-      frente: act.mapa_dias[String(diaObra)] ?? null,
-      estado: 'activa' as const,
-      orden: act.orden,
-    }))
-    .filter(a => a.frente !== null);
+    .reduce<PosicionConContexto[]>((acc, act) => {
+      const entrada = Object.entries(act.mapa_dias).find(([_, frente]) => frente === f);
+      if (!entrada) return acc;
+      const diaEnFrente = parseInt(entrada[0]);
+      acc.push({
+        actividad: act.actividad,
+        cuadrilla: act.cuadrilla,
+        tipo_secuencia: act.tipo_secuencia,
+        frente: diaEnFrente === diaObra ? f : null,
+        estado: 'activa',
+        orden: act.orden,
+        diaEnFrente,
+        diasRelativo: diaEnFrente - diaObra,
+      });
+      return acc;
+    }, [])
+    .sort((a, b) => a.diaEnFrente - b.diaEnFrente);
 
-  // Actividad cuyo frente coincide exactamente con el depto
-  const actual = conFrente.find(a => a.frente === f) ?? null;
+  if (conDiaEnFrente.length === 0) return { actual: null, antes: [], despues: [] };
 
-  if (!actual) return { actual: null, antes: [], despues: [] };
+  const actual  = conDiaEnFrente.find(a => a.diasRelativo === 0) ?? null;
+  const antes   = conDiaEnFrente.filter(a => a.diasRelativo < 0).slice(-2);
+  const despues = conDiaEnFrente.filter(a => a.diasRelativo > 0).slice(0, 2);
 
-  // Ordenar por orden para contexto
-  const ordenadas = [...conFrente].sort((a, b) => a.orden - b.orden);
-  const idx = ordenadas.findIndex(a => a.actividad === actual.actividad);
-
-  return {
-    actual,
-    antes: ordenadas.slice(Math.max(0, idx - 2), idx),
-    despues: ordenadas.slice(idx + 1, idx + 3),
-  };
+  return { actual, antes, despues };
 }
 
 // Calcula desfase en días: positivo = adelanto, negativo = atraso

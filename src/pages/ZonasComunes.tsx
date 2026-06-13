@@ -4,25 +4,43 @@ import {
 } from '@ionic/react';
 import { useEffect, useState, useRef } from 'react';
 import { useLocation, useHistory } from 'react-router-dom';
+import { useIonViewDidEnter } from '@ionic/react';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { useOffline } from '../Context/OfflineContext';
 import { cache } from '../Context/CacheContext';
+import { comprimirImagen } from '../utils/comprimirImagen';
+
+// ─── Clave de sessionStorage ──────────────────────────────────────────────────
+const SESSION_KEY = 'zonas_comunes_state';
 
 const ZonasComunes: React.FC = () => {
   const location = useLocation<any>();
   const history  = useHistory();
-  const { torre, proyecto } = location.state || {};
   const { theme } = useTheme();
   const { online, pendientesZC, agregarPendienteZC, obtenerPendientesZC } = useOffline();
 
-const getPendientesZC = () => {
-  if (typeof obtenerPendientesZC === 'function') return obtenerPendientesZC();
-  try {
-    const raw = localStorage.getItem('registros_zc_pendientes');
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-};
+  // ─── Recuperar state: location.state tiene prioridad; sessionStorage es fallback ───
+  const resolveNavState = () => {
+    if (location.state?.torre) return location.state;
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  };
+
+  const navState = resolveNavState();
+  const torre    = navState?.torre   ?? null;
+  const proyecto = navState?.proyecto ?? null;
+
+  const getPendientesZC = () => {
+    if (typeof obtenerPendientesZC === 'function') return obtenerPendientesZC();
+    try {
+      const raw = localStorage.getItem('registros_zc_pendientes');
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  };
+
   const dark = theme === 'dark';
 
   const bg            = dark ? '#000000' : '#f0f4f8';
@@ -83,80 +101,109 @@ const getPendientesZC = () => {
     return true;
   });
 
+  // ─── Persistir state válido en sessionStorage ─────────────────────────────
   useEffect(() => {
-    if (montadoRef.current) return;
-    montadoRef.current = true;
-    if (!torre) { history.push('/proyectos'); return; }
-    cargar();
-  }, [torre?.id]);
+    if (location.state?.torre) {
+      try {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(location.state));
+      } catch {}
+    }
+  }, [location.state]);
+
+  // ─── useIonViewDidEnter reemplaza el useEffect de montaje ────────────────
+  useIonViewDidEnter(() => {
+    const currentState = (() => {
+      if (location.state?.torre) return location.state;
+      try {
+        const raw = sessionStorage.getItem(SESSION_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    })();
+
+    if (!currentState?.torre) {
+      history.replace('/proyectos');
+      return;
+    }
+
+    // Reset del guard para permitir re-carga al volver desde el menú
+    montadoRef.current = false;
+
+    if (!montadoRef.current) {
+      montadoRef.current = true;
+      cargar(currentState.torre, currentState.proyecto);
+    }
+  });
 
   // Cuando se reconecta, recargar para mostrar los ya sincronizados
   useEffect(() => {
     if (online && zonaId) cargarRegistros(zonaId);
   }, [online]);
 
-const cargar = async () => {
-  try {
-    const partCache = cache.getPartidas();
-    if (partCache.length > 0) setPartidas(partCache);
-    userIdRef.current = localStorage.getItem('detalles_user_id') ?? '';
+  const cargar = async (torreData?: any, proyectoData?: any) => {
+    const torreActual   = torreData   ?? torre;
+    const proyectoActual = proyectoData ?? proyecto;
+    if (!torreActual) return;
 
-    if (online) {
-      const [ambZC, part, causas] = await Promise.all([
-        supabase.from('ambientes_zc').select('*').eq('activo', true).order('orden'),
-        supabase.from('partidas').select('*').order('nombre'),
-        supabase.from('causas').select('*').order('nombre'),
-      ]);
-      if (ambZC.data)  setAmbientesZC(ambZC.data);
-      if (part.data)  { setPartidas(part.data); cache.setPartidas(part.data); }
-      if (causas.data) {
-        setCausasEstandar(causas.data.filter((c: any) => c.tipo === 'estandar').map((c: any) => c.nombre));
-        setCausasTerceros(causas.data.filter((c: any) => c.tipo === 'tercero').map((c: any) => c.nombre));
-        setNombresTerceros(causas.data.filter((c: any) => c.tipo === 'nombre_tercero').map((c: any) => c.nombre));
+    try {
+      const partCache = cache.getPartidas();
+      if (partCache.length > 0) setPartidas(partCache);
+      userIdRef.current = localStorage.getItem('detalles_user_id') ?? '';
+
+      if (online) {
+        const [ambZC, part, causas] = await Promise.all([
+          supabase.from('ambientes_zc').select('*').eq('activo', true).order('orden'),
+          supabase.from('partidas').select('*').order('nombre'),
+          supabase.from('causas').select('*').order('nombre'),
+        ]);
+        if (ambZC.data)  setAmbientesZC(ambZC.data);
+        if (part.data)  { setPartidas(part.data); cache.setPartidas(part.data); }
+        if (causas.data) {
+          setCausasEstandar(causas.data.filter((c: any) => c.tipo === 'estandar').map((c: any) => c.nombre));
+          setCausasTerceros(causas.data.filter((c: any) => c.tipo === 'tercero').map((c: any) => c.nombre));
+          setNombresTerceros(causas.data.filter((c: any) => c.tipo === 'nombre_tercero').map((c: any) => c.nombre));
+        }
+
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.id) { userIdRef.current = user.id; localStorage.setItem('detalles_user_id', user.id); }
+        } catch (e) { console.warn('No se pudo obtener usuario:', e); }
+
+        let { data: zona } = await supabase
+          .from('zonas_comunes').select('*')
+          .eq('torre_id', torreActual.id).eq('tipo', 'general').maybeSingle();
+        if (!zona) {
+          const { data: nueva } = await supabase
+            .from('zonas_comunes')
+            .insert({ nombre: `Zona Común Torre ${torreActual.nombre}`, torre_id: torreActual.id, tipo: 'general' })
+            .select().single();
+          zona = nueva;
+        }
+
+        if (zona) {
+          setZonaId(zona.id);
+          try { await cargarRegistros(zona.id, torreActual); } catch (e) { console.error('Error cargando registros ZC:', e); }
+          try { await cargarChecklist(zona.id); } catch (e) { console.error('Error cargando checklist:', e); }
+        }
+
+        try {
+          const { data: planosData } = await supabase
+            .from('planos').select('*')
+            .or(`torre_id.eq.${torreActual.id},proyecto_id.eq.${proyectoActual?.id}`)
+            .order('creado_en', { ascending: false });
+          setPlanos(planosData ?? []);
+        } catch (e) { console.warn('Error cargando planos:', e); }
+
+      } else {
+        mostrarPendientesLocales(torreActual);
       }
+    } catch (e) { console.error('Error general en cargar():', e); }
+  };
 
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user?.id) { userIdRef.current = user.id; localStorage.setItem('detalles_user_id', user.id); }
-      } catch (e) { console.warn('No se pudo obtener usuario:', e); }
-
-      let { data: zona } = await supabase
-        .from('zonas_comunes').select('*')
-        .eq('torre_id', torre.id).eq('tipo', 'general').maybeSingle();
-      if (!zona) {
-        const { data: nueva } = await supabase
-          .from('zonas_comunes')
-          .insert({ nombre: `Zona Común Torre ${torre.nombre}`, torre_id: torre.id, tipo: 'general' })
-          .select().single();
-        zona = nueva;
-      }
-
-      if (zona) {
-        setZonaId(zona.id);
-
-        // Cada sección aislada para que un fallo no rompa las demás
-        try { await cargarRegistros(zona.id); } catch (e) { console.error('Error cargando registros ZC:', e); }
-        try { await cargarChecklist(zona.id); } catch (e) { console.error('Error cargando checklist:', e); }
-      }
-
-      try {
-        const { data: planosData } = await supabase
-          .from('planos').select('*')
-          .or(`torre_id.eq.${torre.id},proyecto_id.eq.${proyecto?.id}`)
-          .order('creado_en', { ascending: false });
-        setPlanos(planosData ?? []);
-      } catch (e) { console.warn('Error cargando planos:', e); }
-
-    } else {
-      mostrarPendientesLocales();
-    }
-  } catch (e) { console.error('Error general en cargar():', e); }
-};
-
-  const mostrarPendientesLocales = () => {
+  const mostrarPendientesLocales = (torreData?: any) => {
+    const torreActual = torreData ?? torre;
     const cola = getPendientesZC();
     const locales = cola
-      .filter((r: any) => r.datos?.torre_id === torre?.id)
+      .filter((r: any) => r.datos?.torre_id === torreActual?.id)
       .map((r: any) => ({
         id: r.id,
         observacion: r.datos.observacion,
@@ -174,12 +221,13 @@ const cargar = async () => {
     setRegistros(locales);
   };
 
-  const cargarRegistros = async (zId?: string) => {
+  const cargarRegistros = async (zId?: string, torreData?: any) => {
     const id = zId ?? zonaId;
+    const torreActual = torreData ?? torre;
     if (!id) return;
     setLoadingRegs(true);
-const [regsRes, ambsRes] = await Promise.all([
-      supabase.from('registros_zonas_comunes').select('*, partidas (nombre)').eq('zona_comun_id', id).eq('torre_id', torre.id).order('creado_en', { ascending: false }),
+    const [regsRes, ambsRes] = await Promise.all([
+      supabase.from('registros_zonas_comunes').select('*, partidas (nombre)').eq('zona_comun_id', id).eq('torre_id', torreActual.id).order('creado_en', { ascending: false }),
       supabase.from('ambientes_zc').select('id, nombre'),
     ]);
     const ambMap: Record<string, string> = {};
@@ -190,10 +238,9 @@ const [regsRes, ambsRes] = await Promise.all([
       ambientes_zc: { nombre: ambMap[r.ambiente_zc_id] ?? '' },
     }));
 
-    // Agregar pendientes locales que aún no se sincronizaron
-   const cola = getPendientesZC();
+    const cola = getPendientesZC();
     const locales = cola
-      .filter((r: any) => r.datos?.torre_id === torre?.id)
+      .filter((r: any) => r.datos?.torre_id === torreActual?.id)
       .map((r: any) => ({
         id: r.id,
         observacion: r.datos.observacion,
@@ -214,28 +261,28 @@ const [regsRes, ambsRes] = await Promise.all([
   };
 
   const cargarChecklist = async (zId?: string) => {
-  const id = zId ?? zonaId;
-  if (!id) return;
-  const [itemsRes, estadosRes] = await Promise.all([
-    supabase.from('checklist_sala_basura_items').select('*').order('seccion').order('numero'),
-    supabase.from('checklist_sala_basura').select('*').eq('zona_comun_id', id),
-  ]);
+    const id = zId ?? zonaId;
+    if (!id) return;
+    const [itemsRes, estadosRes] = await Promise.all([
+      supabase.from('checklist_sala_basura_items').select('*').order('seccion').order('numero'),
+      supabase.from('checklist_sala_basura').select('*').eq('zona_comun_id', id),
+    ]);
 
-  console.log('checklist_items data:', itemsRes.data);
-  console.log('checklist_items error:', itemsRes.error);
-  console.log('checklist_estados data:', estadosRes.data);
-  console.log('checklist_estados error:', estadosRes.error);
+    console.log('checklist_items data:', itemsRes.data);
+    console.log('checklist_items error:', itemsRes.error);
+    console.log('checklist_estados data:', estadosRes.data);
+    console.log('checklist_estados error:', estadosRes.error);
 
-  const items = itemsRes.data;
-  const estados = estadosRes.data;
-  const estadosMap: Record<string, boolean> = {};
-  const obsMap: Record<string, string> = {};
-  (estados ?? []).forEach((e: any) => { estadosMap[e.item_numero] = e.ok === true; obsMap[e.item_numero] = e.observacion ?? ''; });
-  (items ?? []).forEach((i: any) => { if (!(i.numero in estadosMap)) estadosMap[i.numero] = false; });
-  setCheckItems(items ?? []);
-  setCheckEstados(estadosMap);
-  setCheckObs(obsMap);
-};
+    const items = itemsRes.data;
+    const estados = estadosRes.data;
+    const estadosMap: Record<string, boolean> = {};
+    const obsMap: Record<string, string> = {};
+    (estados ?? []).forEach((e: any) => { estadosMap[e.item_numero] = e.ok === true; obsMap[e.item_numero] = e.observacion ?? ''; });
+    (items ?? []).forEach((i: any) => { if (!(i.numero in estadosMap)) estadosMap[i.numero] = false; });
+    setCheckItems(items ?? []);
+    setCheckEstados(estadosMap);
+    setCheckObs(obsMap);
+  };
 
   const toggleCheck = (numero: string) => { setCheckEstados(prev => ({ ...prev, [numero]: !prev[numero] })); };
 
@@ -257,10 +304,11 @@ const [regsRes, ambsRes] = await Promise.all([
     setGuardandoCheck(false);
   };
 
-  const subirFoto = async (file: File, userId: string): Promise<string | null> => {
-    const ext = file.name.split('.').pop();
-    const fileName = `${userId}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from('fotos-registros').upload(fileName, file);
+  const subirFoto = async (file: File | Blob, userId: string): Promise<string | null> => {
+    const fileName = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+    const { error } = await supabase.storage
+      .from('fotos-registros')
+      .upload(fileName, file, { contentType: 'image/jpeg' });
     if (error) return null;
     const { data } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
     return data.publicUrl;
@@ -295,7 +343,7 @@ const [regsRes, ambsRes] = await Promise.all([
         estado:         'pendiente',
       };
 
-    if (online) {
+      if (online) {
         try {
           let foto_url = null;
           if (foto && userId) foto_url = await subirFoto(foto, userId);
@@ -320,6 +368,12 @@ const [regsRes, ambsRes] = await Promise.all([
     setGuardando(false);
   };
 
+  // ─── Salir limpiando sessionStorage ──────────────────────────────────────
+  const salirAProyecto = () => {
+    sessionStorage.removeItem(SESSION_KEY);
+    history.push(`/proyectos/${proyecto?.id}`, { proyecto });
+  };
+
   const abrirPlano = async (plano: any) => {
     try { const { Browser } = await import('@capacitor/browser'); await Browser.open({ url: plano.url }); } catch { window.open(plano.url, '_blank'); }
   };
@@ -342,7 +396,7 @@ const [regsRes, ambsRes] = await Promise.all([
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
           <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }}
-            onClick={() => history.push(`/proyectos/${proyecto?.id}`, { proyecto })}>
+            onClick={salirAProyecto}>
             ← Volver
           </IonButton>
           <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>Zona Común · Torre {torre?.nombre}</IonTitle>
@@ -523,7 +577,15 @@ const [regsRes, ambsRes] = await Promise.all([
                   <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 80, borderRadius: 12, border: `0.5px dashed ${border}`, marginBottom: 16, cursor: 'pointer', color: textMuted, gap: 6, background: dark ? 'transparent' : '#f8fafc' }}>
                     <span style={{ fontSize: 22 }}>📷</span>
                     <span style={{ fontSize: 12 }}>Tomar o adjuntar foto</span>
-                    <input type="file" accept="image/*" capture="environment" onChange={e => { const f = e.target.files?.[0]; if (f) { setFoto(f); setFotoPreview(URL.createObjectURL(f)); } }} style={{ display: 'none' }} />
+                    <input type="file" accept="image/*" capture="environment" onChange={async e => {
+                      const f = e.target.files?.[0]; if (!f) return;
+                      setFoto(f);
+                      setFotoPreview(URL.createObjectURL(f));
+                      try {
+                        const blob = await comprimirImagen(f);
+                        setFoto(blob as any);
+                      } catch {}
+                    }} style={{ display: 'none' }} />
                   </label>
                 )}
 

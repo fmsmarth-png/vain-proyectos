@@ -40,21 +40,28 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
     nombre?.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() ?? 'U';
 
   const rol = usuario?.rol;
-const puedeRevisar = ['jefe_terreno', 'prof_terminaciones', 'director_obra', 'administrador'].includes(rol);
-const puedeVisitar = ['prof_terminaciones', 'director_obra', 'administrador'].includes(rol);
 
-const menuItems = [
-  { icon: '🏠', label: 'Inicio',                    ruta: '/dashboard',   seccion: 'principal' },
-  { icon: '🏗️', label: 'Proyectos',                ruta: '/proyectos',   seccion: 'principal' },
-  { icon: '📋', label: 'Registrar Observaciones',   ruta: '/inspeccion',  seccion: 'principal' },
-  ...(puedeRevisar  ? [{ icon: '✅', label: 'Revisión de Observaciones', ruta: '/revision',    seccion: 'principal' }] : []),
-  ...(puedeVisitar  ? [{ icon: '🔍', label: 'Visita de obra',            ruta: '/visita-obra', seccion: 'principal' }] : []),
-  { icon: '📊', label: 'Reportes',                  ruta: '/reportes',    seccion: 'principal' },
-  ...(rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
-];
+  const puedeRegistrar = ['jefe_terreno', 'prof_terminaciones', 'director_obra', 'administrador', 'staff'].includes(rol);
+  const puedeRevisar   = ['jefe_terreno', 'prof_terminaciones', 'director_obra', 'administrador', 'staff'].includes(rol);
+  const puedeReportes  = ['prof_terminaciones', 'director_obra', 'administrador', 'staff'].includes(rol);
+  const puedeVisitar   = ['staff', 'administrador'].includes(rol);
+  // Post venta: administrador siempre puede; el resto solo si tiene puede_postventa = true
+  const puedePostventa = rol === 'administrador' || usuario?.puede_postventa === true;
+const puedeOG = ['staff', 'administrador', 'prof_obra_gruesa'].includes(rol ?? '');
+  const menuItems = [
+    { icon: '🏠', label: 'Inicio',                       ruta: '/dashboard',   seccion: 'principal' },
+    { icon: '🏗️', label: 'Proyectos',                   ruta: '/proyectos',   seccion: 'principal' },
+    ...(puedeRegistrar  ? [{ icon: '📋', label: 'Registrar Observaciones',  ruta: '/inspeccion',  seccion: 'principal' }] : []),
+    ...(puedeRevisar    ? [{ icon: '✅', label: 'Revisión de Observaciones', ruta: '/revision',    seccion: 'principal' }] : []),
+    ...(puedeReportes   ? [{ icon: '📊', label: 'Reportes',                  ruta: '/reportes',    seccion: 'principal' }] : []),
+    ...(puedePostventa  ? [{ icon: '🔧', label: 'Post Venta',                ruta: '/post-venta',  seccion: 'principal' }] : []),
+    ...(puedeVisitar    ? [{ icon: '🔍', label: 'Visita de obra',             ruta: '/visita-obra', seccion: 'principal' }] : []),
+    
+    ...(rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
+  ];
 
   return (
-    <IonMenu contentId="main-content" style={{ '--width': '75%', '--background': bgMenu }}>
+    <IonMenu menuId="menu-lateral" contentId="main-content" swipeGesture={true} style={{ '--width': '75%', '--background': bgMenu }}>
       <IonContent style={{ '--background': bgMenu }}>
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
@@ -66,13 +73,11 @@ const menuItems = [
               ? 'linear-gradient(180deg, #1a0014 0%, #0d0008 100%)'
               : 'linear-gradient(180deg, #0a0a0a 0%, #000 100%)',
           }}>
-            {/* Logo + FMS */}
             <div style={{ marginBottom: 20, position: 'relative' }}>
               <img src="/logo-vain-blanco.png" style={{ height: 120, objectFit: 'contain', display: 'block', filter: esJcaballero ? 'hue-rotate(300deg) saturate(0.3) brightness(1.2)' : 'none' }} alt="VAIN" />
               <div style={{ position: 'absolute', top: 0, right: 0, fontSize: 20, color: esJcaballero ? '#6d0040' : '#2a2a2a', letterSpacing: '1.5px', fontFamily: 'monospace' }}>&lt;FMS&gt;</div>
             </div>
 
-            {/* Usuario */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 42, height: 42, borderRadius: 12, background: avatarBg, border: `0.5px solid ${avatarBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: avatarColor, flexShrink: 0 }}>
                 {iniciales(usuario?.nombre ?? '')}
@@ -83,11 +88,11 @@ const menuItems = [
                     {usuario?.nombre}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-  <span style={{ fontSize: 11, color: esJcaballero ? '#6d0040' : '#444', textTransform: 'capitalize' }}>
-    {usuario?.rol?.replace('_', ' ')}
-  </span>
-  {lc && <div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color, flexShrink: 0 }} />}
-</div>
+                    <span style={{ fontSize: 11, color: esJcaballero ? '#6d0040' : '#444', textTransform: 'capitalize' }}>
+                      {usuario?.rol?.replace('_', ' ')}
+                    </span>
+                    {lc && <div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color, flexShrink: 0 }} />}
+                  </div>
                 </div>
                 {esJcaballero && (
                   <img src="/gato.png" style={{ height: 40, width: 40, objectFit: 'contain', filter: 'brightness(10) invert(1)', flexShrink: 0 }} />

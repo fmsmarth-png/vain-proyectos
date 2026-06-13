@@ -54,25 +54,27 @@ const Reportes: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
-  const textPrimary   = dark ? '#f9fafb' : '#0f172a';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
-  const sepLine       = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
+  const bg          = dark ? '#000000' : '#f0f4f8';
+  const border      = dark ? '#1e1e1e'  : '#e2e8f0';
+  const textPrimary = dark ? '#f9fafb' : '#0f172a';
+  const textMuted   = dark ? '#444444' : '#94a3b8';
+  const toolbar     = dark ? '#000000' : '#1e3a5f';
+  const inputBg     = dark ? '#111111' : '#ffffff';
+  const inputBorder = dark ? '#1e1e1e' : '#cbd5e1';
+  const sepLine     = dark
+    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
+    : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
-  const [proyectos, setProyectos] = useState<any[]>([]);
-  const [torres, setTorres]       = useState<any[]>([]);
-  const [deptos, setDeptos]       = useState<any[]>([]);
-  const [registros, setRegistros] = useState<any[]>([]);
+  const [proyectos, setProyectos]     = useState<any[]>([]);
+  const [torres, setTorres]           = useState<any[]>([]);
+  const [deptos, setDeptos]           = useState<any[]>([]);
+  const [registros, setRegistros]     = useState<any[]>([]);
   const [registrosZC, setRegistrosZC] = useState<any[]>([]);
 
-  const [proyectoId, setProyectoId] = useState('');
-  const [torreId, setTorreId]       = useState('');
-  const [deptoId, setDeptoId]       = useState('');
-  const [zonaComunId, setZonaComunId] = useState<string | null>(null);
+  const [proyectoId, setProyectoId]     = useState('');
+  const [torreId, setTorreId]           = useState('');
+  const [deptoId, setDeptoId]           = useState('');
+  const [zonaComunId, setZonaComunId]   = useState<string | null>(null);
 
   const [proyectoSel, setProyectoSel] = useState<any>(null);
   const [torreSel, setTorreSel]       = useState<any>(null);
@@ -90,6 +92,9 @@ const Reportes: React.FC = () => {
   const [progresoNum, setProgresoNum] = useState(0);
 
   const esZC = deptoId === '__ZC__';
+
+  // Constantes PDF
+  const PIE_PAGINA_MM = 10; // mm reservados para el pie en cada página
 
   useEffect(() => { cargarProyectos(); }, []);
 
@@ -221,7 +226,11 @@ const Reportes: React.FC = () => {
     const ow = el.style.width, omw = el.style.maxWidth, ot = el.style.transform;
     el.style.width = `${ancho}px`; el.style.maxWidth = `${ancho}px`; el.style.transform = 'none';
     await new Promise(r => setTimeout(r, 50));
-    const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', width: ancho, windowWidth: ancho, windowHeight: el.scrollHeight, logging: false, allowTaint: false, foreignObjectRendering: false });
+    const canvas = await html2canvas(el, {
+      scale: 2, useCORS: true, backgroundColor: '#ffffff',
+      width: ancho, windowWidth: ancho, windowHeight: el.scrollHeight,
+      logging: false, allowTaint: false, foreignObjectRendering: false,
+    });
     el.style.width = ow; el.style.maxWidth = omw; el.style.transform = ot;
     return canvas;
   };
@@ -242,6 +251,25 @@ const Reportes: React.FC = () => {
       setDescargaOk('✅ PDF descargado correctamente');
     }
     setTimeout(() => setDescargaOk(''), 5000);
+  };
+
+  // Agrega pie de página en todas las páginas del PDF
+  const agregarPiesDePagina = (pdf: jsPDF, margen: number) => {
+    const pdfW  = pdf.internal.pageSize.getWidth();
+    const pdfH  = pdf.internal.pageSize.getHeight();
+    const total = pdf.getNumberOfPages();
+    for (let p = 1; p <= total; p++) {
+      pdf.setPage(p);
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(
+        'Reporte generado por App VAIN Proyectos.   <FMS>',
+        pdfW / 2,
+        pdfH - 5,
+        { align: 'center' }
+      );
+      pdf.text(`Pág. ${p} / ${total}`, pdfW - margen, pdfH - 5, { align: 'right' });
+    }
   };
 
   const generarPDF = async () => {
@@ -268,14 +296,19 @@ const Reportes: React.FC = () => {
       });
       await new Promise(r => setTimeout(r, 100));
 
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfW = pdf.internal.pageSize.getWidth(), pdfH = pdf.internal.pageSize.getHeight();
-      const margen = 10, anchoUtil = pdfW - margen * 2;
-      let cursorY = margen;
+      const pdf      = new jsPDF('p', 'mm', 'a4');
+      const pdfW     = pdf.internal.pageSize.getWidth();
+      const pdfH     = pdf.internal.pageSize.getHeight();
+      const margen   = 10;
+      const anchoUtil = pdfW - margen * 2;
+      let cursorY    = margen;
 
+      // agregarCanvas respeta el área reservada para el pie
       const agregarCanvas = (canvas: HTMLCanvasElement, saltoSiNoCabe = true) => {
         const imgH = (canvas.height * anchoUtil) / canvas.width;
-        if (saltoSiNoCabe && cursorY + imgH > pdfH - margen) { pdf.addPage(); cursorY = margen; }
+        if (saltoSiNoCabe && cursorY + imgH > pdfH - margen - PIE_PAGINA_MM) {
+          pdf.addPage(); cursorY = margen;
+        }
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.8), 'JPEG', margen, cursorY, anchoUtil, imgH);
         cursorY += imgH + 4;
       };
@@ -290,12 +323,14 @@ const Reportes: React.FC = () => {
         setProgreso(`Procesando registro ${i + 1} de ${total}...`);
         setProgresoNum(55 + Math.round((i / total) * 40));
         const canvas = await capturarElemento(el);
-        const imgH = (canvas.height * anchoUtil) / canvas.width;
-        if (cursorY + imgH > pdfH - margen) { pdf.addPage(); cursorY = margen; }
+        const imgH   = (canvas.height * anchoUtil) / canvas.width;
+        if (cursorY + imgH > pdfH - margen - PIE_PAGINA_MM) { pdf.addPage(); cursorY = margen; }
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.8), 'JPEG', margen, cursorY, anchoUtil, imgH);
         cursorY += imgH + 3;
         if (i % 5 === 0) await new Promise(r => setTimeout(r, 50));
       }
+
+      agregarPiesDePagina(pdf, margen);
 
       setProgreso('Guardando archivo...'); setProgresoNum(97);
       const nombre = `Informe_${proyectoSel?.nombre}_Torre${torreSel?.nombre}_Depto${deptoSel?.numero}.pdf`.replace(/\s+/g, '_');
@@ -329,14 +364,19 @@ const Reportes: React.FC = () => {
       });
       await new Promise(r => setTimeout(r, 100));
 
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfW = pdf.internal.pageSize.getWidth(), pdfH = pdf.internal.pageSize.getHeight();
-      const margen = 10, anchoUtil = pdfW - margen * 2;
-      let cursorY = margen;
+      const pdf      = new jsPDF('p', 'mm', 'a4');
+      const pdfW     = pdf.internal.pageSize.getWidth();
+      const pdfH     = pdf.internal.pageSize.getHeight();
+      const margen   = 10;
+      const anchoUtil = pdfW - margen * 2;
+      let cursorY    = margen;
 
+      // agregarCanvas respeta el área reservada para el pie
       const agregarCanvas = (canvas: HTMLCanvasElement, saltoSiNoCabe = true) => {
         const imgH = (canvas.height * anchoUtil) / canvas.width;
-        if (saltoSiNoCabe && cursorY + imgH > pdfH - margen) { pdf.addPage(); cursorY = margen; }
+        if (saltoSiNoCabe && cursorY + imgH > pdfH - margen - PIE_PAGINA_MM) {
+          pdf.addPage(); cursorY = margen;
+        }
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.8), 'JPEG', margen, cursorY, anchoUtil, imgH);
         cursorY += imgH + 4;
       };
@@ -351,12 +391,14 @@ const Reportes: React.FC = () => {
         setProgreso(`Procesando registro ${i + 1} de ${total}...`);
         setProgresoNum(55 + Math.round((i / total) * 40));
         const canvas = await capturarElemento(el);
-        const imgH = (canvas.height * anchoUtil) / canvas.width;
-        if (cursorY + imgH > pdfH - margen) { pdf.addPage(); cursorY = margen; }
+        const imgH   = (canvas.height * anchoUtil) / canvas.width;
+        if (cursorY + imgH > pdfH - margen - PIE_PAGINA_MM) { pdf.addPage(); cursorY = margen; }
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.8), 'JPEG', margen, cursorY, anchoUtil, imgH);
         cursorY += imgH + 3;
         if (i % 5 === 0) await new Promise(r => setTimeout(r, 50));
       }
+
+      agregarPiesDePagina(pdf, margen);
 
       setProgreso('Guardando archivo...'); setProgresoNum(97);
       const nombre = `Informe_ZC_${proyectoSel?.nombre}_Torre${torreSel?.nombre}.pdf`.replace(/\s+/g, '_');
@@ -416,9 +458,9 @@ const Reportes: React.FC = () => {
       } catch (e: any) { setAviso('Error al compartir Excel: ' + e.message); }
     } else {
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      const blob = new Blob([wbout], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = nombreLimpio; a.click();
+      const blob  = new Blob([wbout], { type: 'application/octet-stream' });
+      const url   = URL.createObjectURL(blob);
+      const a     = document.createElement('a'); a.href = url; a.download = nombreLimpio; a.click();
       URL.revokeObjectURL(url);
       setDescargaOk('✅ Excel descargado correctamente');
       setTimeout(() => setDescargaOk(''), 5000);
@@ -474,7 +516,7 @@ const Reportes: React.FC = () => {
       const causaTexto = r.causa ?? '', esTercero = causaTexto.includes(' — ');
       return {
         'Proyecto':              proyectoSel?.nombre ?? '',
-        'Torre': `Torre ${torreSel?.nombre}${torreSel?.frente ? ` (${torreSel.frente})` : ''}`,
+        'Torre':                 `Torre ${torreSel?.nombre}${torreSel?.frente ? ` (${torreSel.frente})` : ''}`,
         'Piso':                  r.piso ?? '',
         'Ambiente ZC':           r.ambientes_zc?.nombre ?? '',
         'Partida':               r.partidas?.nombre ?? '',
@@ -498,8 +540,6 @@ const Reportes: React.FC = () => {
   const generarExcelZC_ProyectoCompleto = async () => {
     if (!proyectoId) return;
     setGenerando(true);
-
-    // Query 1: registros ZC del proyecto (solo FKs conocidas: ambientes_zc, partidas)
     const { data, error } = await supabase
       .from('registros_zonas_comunes')
       .select(`
@@ -511,38 +551,19 @@ const Reportes: React.FC = () => {
       .order('torre_id', { ascending: true })
       .order('piso', { ascending: true })
       .order('creado_en', { ascending: true });
+    if (error) { setAviso('Error al consultar: ' + error.message); setGenerando(false); return; }
+    if (!data?.length) { setAviso('Este proyecto no tiene observaciones de zonas comunes registradas.'); setGenerando(false); return; }
 
-    if (error) {
-      setAviso('Error al consultar: ' + error.message);
-      setGenerando(false);
-      return;
+    const { data: torresData } = await supabase.from('torres').select('id, nombre, frente').eq('proyecto_id', proyectoId);
+    const torreNombre: Record<string, string> = {};
+    torresData?.forEach(t => { torreNombre[t.id] = `Torre ${t.nombre}${t.frente ? ` (${t.frente})` : ''}`; });
+
+    const creadoPorIds = [...new Set(data.map((r: any) => r.creado_por).filter(Boolean))];
+    const usuarioNombre: Record<string, string> = {};
+    if (creadoPorIds.length > 0) {
+      const { data: usuariosData } = await supabase.from('usuarios').select('id, nombre').in('id', creadoPorIds);
+      usuariosData?.forEach(u => { usuarioNombre[u.id] = u.nombre; });
     }
-    if (!data?.length) {
-      setAviso('Este proyecto no tiene observaciones de zonas comunes registradas.');
-      setGenerando(false);
-      return;
-    }
-
-    // Query 2: nombres de torres
-const { data: torresData } = await supabase
-  .from('torres')
-  .select('id, nombre, frente')
-  .eq('proyecto_id', proyectoId);
-const torreNombre: Record<string, string> = {};
-torresData?.forEach(t => {
-  torreNombre[t.id] = `Torre ${t.nombre}${t.frente ? ` (${t.frente})` : ''}`;
-});
-
-// Query 3: nombres de usuarios (solo los únicos que aparecen)
-const creadoPorIds = [...new Set(data.map((r: any) => r.creado_por).filter(Boolean))];
-const usuarioNombre: Record<string, string> = {};
-if (creadoPorIds.length > 0) {
-  const { data: usuariosData } = await supabase
-    .from('usuarios')
-    .select('id, nombre')
-    .in('id', creadoPorIds);
-  usuariosData?.forEach(u => { usuarioNombre[u.id] = u.nombre; });
-}
 
     const filas = data.map((r: any) => {
       const causaTexto = r.causa ?? '', esTercero = causaTexto.includes(' — ');
@@ -561,7 +582,6 @@ if (creadoPorIds.length > 0) {
         'Foto URL':              r.foto_url ?? '',
       };
     });
-
     const ws = XLSX.utils.json_to_sheet(filas);
     ws['!cols'] = [{ wch: 20 }, { wch: 8 }, { wch: 6 }, { wch: 16 }, { wch: 20 }, { wch: 40 }, { wch: 25 }, { wch: 25 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 40 }];
     const wb = XLSX.utils.book_new();
@@ -584,24 +604,24 @@ if (creadoPorIds.length > 0) {
       return;
     }
     const nombreTorre = `Torre ${torreSel?.nombre}${torreSel?.frente ? ` (${torreSel.frente})` : ''}`;
-const filas = data.map((i: any) => ({
-  'Proyecto':    proyectoSel?.nombre ?? '',
-  'Torre':       nombreTorre,
-  'N°':          i.item_numero,
-  'Descripción': i.item_descripcion,
-  'OK':          i.ok ? 'Sí' : 'No',
-  'Observación': i.observacion ?? '',
-  'Actualizado': i.actualizado_en ? new Date(i.actualizado_en).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '',
-}));
-const ws = XLSX.utils.json_to_sheet(filas);
-ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 5 }, { wch: 55 }, { wch: 5 }, { wch: 30 }, { wch: 20 }];
+    const filas = data.map((i: any) => ({
+      'Proyecto':    proyectoSel?.nombre ?? '',
+      'Torre':       nombreTorre,
+      'N°':          i.item_numero,
+      'Descripción': i.item_descripcion,
+      'OK':          i.ok ? 'Sí' : 'No',
+      'Observación': i.observacion ?? '',
+      'Actualizado': i.actualizado_en ? new Date(i.actualizado_en).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(filas);
+    ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 5 }, { wch: 55 }, { wch: 5 }, { wch: 30 }, { wch: 20 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Checklist Sala Basura');
     await exportarExcel(`Checklist_ZC_Torre${torreSel?.nombre}_${proyectoSel?.nombre}.xlsx`, wb);
     setGenerando(false);
   };
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Helpers visuales ──────────────────────────────────────────────────────
   const porAmbiente = registros.reduce((acc: any, r: any) => {
     const key = r.ambientes?.nombre ?? 'Sin ambiente';
     if (!acc[key]) acc[key] = [];
@@ -617,7 +637,7 @@ ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 5 }, { wch: 55 }, { wch: 5 }, { 
     acc[key].push(r);
     return acc;
   }, {} as Record<number, any[]>);
-  const pisosOrdenados = Object.keys(porPisoZC).map(Number).sort((a, b) => a - b);
+  const pisosOrdenados   = Object.keys(porPisoZC).map(Number).sort((a, b) => a - b);
   const registrosZCPlanos: any[] = registrosZC;
 
   const selectStyle = {
@@ -732,8 +752,8 @@ ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 5 }, { wch: 55 }, { wch: 5 }, { 
               <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 8, border: `0.5px solid ${border}` }}>
                 <div style={{ fontSize: 10, color: textMuted, marginBottom: 8, fontWeight: 600 }}>📋 Observaciones</div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {btnZC(generarExcelZC_Observaciones,    `Torre ${torreSel?.nombre}`,   !zonaComunId)}
-                  {btnZC(generarExcelZC_ProyectoCompleto, '🏗️ Proyecto completo',        !proyectoId)}
+                  {btnZC(generarExcelZC_Observaciones,    `Torre ${torreSel?.nombre}`,  !zonaComunId)}
+                  {btnZC(generarExcelZC_ProyectoCompleto, '🏗️ Proyecto completo',       !proyectoId)}
                 </div>
                 {!zonaComunId && !aviso && (
                   <div style={{ fontSize: 11, color: textMuted, marginTop: 10, textAlign: 'center' }}>Cargando zona común...</div>
@@ -822,7 +842,7 @@ ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 5 }, { wch: 55 }, { wch: 5 }, { 
                   <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>INFORME DE DETALLES</div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: '#1e3a5f', marginBottom: 8 }}>{proyectoSel?.nombre}</div>
                   <div style={{ display: 'flex', gap: 24, fontSize: 13, color: '#374151' }}>
-                   <span>Torre {torreSel?.nombre}{torreSel?.frente ? ` · ${torreSel.frente}` : ''}</span>
+                    <span>Torre {torreSel?.nombre}{torreSel?.frente ? ` · ${torreSel.frente}` : ''}</span>
                     <span>Depto {deptoSel?.numero} · {deptoSel?.id_obra}</span>
                     <span>Fecha: {new Date().toLocaleDateString('es-CL')}</span>
                   </div>
