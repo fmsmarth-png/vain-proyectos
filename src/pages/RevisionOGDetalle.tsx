@@ -1,86 +1,69 @@
 // src/pages/RevisionOGDetalle.tsx
-// Módulo Revisión Tolerancias OG — Pantalla 2: Formulario de registro
-// Flujo: Ambiente → Tipo elemento → Tipo revisión → Elemento → Tolerancia → Foto/Comentario → Guardar
+// Módulo Revisión Tolerancias OG — Pantalla 2: Selector visual de ambiente
+// Muestra el plano general del depto con botones superpuestos por ambiente.
+// Al tocar un ambiente navega a RevisionOGAmbiente.tsx (zoom + elementos).
 // FMS · Junio 2026
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   IonContent, IonHeader, IonMenuButton, IonPage, IonTitle, IonToolbar,
 } from '@ionic/react';
 import { useIonViewDidEnter } from '@ionic/react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
-import { comprimirImagen } from '../utils/comprimirImagen';
-import {
-  AMBIENTES_DEFAULT,
-  ELEMENTOS_DEFAULT,
-  REVISIONES_POR_TIPO,
-  OG_REVISION_QUERY,
-  LABEL_REVISION,
-  normalizarAmbienteCatalogo,
-  getSubtipoCod,
-} from '../utils/ogSubtipos';
+
+// ── Dimensiones originales del plano base ────────────────────────────────────
+const PLANO_W = 674;
+const PLANO_H = 961;
 
 interface NavState {
   proyecto: { id: string; nombre: string };
   torre:    { id: string; nombre: string };
-  depto:    { id: string; numero: string; id_obra?: string };
+  depto:    { id: string; numero: string; id_obra?: string; plano_version_id?: string };
   cerrado:  boolean;
+}
+
+interface PlanoAmbiente {
+  id: string;
+  titulo: string;
+  ambiente_cod: string;
+  pos_x_base: number;
+  pos_y_base: number;
+  ancho_base: number;
+  alto_base: number;
+  orden: number;
 }
 
 const RevisionOGDetalle: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const location = useLocation<NavState>();
+  const history = useHistory();
   const mounted = useRef(false);
-  const fotoRef = useRef<HTMLInputElement>(null);
+  const contenedorRef = useRef<HTMLDivElement>(null);
 
   // ── tokens ────────────────────────────────────────────────────────────────
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const cardGrad      = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
-  const textPrimary   = dark ? '#f9fafb'  : '#0f172a';
-  const textSecondary = dark ? '#6b7280'  : '#64748b';
-  const textMuted     = dark ? '#444444'  : '#94a3b8';
-  const toolbar       = dark ? '#000000'  : '#1e3a5f';
-  const inputBg       = dark ? '#111111'  : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e'  : '#cbd5e1';
-  const rojo      = dark ? '#f87171' : '#b91c1c';
-  const rojoBg    = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
-  const rojoBord  = dark ? 'rgba(239,68,68,0.15)' : '#fecaca';
-  const azul      = dark ? '#60a5fa' : '#1d4ed8';
-  const azulBg    = dark ? 'rgba(96,165,250,0.06)' : '#eff6ff';
-  const azulBord  = dark ? 'rgba(96,165,250,0.2)' : '#bfdbfe';
-  const verde     = dark ? '#4ade80' : '#15803d';
-  const verdeBg   = dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4';
-  const verdeBord = dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0';
+  const bg          = dark ? '#000000' : '#f0f4f8';
+  const cardGrad    = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
+  const border      = dark ? '#1e1e1e'  : '#e2e8f0';
+  const textPrimary = dark ? '#f9fafb'  : '#0f172a';
+  const textMuted   = dark ? '#444444'  : '#94a3b8';
+  const toolbar     = dark ? '#000000'  : '#1e3a5f';
+  const textSecondary = dark ? '#6b7280' : '#64748b';
+  const rojo        = dark ? '#f87171' : '#b91c1c';
+  const rojoBg      = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
+  const rojoBord    = dark ? 'rgba(239,68,68,0.15)' : '#fecaca';
 
   // ── nav state ─────────────────────────────────────────────────────────────
   const { proyecto, torre, depto, cerrado } = (location.state || {}) as NavState;
 
   // ── state ─────────────────────────────────────────────────────────────────
-  const [usuario, setUsuario]     = useState<any>(null);
-  const [ambientes, setAmbientes] = useState<string[]>([]);
-
-  // Cadena de selección
-  const [ambiente, setAmbiente]         = useState('');
-  const [tipoElemento, setTipoElemento] = useState<'Muros' | 'Vanos' | ''>('');
-  const [tipoRevision, setTipoRevision] = useState('');
-  const [elementos, setElementos]       = useState<string[]>([]);
-  const [elemento, setElemento]         = useState('');
-  const [tolerancias, setTolerancias]   = useState<string[]>([]);
-  const [tolerancia, setTolerancia]     = useState('');
-
-  // Datos extra
-  const [comentario, setComentario] = useState('');
-  const [fotoPreview, setFotoPreview]       = useState('');
-  const [fotoComprimida, setFotoComprimida] = useState<Blob | null>(null);
-
-  // UI
-  const [guardando, setGuardando] = useState(false);
-  const [guardado, setGuardado]   = useState(false);
-  const [error, setError]         = useState('');
+  const [planoUrl, setPlanoUrl]         = useState<string | null>(null);
+  const [ambientes, setAmbientes]       = useState<PlanoAmbiente[]>([]);
+  const [cargando, setCargando]         = useState(true);
+  const [imgSize, setImgSize]           = useState<{ w: number; h: number } | null>(null);
+  const [contenedorW, setContenedorW]   = useState(0);
 
   // ── init ──────────────────────────────────────────────────────────────────
   useIonViewDidEnter(() => {
@@ -88,216 +71,79 @@ const RevisionOGDetalle: React.FC = () => {
   });
 
   const inicializar = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data: u } = await supabase
-      .from('usuarios')
-      .select('id, nombre')
-      .eq('email', user.email)
-      .maybeSingle();
-    setUsuario(u);
-
-    // Cargar ambientes desde og_config_ambientes
-    const { data: ambData } = await supabase
-      .from('og_config_ambientes')
-      .select('ambiente')
-      .eq('existe', true)
-      .order('ambiente');
-
-    const lista = [...new Set((ambData || []).map((r: any) => r.ambiente as string))];
-    setAmbientes(lista.length > 0 ? lista : AMBIENTES_DEFAULT);
-  };
-
-  // ── efectos de la cadena ──────────────────────────────────────────────────
-
-  // Cada vez que cambia ambiente o tipoElemento → recargar elementos
-  useEffect(() => {
-    if (!ambiente || !tipoElemento) {
-      setElementos([]);
-      setElemento('');
-      setTolerancias([]);
-      setTolerancia('');
-      return;
-    }
-    (async () => {
-      const { data } = await supabase
-        .from('og_elementos_detalle')
-        .select('elemento, subtipo_cod')
-        .eq('ambiente', ambiente)
-        .eq('activo', true)
-        .order('elemento');
-
-      let lista: string[] = [];
-      if (data && data.length > 0) {
-        // Vanos: tienen subtipo_cod definido; Muros: subtipo_cod vacío o nulo
-        if (tipoElemento === 'Vanos') {
-          lista = (data as any[])
-            .filter((e: any) => !!e.subtipo_cod)
-            .map((e: any) => e.elemento as string);
-        } else {
-          lista = (data as any[])
-            .filter((e: any) => !e.subtipo_cod)
-            .map((e: any) => e.elemento as string);
-        }
-      }
-
-      const unique = [...new Set(lista)];
-      setElementos(unique.length > 0 ? unique : ELEMENTOS_DEFAULT[tipoElemento] || []);
-      setElemento('');
-      setTolerancias([]);
-      setTolerancia('');
-    })();
-  }, [ambiente, tipoElemento]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cada vez que cambia el elemento → recargar tolerancias
-  useEffect(() => {
-    if (!elemento || !tipoElemento || !tipoRevision || !ambiente) {
-      setTolerancias([]);
-      setTolerancia('');
-      return;
-    }
-    (async () => {
-      const key = `${tipoElemento}-${tipoRevision}`;
-      const qp = OG_REVISION_QUERY[key];
-      if (!qp) return;
-
-      const ambCat = normalizarAmbienteCatalogo(ambiente);
-
-      const { data } = await supabase
-        .from('og_catalogo')
-        .select('tolerancia')
-        .eq('revision', qp.revision)
-        .eq('item_revision', qp.itemRevision)
-        .eq('elemento', elemento)
-        .eq('ambiente', ambCat)
-        .eq('activo', true)
-        .order('tolerancia');
-
-      const lista = [...new Set((data || []).map((r: any) => r.tolerancia as string))];
-      setTolerancias(lista);
-      setTolerancia('');
-    })();
-  }, [elemento, tipoElemento, tipoRevision, ambiente]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── helpers de reset ──────────────────────────────────────────────────────
-  const resetDesdeTipoElemento = () => {
-    setTipoRevision('');
-    setElementos([]);
-    setElemento('');
-    setTolerancias([]);
-    setTolerancia('');
-  };
-
-  const resetDesdeTipoRevision = () => {
-    setElemento('');
-    setTolerancias([]);
-    setTolerancia('');
-  };
-
-  // ── foto ──────────────────────────────────────────────────────────────────
-  const seleccionarFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    // Preview inmediato
-    const prev = URL.createObjectURL(file);
-    setFotoPreview(prev);
-    // Comprimir en background
-    const blob = await comprimirImagen(file);
-    setFotoComprimida(blob);
-  };
-
-  const limpiarFoto = () => {
-    if (fotoPreview) URL.revokeObjectURL(fotoPreview);
-    setFotoPreview('');
-    setFotoComprimida(null);
-    if (fotoRef.current) fotoRef.current.value = '';
-  };
-
-  // ── guardar ───────────────────────────────────────────────────────────────
-  const guardar = async () => {
-    setError('');
-    if (!ambiente)     return setError('Selecciona un ambiente');
-    if (!tipoElemento) return setError('Selecciona el tipo de elemento');
-    if (!tipoRevision) return setError('Selecciona el tipo de revisión');
-    if (!elemento)     return setError('Selecciona el elemento');
-    if (!tolerancia)   return setError('Selecciona la tolerancia');
-
-    setGuardando(true);
+    if (!depto?.plano_version_id) { setCargando(false); return; }
+    setCargando(true);
     try {
-      let fotoUrl: string | null = null;
+      // Cargar URL del plano
+      const { data: plano } = await supabase
+        .from('og_planos')
+        .select('plano_url')
+        .eq('plano_version_id', depto.plano_version_id)
+        .eq('activo', true)
+        .maybeSingle();
 
-      if (fotoComprimida) {
-        const ts  = Date.now();
-        const path = `og/${depto.id}/${ts}.jpg`;
-        const { error: storErr } = await supabase.storage
-          .from('fotos-registros')
-          .upload(path, fotoComprimida, { contentType: 'image/jpeg', upsert: false });
-        if (!storErr) {
-          const { data: urlData } = supabase.storage
-            .from('fotos-registros')
-            .getPublicUrl(path);
-          fotoUrl = urlData.publicUrl;
-        }
-      }
+      if (plano?.plano_url) setPlanoUrl(plano.plano_url);
 
-      const { error: insErr } = await supabase.from('og_registros').insert({
-        proyecto_id:     proyecto.id,
-        torre_id:        torre.id,
-        departamento_id: depto.id,
-        ambiente,
-        tipo_elemento:   tipoElemento,
-        tipo_revision:   tipoRevision,
-        subtipo_cod:     getSubtipoCod(elemento),
-        elemento,
-        tolerancia,
-        comentario:      comentario.trim() || null,
-        foto_url:        fotoUrl,
-        usuario_id:      usuario?.id ?? null,
-        sesion_id:       `${usuario?.id ?? 'anon'}_${Date.now()}`,
-      });
+      // Cargar ambientes del plano
+      const { data: ams } = await supabase
+        .from('og_planos_ambientes')
+        .select('id, titulo, ambiente_cod, pos_x_base, pos_y_base, ancho_base, alto_base, orden')
+        .eq('plano_version_id', depto.plano_version_id)
+        .eq('activo', true)
+        .order('orden');
 
-      if (insErr) throw insErr;
-
-      // Reset formulario (mantiene ambiente seleccionado para registro continuo)
-      setTipoElemento('');
-      resetDesdeTipoElemento();
-      setComentario('');
-      limpiarFoto();
-      setGuardado(true);
-      setTimeout(() => setGuardado(false), 2500);
-
-    } catch (e: any) {
-      setError(e.message || 'Error al guardar. Intenta de nuevo.');
+      setAmbientes(ams || []);
     } finally {
-      setGuardando(false);
+      setCargando(false);
     }
   };
 
-  // ── styles ─────────────────────────────────────────────────────────────────
-  const sCard: React.CSSProperties = {
-    background: cardGrad, borderRadius: 16,
-    border: `0.5px solid ${border}`, padding: 14, marginBottom: 10,
-  };
-  const sSecLabel: React.CSSProperties = {
-    fontSize: 9, color: textMuted, textTransform: 'uppercase',
-    letterSpacing: '1.5px', fontWeight: 600, marginBottom: 10,
-  };
-  const sInput: React.CSSProperties = {
-    width: '100%', boxSizing: 'border-box', border: `0.5px solid ${inputBorder}`,
-    borderRadius: 10, padding: '8px 12px', fontSize: 14,
-    background: inputBg, color: textPrimary, outline: 'none', height: 44,
-  };
-  const sToggle = (activo: boolean): React.CSSProperties => ({
-    flex: 1, height: 44, borderRadius: 10,
-    border: `0.5px solid ${activo ? azulBord : border}`,
-    background: activo ? azulBg : 'transparent',
-    color: activo ? azul : textSecondary,
-    fontSize: 14, fontWeight: activo ? 700 : 400,
-    cursor: 'pointer', transition: 'all 0.15s',
-  });
+  // ── medir contenedor para escalar coordenadas ─────────────────────────────
+  const medirContenedor = useCallback(() => {
+    if (contenedorRef.current) {
+      setContenedorW(contenedorRef.current.offsetWidth);
+    }
+  }, []);
 
-  // ── guard: acceso sin state ───────────────────────────────────────────────
+  useEffect(() => {
+    medirContenedor();
+    window.addEventListener('resize', medirContenedor);
+    return () => window.removeEventListener('resize', medirContenedor);
+  }, [medirContenedor]);
+
+  // ── al cargar la imagen → obtener dimensiones reales renderizadas ─────────
+  const onImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    setImgSize({ w: img.offsetWidth, h: img.offsetHeight });
+  };
+
+  // ── escalar coordenadas base a tamaño renderizado ─────────────────────────
+  // La imagen se renderiza con width: 100% del contenedor, height proporcional
+  const escalarX = (v: number) => contenedorW > 0 ? (v / PLANO_W) * contenedorW : 0;
+  const escalarY = (v: number) => {
+    if (!contenedorW) return 0;
+    const hRendered = (PLANO_H / PLANO_W) * contenedorW;
+    return (v / PLANO_H) * hRendered;
+  };
+  const alturaPlano = contenedorW > 0 ? (PLANO_H / PLANO_W) * contenedorW : 0;
+
+  // ── navegar al ambiente ───────────────────────────────────────────────────
+  const irAAmbiente = (amb: PlanoAmbiente) => {
+    if (cerrado) return;
+    history.push('/revision-og/ambiente', {
+      proyecto,
+      torre,
+      depto,
+      cerrado,
+      ambiente: {
+        titulo:       amb.titulo,
+        ambiente_cod: amb.ambiente_cod,
+        plano_version_id: depto.plano_version_id,
+      },
+    });
+  };
+
+  // ── guard ─────────────────────────────────────────────────────────────────
   if (!proyecto || !torre || !depto) {
     return (
       <IonPage>
@@ -318,14 +164,14 @@ const RevisionOGDetalle: React.FC = () => {
     );
   }
 
-  // ── render ─────────────────────────────────────────────────────────────────
+  // ── render ────────────────────────────────────────────────────────────────
   return (
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <IonMenuButton slot="start" menu="menu-lateral"
             style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
-          <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>📐 Registrar Tolerancia</IonTitle>
+          <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>📐 Seleccionar Ambiente</IonTitle>
         </IonToolbar>
       </IonHeader>
 
@@ -333,7 +179,10 @@ const RevisionOGDetalle: React.FC = () => {
         <div style={{ padding: 16, paddingBottom: 40 }}>
 
           {/* Info depto */}
-          <div style={{ ...sCard, padding: '10px 14px' }}>
+          <div style={{
+            background: cardGrad, borderRadius: 16,
+            border: `0.5px solid ${border}`, padding: '10px 14px', marginBottom: 12,
+          }}>
             <div style={{ fontSize: 11, color: textSecondary, marginBottom: 2 }}>
               {proyecto.nombre} · Torre {torre.nombre}
             </div>
@@ -345,250 +194,151 @@ const RevisionOGDetalle: React.FC = () => {
                 </span>
               )}
             </div>
+            {depto.plano_version_id && (
+              <div style={{ fontSize: 10, color: textMuted, marginTop: 2, letterSpacing: '0.5px' }}>
+                {depto.plano_version_id}
+              </div>
+            )}
           </div>
 
           {/* Banner cerrado */}
           {cerrado && (
             <div style={{
               background: rojoBg, border: `0.5px solid ${rojoBord}`,
-              borderRadius: 12, padding: '10px 14px', marginBottom: 10,
+              borderRadius: 12, padding: '10px 14px', marginBottom: 12,
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
               <span style={{ fontSize: 18 }}>🔒</span>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: rojo }}>Departamento cerrado</div>
-                <div style={{ fontSize: 11, color: textSecondary }}>No se pueden agregar observaciones</div>
+                <div style={{ fontSize: 11, color: textSecondary }}>Solo lectura</div>
               </div>
             </div>
           )}
 
-          {/* ── 1. Ambiente ───────────────────────────────────────── */}
-          <div style={sCard}>
-            <div style={sSecLabel}>1 · AMBIENTE</div>
-            <select
-              style={sInput}
-              value={ambiente}
-              disabled={cerrado}
-              onChange={e => {
-                setAmbiente(e.target.value);
-                setTipoElemento('');
-                resetDesdeTipoElemento();
-              }}
-            >
-              <option value="">Selecciona ambiente...</option>
-              {ambientes.map(a => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* ── 2. Tipo de elemento ───────────────────────────────── */}
-          {ambiente && (
-            <div style={sCard}>
-              <div style={sSecLabel}>2 · TIPO DE ELEMENTO</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {(['Muros', 'Vanos'] as const).map(t => (
-                  <button
-                    key={t}
-                    style={sToggle(tipoElemento === t)}
-                    disabled={cerrado}
-                    onClick={() => {
-                      setTipoElemento(t);
-                      resetDesdeTipoElemento();
-                    }}
-                  >
-                    {t === 'Muros' ? '🧱 Muros' : '🚪 Vanos'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── 3. Tipo de revisión ───────────────────────────────── */}
-          {tipoElemento && (
-            <div style={sCard}>
-              <div style={sSecLabel}>3 · TIPO DE REVISIÓN</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {(REVISIONES_POR_TIPO[tipoElemento] || []).map(r => (
-                  <button
-                    key={r}
-                    style={sToggle(tipoRevision === r)}
-                    disabled={cerrado}
-                    onClick={() => {
-                      setTipoRevision(r);
-                      resetDesdeTipoRevision();
-                    }}
-                  >
-                    {LABEL_REVISION[r] ?? r}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── 4. Elemento específico ────────────────────────────── */}
-          {tipoRevision && (
-            <div style={sCard}>
-              <div style={sSecLabel}>4 · ELEMENTO</div>
-              {elementos.length === 0 ? (
-                <div style={{ fontSize: 13, color: textMuted, padding: '8px 0' }}>
-                  Cargando elementos...
-                </div>
-              ) : (
-                <select
-                  style={sInput}
-                  value={elemento}
-                  disabled={cerrado}
-                  onChange={e => {
-                    setElemento(e.target.value);
-                    setTolerancias([]);
-                    setTolerancia('');
-                  }}
-                >
-                  <option value="">Selecciona elemento...</option>
-                  {elementos.map(el => (
-                    <option key={el} value={el}>{el}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-
-          {/* ── 5. Tolerancia ─────────────────────────────────────── */}
-          {elemento && (
-            <div style={sCard}>
-              <div style={sSecLabel}>5 · TOLERANCIA</div>
-              {tolerancias.length === 0 ? (
-                <div style={{
-                  fontSize: 13, color: textMuted, textAlign: 'center',
-                  padding: '10px 0', fontStyle: 'italic',
-                }}>
-                  Sin tolerancias en catálogo para esta combinación.
-                  <br />
-                  <span style={{ fontSize: 11 }}>Verifica que el catálogo esté cargado.</span>
-                </div>
-              ) : (
-                <select
-                  style={sInput}
-                  value={tolerancia}
-                  disabled={cerrado}
-                  onChange={e => setTolerancia(e.target.value)}
-                >
-                  <option value="">Selecciona tolerancia...</option>
-                  {tolerancias.map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-
-          {/* ── 6. Comentario y foto ──────────────────────────────── */}
-          {elemento && (
-            <div style={sCard}>
-              <div style={sSecLabel}>6 · COMENTARIO Y FOTO (OPCIONALES)</div>
-
-              <div style={{ fontSize: 11, color: textSecondary, marginBottom: 4 }}>Comentario</div>
-              <textarea
-                style={{
-                  ...sInput, height: 'auto', resize: 'none',
-                  lineHeight: 1.6, paddingTop: 10, marginBottom: 14,
-                } as React.CSSProperties}
-                rows={3}
-                value={comentario}
-                disabled={cerrado}
-                onChange={e => setComentario(e.target.value)}
-                placeholder="Observación adicional..."
-              />
-
-              <div style={{ fontSize: 11, color: textSecondary, marginBottom: 6 }}>Foto</div>
-              <input
-                ref={fotoRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                style={{ display: 'none' }}
-                onChange={seleccionarFoto}
-              />
-
-              {!fotoPreview ? (
-                <button
-                  onClick={() => fotoRef.current?.click()}
-                  disabled={cerrado}
-                  style={{
-                    width: '100%', height: 80, borderRadius: 10,
-                    border: `1.5px dashed ${border}`, background: 'transparent',
-                    color: textMuted, fontSize: 13, cursor: 'pointer',
-                  }}
-                >
-                  📷 Agregar foto
-                </button>
-              ) : (
-                <div style={{ position: 'relative' }}>
-                  <img
-                    src={fotoPreview}
-                    alt="preview"
-                    style={{
-                      width: '100%', borderRadius: 10,
-                      maxHeight: 220, objectFit: 'cover',
-                      display: 'block',
-                    }}
-                  />
-                  <button
-                    onClick={limpiarFoto}
-                    style={{
-                      position: 'absolute', top: 6, right: 6,
-                      width: 28, height: 28, borderRadius: 14,
-                      border: 'none', background: 'rgba(0,0,0,0.65)',
-                      color: '#fff', fontSize: 13, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
+          {/* Instrucción */}
+          {!cargando && planoUrl && (
             <div style={{
-              background: rojoBg, border: `0.5px solid ${rojoBord}`,
-              borderRadius: 10, padding: '10px 14px',
-              marginBottom: 10, fontSize: 13, color: rojo,
+              fontSize: 12, color: textSecondary, textAlign: 'center',
+              marginBottom: 10, letterSpacing: '0.3px',
             }}>
-              ⚠️ {error}
+              Toca un ambiente en el plano para inspeccionarlo
             </div>
           )}
 
-          {/* Flash guardado */}
-          {guardado && (
+          {/* ── Plano con hotspots ──────────────────────────────── */}
+          {cargando ? (
             <div style={{
-              background: verdeBg, border: `0.5px solid ${verdeBord}`,
-              borderRadius: 10, padding: '10px 14px',
-              marginBottom: 10, fontSize: 13, color: verde, fontWeight: 600,
+              textAlign: 'center', padding: 48, color: textMuted, fontSize: 13,
             }}>
-              ✅ Observación guardada correctamente
+              Cargando plano...
             </div>
-          )}
-
-          {/* Botón guardar — solo visible cuando hay tolerancia */}
-          {tolerancia && !cerrado && (
-            <button
-              onClick={guardar}
-              disabled={guardando}
+          ) : !planoUrl ? (
+            <div style={{
+              background: cardGrad, borderRadius: 16,
+              border: `0.5px solid ${border}`,
+              padding: 32, textAlign: 'center',
+            }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🗺️</div>
+              <div style={{ fontSize: 14, color: textSecondary }}>
+                Sin plano asignado para este tipo de departamento
+              </div>
+              <div style={{ fontSize: 11, color: textMuted, marginTop: 4 }}>
+                {depto.plano_version_id || 'Sin plano_version_id'}
+              </div>
+            </div>
+          ) : (
+            <div
+              ref={contenedorRef}
               style={{
-                width: '100%', height: 54, borderRadius: 12, border: 'none',
-                background: 'linear-gradient(135deg, #1e3a5f, #2563eb)',
-                color: '#fff', fontSize: 15, fontWeight: 700,
-                cursor: guardando ? 'not-allowed' : 'pointer',
-                opacity: guardando ? 0.7 : 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                position: 'relative',
+                width: '100%',
+                borderRadius: 16,
+                overflow: 'hidden',
+                border: `0.5px solid ${border}`,
+                background: dark ? '#0a0a0a' : '#f8fafc',
+                // Altura proporcional al plano original
+                height: alturaPlano > 0 ? alturaPlano : 'auto',
               }}
             >
-              {guardando ? 'Guardando...' : '💾 Guardar observación'}
-            </button>
+              {/* Imagen del plano */}
+              <img
+                src={planoUrl}
+                alt="Plano departamento"
+                onLoad={onImgLoad}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'fill',
+                  display: 'block',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
+                }}
+              />
+
+              {/* Hotspots de ambientes */}
+              {contenedorW > 0 && ambientes.map(amb => (
+                <button
+                  key={amb.id}
+                  onClick={() => irAAmbiente(amb)}
+                  style={{
+                    position: 'absolute',
+                    left:   escalarX(amb.pos_x_base),
+                    top:    escalarY(amb.pos_y_base),
+                    width:  escalarX(amb.ancho_base),
+                    height: escalarY(amb.alto_base),
+                    background: cerrado
+                      ? 'rgba(100,100,100,0.15)'
+                      : 'rgba(30, 58, 95, 0.18)',
+                    border: cerrado
+                      ? '1.5px solid rgba(100,100,100,0.3)'
+                      : '1.5px solid rgba(37, 99, 235, 0.5)',
+                    borderRadius: 6,
+                    cursor: cerrado ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 2,
+                    transition: 'background 0.15s',
+                    backdropFilter: 'blur(0px)',
+                  }}
+                  onMouseEnter={e => {
+                    if (!cerrado) {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37,99,235,0.35)';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!cerrado) {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'rgba(30, 58, 95, 0.18)';
+                    }
+                  }}
+                >
+                  <span style={{
+                    fontSize: Math.max(8, escalarX(30) * 0.35),
+                    fontWeight: 700,
+                    color: cerrado ? 'rgba(150,150,150,0.8)' : 'rgba(255,255,255,0.95)',
+                    textAlign: 'center',
+                    lineHeight: 1.2,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+                    pointerEvents: 'none',
+                    wordBreak: 'break-word',
+                    maxWidth: '90%',
+                  }}>
+                    {amb.titulo}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Sin ambientes configurados */}
+          {!cargando && planoUrl && ambientes.length === 0 && (
+            <div style={{
+              marginTop: 10, fontSize: 12, color: textMuted,
+              textAlign: 'center', fontStyle: 'italic',
+            }}>
+              Sin ambientes configurados para este plano
+            </div>
           )}
 
         </div>

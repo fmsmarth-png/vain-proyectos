@@ -47,7 +47,7 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   const puedeVisitar   = ['staff', 'administrador'].includes(rol);
   // Post venta: administrador siempre puede; el resto solo si tiene puede_postventa = true
   const puedePostventa = rol === 'administrador' || usuario?.puede_postventa === true;
-const puedeOG = ['staff', 'administrador', 'prof_obra_gruesa'].includes(rol ?? '');
+const puedeOG = ['administrador'].includes(rol ?? '');
   const menuItems = [
     { icon: '🏠', label: 'Inicio',                       ruta: '/dashboard',   seccion: 'principal' },
     { icon: '🏗️', label: 'Proyectos',                   ruta: '/proyectos',   seccion: 'principal' },
@@ -56,6 +56,7 @@ const puedeOG = ['staff', 'administrador', 'prof_obra_gruesa'].includes(rol ?? '
     ...(puedeReportes   ? [{ icon: '📊', label: 'Reportes',                  ruta: '/reportes',    seccion: 'principal' }] : []),
     ...(puedePostventa  ? [{ icon: '🔧', label: 'Post Venta',                ruta: '/post-venta',  seccion: 'principal' }] : []),
     ...(puedeVisitar    ? [{ icon: '🔍', label: 'Visita de obra',             ruta: '/visita-obra', seccion: 'principal' }] : []),
+    ...(puedeOG      ? [{ icon: '📐', label: 'Revisión OG',     ruta: '/revision-og', seccion: 'principal' }] : []),
     
     ...(rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
   ];

@@ -18,16 +18,21 @@ export const MAPA_SUBTIPOS: Record<string, string> = {
   VANO_VENTANA_D3:           'V_DOR',
 };
 
-/** Ambientes estándar obra gruesa. Fallback cuando og_config_ambientes está vacío. */
+/**
+ * Ambientes estándar obra gruesa.
+ * Fallback cuando og_config_ambientes está vacío.
+ * IMPORTANTE: deben coincidir exactamente con og_catalogo.ambiente
+ */
 export const AMBIENTES_DEFAULT = [
+  'Acceso',
   'Living Comedor',
   'Cocina',
-  'Logia',
   'Baño Pasillo',
+  'Baño dormitorio 1',   // ← 'd' minúscula, igual que en og_catalogo
   'Dormitorio 1',
   'Dormitorio 2',
   'Dormitorio 3',
-  'Baño Dormitorio 1',
+  'Pasillo',
 ];
 
 /** Elementos por tipo. Fallback cuando og_elementos_detalle está vacío. */
@@ -80,16 +85,10 @@ export const LABEL_REVISION: Record<string, string> = {
 
 /**
  * Normaliza el nombre de ambiente para usarlo como clave en og_catalogo.
- * Fuente: Switch() en btnGuardar.OnSelect de scrAmbienteDetalle.pa.yaml.
+ * El catálogo ya tiene nombres VAIN (tras el buscar/reemplazar en Excel),
+ * así que devolvemos el ambiente tal cual — sin transformación.
  */
-export const normalizarAmbienteCatalogo = (ambiente: string): string => {
-  const mapa: Record<string, string> = {
-    'Baño Pasillo':   'BPASILLO',
-    'Living Comedor': 'LC',
-    'Cocina':         'COCINA',
-  };
-  return mapa[ambiente] ?? ambiente.toUpperCase().replace(/ /g, '_');
-};
+export const normalizarAmbienteCatalogo = (ambiente: string): string => ambiente;
 
 /** Devuelve el subtipoCod para el elemento seleccionado. '' si no aplica (muros). */
 export const getSubtipoCod = (elemento: string): string =>

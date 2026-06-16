@@ -1,6 +1,7 @@
 import {
   IonContent, IonPage, IonHeader, IonToolbar,
-  IonTitle, IonSpinner, IonModal, IonAlert, IonMenuButton
+  IonTitle, IonSpinner, IonModal, IonAlert, IonMenuButton,
+  useIonRouter,
 } from '@ionic/react';
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
@@ -26,7 +27,7 @@ const TIPOS_CAUSA = [
 const useStatsUsuario = (usuarioId: string | null) => {
   const [stats, setStats]       = useState<any>(null);
   const [cargando, setCargando] = useState(false);
-
+  
   useEffect(() => {
     if (!usuarioId) { setStats(null); return; }
     const cargar = async () => {
@@ -138,6 +139,7 @@ const ModalPerfil: React.FC<ModalPerfilProps> = ({
 // ─── Admin principal ──────────────────────────────────────────────────────────
 const Admin: React.FC = () => {
   const { theme } = useTheme();
+  const router = useIonRouter();
   const dark = theme === 'dark';
 
   const bg            = dark ? '#000000' : '#f0f4f8';
@@ -152,8 +154,7 @@ const Admin: React.FC = () => {
   const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
   const sepLine       = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
-  const [seccion, setSeccion] = useState<'usuarios' | 'ambientes' | 'partidas' | 'causas' | 'proyectos' | 'ambientes_zc'>('usuarios');
-
+ const [seccion, setSeccion] = useState<'usuarios' | 'ambientes' | 'partidas' | 'causas' | 'proyectos' | 'ambientes_zc' | 'planos_og'>('usuarios');
   const [usuarios, setUsuarios]       = useState<any[]>([]);
   const [pendientes, setPendientes]   = useState<any[]>([]);
   const [proyectos, setProyectos]     = useState<any[]>([]);
@@ -435,7 +436,19 @@ const Admin: React.FC = () => {
               </button>
             ))}
           </div>
-
+{/* Tabs fila 3 */}
+<div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+  <button
+    onClick={() => router.push('/calibrador-plano')}
+    style={{
+      flex: 1, height: 34, borderRadius: 10, cursor: 'pointer',
+      fontSize: 10, fontWeight: 600, background: 'transparent',
+      color: textMuted, border: `0.5px solid ${border}`,
+    }}
+  >
+    📐 Calibrador Planos OG
+  </button>
+</div>
           {/* ── USUARIOS ── */}
           {seccion === 'usuarios' && (
             <>

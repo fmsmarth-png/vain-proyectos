@@ -116,17 +116,17 @@ const RevisionOG: React.FC = () => {
     setCerrado(false);
   };
 
-  const cargarDeptos = async (torreId: string) => {
-    const { data } = await supabase
-      .from('departamentos')
-      .select('id, numero, id_obra, piso')
-      .eq('torre_id', torreId)
-      .order('numero');
-    setDeptos(data || []);
-    setDeptoSel(null);
-    setObsDepto([]);
-    setCerrado(false);
-  };
+ const cargarDeptos = async (torreId: string) => {
+  const { data } = await supabase
+    .from('departamentos')
+    .select('id, numero, id_obra, piso, plano_version_id')  // ← agregar
+    .eq('torre_id', torreId)
+    .order('numero');
+  setDeptos(data || []);
+  setDeptoSel(null);
+  setObsDepto([]);
+  setCerrado(false);
+};
 
   const seleccionarDepto = async (depto: any) => {
     setDeptoSel(depto);
