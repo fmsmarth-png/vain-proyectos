@@ -4,7 +4,7 @@ import {
 } from '@ionic/react';
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabase';
-import { generarPDFVisita } from '../utils/pdfVisita';
+import { generarDOCVisita } from '../utils/pdfVisita';
 import { lineaConfig, lineas } from '../utils/lineas';
 import { useTheme } from '../Context/ThemeContext';
 import {

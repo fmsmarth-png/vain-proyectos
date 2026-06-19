@@ -1,80 +1,109 @@
 /**
- * pdfVisita.ts
- * Genera y comparte el PDF de cierre de una visita de obra.
- * Estilo: carta/correo corporativo — sin cajas, texto corrido, fotos proporcionales.
+ * docVisita.ts
+ * Genera y comparte el reporte de cierre de una visita de obra en formato .docx (Word),
+ * editable por el usuario final. Reemplaza a pdfVisita.ts.
  *
- * Dependencias ya presentes en el proyecto:
- *   - jspdf
+ * Por qué se veían distorsionadas las fotos en la versión PDF:
+ *   En `dibujarFotos` el ancho (fotoW) quedaba FIJO y solo la altura se acotaba con
+ *   `Math.min(fotoW * ratio, MAX_ALTO)`. Cuando la altura calculada superaba MAX_ALTO,
+ *   jsPDF dibujaba la imagen igual con `addImage(..., fotoW, h)`: ancho completo + alto
+ *   recortado = la imagen se "aplastaba" verticalmente. La proporción nunca se
+ *   recalculaba en ambos ejes a la vez.
+ *
+ * Fix aplicado acá: `tamanioContain()` calcula UN solo factor de escala
+ *   (el mínimo entre ancho/alto disponible) y lo aplica a ambos ejes. Así la imagen
+ *   siempre conserva su proporción original (estilo "object-fit: contain"); si no llena
+ *   la celda, simplemente queda centrada con espacio en blanco alrededor — nunca estirada.
+ *
+ * Dependencias nuevas:
+ *   npm install docx
+ *
+ * Dependencias ya presentes en el proyecto (se mantienen):
  *   - @capacitor/filesystem
  *   - @capacitor/share
  *
  * Uso:
- *   await generarPDFVisita(visitaId, proyectoNombre, supabase, frenteMoldaje?);
+ *   await generarDOCVisita(visitaId, proyectoNombre, frenteMoldaje?);
  */
 
-import jsPDF from 'jspdf';
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  ImageRun,
+  Table,
+  TableRow,
+  TableCell,
+  Header,
+  Footer,
+  PageNumber,
+  AlignmentType,
+  VerticalAlign,
+  WidthType,
+  BorderStyle,
+  ShadingType,
+} from 'docx';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { supabase } from '../supabase';
 
-// ─── Paleta ───────────────────────────────────────────────────────────────────
+// ─── Paleta (hex, sin '#': formato que pide docx) ─────────────────────────────
 const C = {
-  azul:      [30,  58,  95]  as [number, number, number],
-  azulMid:   [74, 122, 181]  as [number, number, number],
-  rojo:      [220,  38,  38] as [number, number, number],
-  verde:     [22,  163,  74] as [number, number, number],
-  azulLink:  [37,  99, 235]  as [number, number, number],
-  negro:     [17,  24,  39]  as [number, number, number],
-  oscuro:    [55,  65,  81]  as [number, number, number],
-  gris:      [107, 114, 128] as [number, number, number],
-  grisClaro: [156, 163, 175] as [number, number, number],
-  borde:     [229, 231, 235] as [number, number, number],
-  blanco:    [255, 255, 255] as [number, number, number],
+  azul:      '1E3A5F',
+  azulMid:   '4A7AB5',
+  rojo:      'DC2626',
+  verde:     '16A34A',
+  azulLink:  '2563EB',
+  negro:     '111827',
+  oscuro:    '374151',
+  gris:      '6B7280',
+  grisClaro: '9CA3AF',
+  borde:     'E5E7EB',
+  blanco:    'FFFFFF',
 };
 
-// ─── Constantes de layout ──────────────────────────────────────────────────────
-const PAGE_W   = 210;          // A4 ancho mm
-const PAGE_H   = 297;          // A4 alto mm
-const MARGIN   = 18;           // margen izq/der
-const CONTENT  = PAGE_W - MARGIN * 2;  // 174mm
-const FOOTER_H = 12;           // zona reservada para footer
-const SAFE_BOT = PAGE_H - FOOTER_H;   // límite inferior de contenido
+// ─── Layout ────────────────────────────────────────────────────────────────────
+const MM_A_TWIP = 56.6929;
+const MM_A_PX   = 96 / 25.4; // a 96dpi, que es lo que asume docx para `transformation`
 
-// ─── Helpers de bajo nivel ────────────────────────────────────────────────────
+const MARGEN_MM   = 18;
+const CONTENT_MM  = 210 - MARGEN_MM * 2; // A4 menos márgenes ≈ 174mm
+const CONTENT_PX  = Math.round(CONTENT_MM * MM_A_PX);
 
-function rgb(doc: jsPDF, color: [number, number, number]) {
-  doc.setTextColor(...color);
+const MAX_ALTO_FOTO_MM = 52;
+const MAX_ALTO_FOTO_PX = Math.round(MAX_ALTO_FOTO_MM * MM_A_PX);
+const MAX_FOTOS_POR_FILA = 3;
+
+const mm = (n: number) => Math.round(n * MM_A_TWIP);
+const pt = (n: number) => Math.round(n * 2); // docx `size` está en half-points
+
+// Sin bordes de tabla visibles (las usamos solo para layout, no como grilla)
+const SIN_BORDES = {
+  top:    { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+  bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+  left:   { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+  right:  { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+  insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+  insideVertical:   { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+};
+
+// ─── Helpers de imagen ─────────────────────────────────────────────────────────
+
+interface ImagenInfo {
+  data: Uint8Array;
+  type: 'jpg' | 'png';
+  w: number;
+  h: number;
 }
 
-function fillRect(
-  doc: jsPDF,
-  x: number, y: number, w: number, h: number,
-  color: [number, number, number]
-) {
-  doc.setFillColor(...color);
-  doc.rect(x, y, w, h, 'F');
-}
-
-function hLine(doc: jsPDF, x1: number, x2: number, y: number, color: [number, number, number], lw = 0.2) {
-  doc.setDrawColor(...color);
-  doc.setLineWidth(lw);
-  doc.line(x1, y, x2, y);
-}
-
-function accentLine(doc: jsPDF, x: number, y: number, h: number, color: [number, number, number]) {
-  doc.setDrawColor(...color);
-  doc.setLineWidth(0.8);
-  doc.line(x, y, x, y + h);
-}
-
-/** Convierte URL pública de Storage → base64 para jsPDF */
-async function urlABase64(url: string): Promise<{ b64: string; w: number; h: number } | null> {
+/** Descarga una imagen desde Storage y obtiene sus bytes + dimensiones reales */
+async function obtenerImagenInfo(url: string): Promise<ImagenInfo | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
     const blob = await res.blob();
 
-    // Obtener dimensiones reales via createImageBitmap
     let natW = 4, natH = 3;
     try {
       const bmp = await createImageBitmap(blob);
@@ -83,212 +112,281 @@ async function urlABase64(url: string): Promise<{ b64: string; w: number; h: num
       bmp.close();
     } catch { /* fallback 4:3 */ }
 
-    const b64: string = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload  = () => resolve((reader.result as string).split(',')[1]);
-      reader.onerror = () => reject(null);
-      reader.readAsDataURL(blob);
-    });
+    const buffer = new Uint8Array(await blob.arrayBuffer());
+    const type: 'jpg' | 'png' = blob.type.includes('png') ? 'png' : 'jpg';
 
-    return { b64, w: natW, h: natH };
+    return { data: buffer, type, w: natW, h: natH };
   } catch { return null; }
 }
 
-// ─── Clase de documento ───────────────────────────────────────────────────────
-
-class DocBuilder {
-  doc:     jsPDF;
-  y:       number = 0;
-  pagina:  number = 1;
-  proyecto: string;
-  fecha:   string;
-
-  constructor(proyecto: string) {
-    this.doc     = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-    this.proyecto = proyecto;
-    this.fecha   = new Date().toLocaleDateString('es-CL', {
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-    });
-    this.fecha   = this.fecha.charAt(0).toUpperCase() + this.fecha.slice(1);
-  }
-
-  // ── Footer fijo ────────────────────────────────────────────────────────────
-  private dibujarFooter() {
-    const d = this.doc;
-    hLine(d, MARGIN, PAGE_W - MARGIN, PAGE_H - FOOTER_H + 1, C.borde);
-
-    d.setFontSize(6.5);
-    d.setFont('helvetica', 'normal');
-    rgb(d, C.grisClaro);
-    d.text(
-      'Informe generado por app VAIN Proyectos  \u2039FMS\u203A',
-      MARGIN,
-      PAGE_H - FOOTER_H + 5
-    );
-    d.text(
-      `Pág. ${this.pagina}`,
-      PAGE_W - MARGIN,
-      PAGE_H - FOOTER_H + 5,
-      { align: 'right' }
-    );
-  }
-
-  // ── Nueva página ───────────────────────────────────────────────────────────
-  nuevaPagina() {
-    this.dibujarFooter();
-    this.doc.addPage();
-    this.pagina++;
-    this.y = 16;
-  }
-
-  // ── Verificar espacio; si no cabe, nueva página ────────────────────────────
-  check(necesita: number) {
-    if (this.y + necesita > SAFE_BOT - FOOTER_H) this.nuevaPagina();
-  }
-
-  // ── Texto con check automático ─────────────────────────────────────────────
-  texto(
-    txt: string,
-    x: number,
-    opts: {
-      size?: number;
-      font?: 'normal' | 'bold' | 'italic';
-      color?: [number, number, number];
-      align?: 'left' | 'right' | 'center';
-      maxW?: number;
-    } = {}
-  ) {
-    const { size = 9, font = 'normal', color = C.oscuro, align = 'left', maxW } = opts;
-    this.doc.setFontSize(size);
-    this.doc.setFont('helvetica', font);
-    rgb(this.doc, color);
-    this.doc.text(txt, x, this.y, { align, maxWidth: maxW });
-  }
-
-  // ── Párrafo multilínea con wrap ────────────────────────────────────────────
-  parrafo(
-    txt: string,
-    indent = 0,
-    opts: { size?: number; color?: [number, number, number]; lineH?: number } = {}
-  ): number {
-    const { size = 9.5, color = C.oscuro, lineH = 4.8 } = opts;
-    const maxW = CONTENT - indent;
-    const lineas = this.doc.setFontSize(size)
-      && this.doc.splitTextToSize(txt, maxW);
-
-    this.check(lineas.length * lineH + 2);
-    this.doc.setFontSize(size);
-    this.doc.setFont('helvetica', 'normal');
-    rgb(this.doc, color);
-    lineas.forEach((l: string, i: number) => {
-      this.doc.text(l, MARGIN + indent, this.y + i * lineH);
-    });
-    const alto = lineas.length * lineH;
-    this.y += alto;
-    return alto;
-  }
-
-  // ── Espacio vertical ───────────────────────────────────────────────────────
-  skip(mm: number) { this.y += mm; }
-
-  // ── Línea horizontal ───────────────────────────────────────────────────────
-  divisor(alpha: [number, number, number] = C.borde, lw = 0.2) {
-    hLine(this.doc, MARGIN, PAGE_W - MARGIN, this.y, alpha, lw);
-    this.skip(3);
-  }
-
-  // ── Título de sección estilo membrete ─────────────────────────────────────
-  seccion(titulo: string) {
-    this.check(10);
-    // línea de acento izquierda
-    accentLine(this.doc, MARGIN, this.y - 4, 6.5, C.azul);
-    this.doc.setFontSize(7.5);
-    this.doc.setFont('helvetica', 'bold');
-    rgb(this.doc, C.gris);
-    this.doc.text(titulo.toUpperCase(), MARGIN + 4, this.y);
-    this.y += 5;
-    hLine(this.doc, MARGIN, PAGE_W - MARGIN, this.y, C.borde);
-    this.y += 4;
-  }
-
-  // ── Fotos en fila, proporcionales ─────────────────────────────────────────
-  async dibujarFotos(fotos: Array<{ b64: string; w: number; h: number }>) {
-    if (!fotos.length) return;
-
-    const MAX_FOTOS = 3;
-    const MAX_ALTO  = 52;   // mm máximo de altura por foto
-    const GAP       = 3;
-    const visible   = fotos.slice(0, MAX_FOTOS);
-    const n         = visible.length;
-    const fotoW     = (CONTENT - GAP * (n - 1)) / n;
-
-    // Calcular la altura máxima del bloque (respetando aspect ratio de cada foto)
-    let altoBloque = 0;
-    const alturas = visible.map(f => {
-      const ratio = f.h / f.w;
-      const h = Math.min(fotoW * ratio, MAX_ALTO);
-      altoBloque = Math.max(altoBloque, h);
-      return h;
-    });
-
-    this.check(altoBloque + 4);
-
-    visible.forEach((f, i) => {
-      const x  = MARGIN + i * (fotoW + GAP);
-      const h  = alturas[i];
-      // centrar verticalmente en el bloque si hay fotos de distinto alto
-      const dy = (altoBloque - h) / 2;
-      try {
-        this.doc.addImage(f.b64, 'JPEG', x, this.y + dy, fotoW, h);
-      } catch { /* imagen corrupta — omitir */ }
-    });
-
-    this.y += altoBloque + 2;
-
-    // Indicador "+N más" si hay fotos extra
-    if (fotos.length > MAX_FOTOS) {
-      this.doc.setFontSize(7);
-      this.doc.setFont('helvetica', 'italic');
-      rgb(this.doc, C.grisClaro);
-      this.doc.text(
-        `+${fotos.length - MAX_FOTOS} foto${fotos.length - MAX_FOTOS > 1 ? 's' : ''} más`,
-        PAGE_W - MARGIN,
-        this.y,
-        { align: 'right' }
-      );
-      this.skip(3);
-    }
-  }
-
-  // ── Finalizar: footer de la última página + numeración total ──────────────
-  finalizar() {
-    this.dibujarFooter();
-    const total = (this.doc.internal as any).getNumberOfPages();
-    for (let p = 1; p <= total; p++) {
-      this.doc.setPage(p);
-      this.doc.setFontSize(6.5);
-      this.doc.setFont('helvetica', 'normal');
-      rgb(this.doc, C.grisClaro);
-      // actualizar numeración correcta si hubo varias páginas
-      this.doc.text(
-        `Pág. ${p} / ${total}`,
-        PAGE_W - MARGIN,
-        PAGE_H - FOOTER_H + 5,
-        { align: 'right' }
-      );
-    }
-  }
+/**
+ * Calcula ancho/alto finales aplicando UN solo factor de escala a ambos ejes
+ * (equivalente a `object-fit: contain`). Nunca distorsiona la imagen.
+ */
+function tamanioContain(natW: number, natH: number, maxW: number, maxH: number) {
+  const escala = Math.min(maxW / natW, maxH / natH);
+  return {
+    width:  Math.max(1, Math.round(natW * escala)),
+    height: Math.max(1, Math.round(natH * escala)),
+  };
 }
 
-// ─── Función principal ────────────────────────────────────────────────────────
+/**
+ * Construye una "fila" de hasta 3 fotos lado a lado, cada una centrada en su celda
+ * y escalada con `tamanioContain` (proporción siempre respetada).
+ */
+function construirFilaFotos(fotos: ImagenInfo[]): Table | null {
+  if (!fotos.length) return null;
 
-export async function generarPDFVisita(
+  const visibles = fotos.slice(0, MAX_FOTOS_POR_FILA);
+  const n = visibles.length;
+  const anchoCeldaPx = Math.floor(CONTENT_PX / n);
+  const pctCelda = Math.floor(100 / n);
+
+  const celdas = visibles.map((foto) => {
+    const { width, height } = tamanioContain(foto.w, foto.h, anchoCeldaPx - 6, MAX_ALTO_FOTO_PX);
+    return new TableCell({
+      width: { size: pctCelda, type: WidthType.PERCENTAGE },
+      verticalAlign: VerticalAlign.CENTER,
+      margins: { top: 60, bottom: 60, left: 40, right: 40 },
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [
+            new ImageRun({
+              data: foto.data,
+              type: foto.type,
+              transformation: { width, height },
+            }),
+          ],
+        }),
+      ],
+    });
+  });
+
+  const restantes = fotos.length - MAX_FOTOS_POR_FILA;
+
+  const tabla = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: SIN_BORDES,
+    rows: [new TableRow({ children: celdas })],
+  });
+
+  if (restantes > 0) {
+    // Se agrega como tabla + el indicador se inserta aparte en el llamador
+    (tabla as any)._restantes = restantes;
+  }
+
+  return tabla;
+}
+
+function indicadorMasFotos(restantes: number): Paragraph {
+  return new Paragraph({
+    alignment: AlignmentType.RIGHT,
+    spacing: { before: 40, after: 120 },
+    children: [
+      new TextRun({
+        text: `+${restantes} foto${restantes > 1 ? 's' : ''} más`,
+        italics: true,
+        size: pt(7),
+        color: C.grisClaro,
+      }),
+    ],
+  });
+}
+
+// ─── Helpers de texto / estructura ─────────────────────────────────────────────
+
+function tituloSeccion(texto: string): Paragraph[] {
+  return [
+    new Paragraph({
+      spacing: { before: 240, after: 80 },
+      border: {
+        top:    { style: BorderStyle.SINGLE, size: 18, color: C.azul, space: 4 },
+        bottom: { style: BorderStyle.SINGLE, size: 4,  color: C.borde, space: 6 },
+      },
+      children: [
+        new TextRun({
+          text: texto.toUpperCase(),
+          bold: true,
+          size: pt(7.5),
+          color: C.gris,
+        }),
+      ],
+    }),
+  ];
+}
+
+function divisor(): Paragraph {
+  return new Paragraph({
+    spacing: { before: 100, after: 160 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C.borde, space: 1 } },
+    children: [],
+  });
+}
+
+function filaFicha(label: string, valor: string): Paragraph {
+  return new Paragraph({
+    spacing: { after: 70 },
+    children: [
+      new TextRun({ text: `${label.padEnd(12, ' ')}  `, size: pt(7.5), color: C.grisClaro }),
+      new TextRun({ text: valor, bold: true, size: pt(9), color: C.negro }),
+    ],
+  });
+}
+
+function horaDe(iso: string): string {
+  return new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ─── Bloque: observación general (proyecto / torre) ────────────────────────────
+
+function bloqueObservacionGeneral(obs: any, fotos: ImagenInfo[]): (Paragraph | Table)[] {
+  const nivelLabel = obs.nivel === 'torre'
+    ? `Torre ${obs.torres?.nombre ?? '—'}`
+    : 'Proyecto general';
+
+  const out: (Paragraph | Table)[] = [
+    new Paragraph({
+      spacing: { after: 80 },
+      tabStops: [{ type: 'right' as any, position: mm(CONTENT_MM) }],
+      children: [
+        new TextRun({ text: nivelLabel, bold: true, size: pt(8.5), color: C.negro }),
+        new TextRun({ text: `\t${horaDe(obs.creado_en)}`, size: pt(7.5), color: C.grisClaro }),
+      ],
+    }),
+  ];
+
+  if (obs.observacion) {
+    out.push(new Paragraph({
+      spacing: { after: 100 },
+      children: [new TextRun({ text: obs.observacion, size: pt(9.5), color: C.oscuro })],
+    }));
+  }
+
+  if (fotos.length > 0) {
+    const tablaFotos = construirFilaFotos(fotos);
+    if (tablaFotos) {
+      out.push(tablaFotos);
+      const restantes = (tablaFotos as any)._restantes;
+      if (restantes) out.push(indicadorMasFotos(restantes));
+    }
+  }
+
+  return out;
+}
+
+// ─── Bloque: observación por departamento (con acento de color + teórico/real) ─
+
+function bloqueObservacionDepto(obs: any, fotos: ImagenInfo[]): Table {
+  const depto = obs.departamentos;
+  const deptoLabel = depto ? `Depto ${depto.numero ?? depto.id_obra} · Piso ${depto.piso ?? '—'}` : '—';
+  const torreLabel = obs.torres?.nombre ? `Torre ${obs.torres.nombre} · ` : '';
+
+  let desfaseTexto = '';
+  let colorAcento = C.azulMid;
+  if (obs.desfase_dias !== null && obs.desfase_dias !== undefined) {
+    if (obs.desfase_dias === 0) {
+      desfaseTexto = '● En programa'; colorAcento = C.verde;
+    } else if (obs.desfase_dias < 0) {
+      desfaseTexto = `● Atraso ${Math.abs(obs.desfase_dias)} día${Math.abs(obs.desfase_dias) > 1 ? 's' : ''}`;
+      colorAcento = C.rojo;
+    } else {
+      desfaseTexto = `● Adelanto ${obs.desfase_dias} día${obs.desfase_dias > 1 ? 's' : ''}`;
+      colorAcento = C.azulLink;
+    }
+  }
+
+  const contenido: (Paragraph | Table)[] = [
+    new Paragraph({
+      spacing: { after: 60 },
+      children: [
+        new TextRun({ text: `${torreLabel}${deptoLabel}`, bold: true, size: pt(8.5), color: C.negro }),
+        new TextRun({ text: `   ${horaDe(obs.creado_en)}`, size: pt(7.5), color: C.grisClaro }),
+      ],
+    }),
+  ];
+
+  if (desfaseTexto) {
+    contenido.push(new Paragraph({
+      spacing: { after: 80 },
+      children: [new TextRun({ text: desfaseTexto, bold: true, size: pt(7.5), color: colorAcento })],
+    }));
+  }
+
+  if (obs.actividad_teorica || obs.actividad_real) {
+    contenido.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: SIN_BORDES,
+      rows: [new TableRow({
+        children: [
+          new TableCell({
+            width: { size: 50, type: WidthType.PERCENTAGE },
+            children: [
+              new Paragraph({ children: [new TextRun({ text: 'TEÓRICO', size: pt(6.5), color: C.grisClaro })] }),
+              new Paragraph({ children: [new TextRun({ text: obs.actividad_teorica || '—', size: pt(8), color: C.oscuro })] }),
+              ...(obs.cuadrilla_teorica ? [new Paragraph({ children: [new TextRun({ text: obs.cuadrilla_teorica, size: pt(7), color: C.grisClaro })] })] : []),
+            ],
+          }),
+          new TableCell({
+            width: { size: 50, type: WidthType.PERCENTAGE },
+            children: [
+              new Paragraph({ children: [new TextRun({ text: 'REAL', size: pt(6.5), color: C.grisClaro })] }),
+              new Paragraph({ children: [new TextRun({ text: obs.actividad_real || '—', size: pt(8), color: C.oscuro })] }),
+            ],
+          }),
+        ],
+      })],
+    }));
+    contenido.push(new Paragraph({ spacing: { after: 80 }, children: [] }));
+  }
+
+  if (obs.observacion) {
+    contenido.push(new Paragraph({
+      spacing: { after: 100 },
+      children: [new TextRun({ text: obs.observacion, size: pt(9.5), color: C.oscuro })],
+    }));
+  }
+
+  if (fotos.length > 0) {
+    const tablaFotos = construirFilaFotos(fotos);
+    if (tablaFotos) {
+      contenido.push(tablaFotos);
+      const restantes = (tablaFotos as any)._restantes;
+      if (restantes) contenido.push(indicadorMasFotos(restantes));
+    }
+  }
+
+  // Envoltura con acento de color a la izquierda (tabla 2 columnas: barra + contenido)
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: SIN_BORDES,
+    rows: [new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 2, type: WidthType.PERCENTAGE },
+          shading: { type: ShadingType.CLEAR, fill: colorAcento, color: 'auto' },
+          children: [new Paragraph({ children: [] })],
+        }),
+        new TableCell({
+          width: { size: 98, type: WidthType.PERCENTAGE },
+          margins: { left: 120 },
+          children: contenido,
+        }),
+      ],
+    })],
+  });
+}
+
+// ─── Función principal ──────────────────────────────────────────────────────────
+
+export async function generarDOCVisita(
   visitaId: string,
   proyectoNombre: string,
   frenteMoldaje?: string
 ): Promise<void> {
 
-  // ── 1. Fetch observaciones ─────────────────────────────────────────────────
+  // ── 1. Fetch observaciones ───────────────────────────────────────────────────
   const { data: obs } = await supabase
     .from('visita_observaciones')
     .select(`
@@ -303,11 +401,11 @@ export async function generarPDFVisita(
   const generales = todas.filter(o => o.nivel === 'proyecto' || o.nivel === 'torre');
   const deptoObs  = todas.filter(o => o.nivel === 'departamento');
 
-  // ── 2. Fetch fotos en paralelo ─────────────────────────────────────────────
+  // ── 2. Fetch fotos en paralelo ───────────────────────────────────────────────
   const fetchFotos = async (o: any) => {
     const urls: string[] = Array.isArray(o.fotos_urls) ? o.fotos_urls.slice(0, 5) : [];
-    const resultados = await Promise.all(urls.map(urlABase64));
-    return resultados.filter(Boolean) as Array<{ b64: string; w: number; h: number }>;
+    const resultados = await Promise.all(urls.map(obtenerImagenInfo));
+    return resultados.filter(Boolean) as ImagenInfo[];
   };
 
   const [fotosGen, fotosDepto] = await Promise.all([
@@ -315,56 +413,10 @@ export async function generarPDFVisita(
     Promise.all(deptoObs.map(fetchFotos)),
   ]);
 
-  // ── 3. Iniciar documento ───────────────────────────────────────────────────
-  const db = new DocBuilder(proyectoNombre);
-  const d  = db.doc;
+  // ── 3. Fecha / resumen ───────────────────────────────────────────────────────
+  let fecha = new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  fecha = fecha.charAt(0).toUpperCase() + fecha.slice(1);
 
-  // ── 4. ENCABEZADO / MEMBRETE ───────────────────────────────────────────────
-  // Franja azul angosta
-  fillRect(d, 0, 0, PAGE_W, 18, C.azul);
-
-  d.setFontSize(13);
-  d.setFont('helvetica', 'bold');
-  rgb(d, C.blanco);
-  d.text('VAIN PROYECTOS', MARGIN, 11);
-
-  d.setFontSize(7);
-  d.setFont('helvetica', 'normal');
-  d.setTextColor(180, 200, 230);
-  d.text('CALIDAD · VISITA DE OBRA', MARGIN, 15.5);
-
-  // Fecha en encabezado (derecha)
-  d.setFontSize(7.5);
-  rgb(d, C.blanco);
-  d.text(db.fecha, PAGE_W - MARGIN, 11, { align: 'right' });
-
-  db.y = 26;
-
-  // ── 5. BLOQUE DESTINATARIO (tipo ficha de carta) ───────────────────────────
-  const col1 = MARGIN;
-  const col2 = MARGIN + 28;
-
-  const filaFicha = (label: string, valor: string) => {
-    d.setFontSize(7.5);
-    d.setFont('helvetica', 'normal');
-    rgb(d, C.grisClaro);
-    d.text(label, col1, db.y);
-    rgb(d, C.negro);
-    d.setFont('helvetica', 'bold');
-    d.text(valor, col2, db.y);
-    db.skip(4.5);
-  };
-
-  filaFicha('Proyecto',  proyectoNombre);
-  filaFicha('Visitado',  db.fecha);
-  if (frenteMoldaje) filaFicha('Frente', `Moldaje Monolítico — ${frenteMoldaje}`);
-  filaFicha('Obs. total', `${todas.length} (${generales.length} generales · ${deptoObs.length} por departamento)`);
-
-  db.skip(3);
-  hLine(d, MARGIN, PAGE_W - MARGIN, db.y, C.azul, 0.5);
-  db.skip(6);
-
-  // ── 6. PÁRRAFO DE RESUMEN ──────────────────────────────────────────────────
   const conAtraso   = deptoObs.filter(o => (o.desfase_dias ?? 0) < 0).length;
   const conAdelanto = deptoObs.filter(o => (o.desfase_dias ?? 0) > 0).length;
   const enPrograma  = deptoObs.filter(o => (o.desfase_dias ?? 0) === 0).length;
@@ -374,235 +426,130 @@ export async function generarPDFVisita(
   if (deptoObs.length > 0)  resumen += ` y ${deptoObs.length} correspondientes a unidades habitacionales específicas`;
   resumen += '.';
   if (deptoObs.length > 0) {
-    resumen += ` De los departamentos inspeccionados, ${conAtraso} presentan atraso respecto al programa teórico`;
-    resumen += `, ${conAdelanto} muestran adelanto y ${enPrograma} se encuentran en programa.`;
+    resumen += ` De los departamentos inspeccionados, ${conAtraso} presentan atraso respecto al programa teórico, ${conAdelanto} muestran adelanto y ${enPrograma} se encuentran en programa.`;
   }
   resumen += ' A continuación se detalla cada observación junto con el registro fotográfico asociado.';
 
-  db.parrafo(resumen, 0, { size: 9.5, color: C.oscuro });
-  db.skip(6);
+  // ── 4. Armar cuerpo del documento ────────────────────────────────────────────
+  const cuerpo: (Paragraph | Table)[] = [];
 
-  // ── 7. SECCIÓN: OBSERVACIONES GENERALES ───────────────────────────────────
+  cuerpo.push(filaFicha('Proyecto', proyectoNombre));
+  cuerpo.push(filaFicha('Visitado', fecha));
+  if (frenteMoldaje) cuerpo.push(filaFicha('Frente', `Moldaje Monolítico — ${frenteMoldaje}`));
+  cuerpo.push(filaFicha('Obs. total', `${todas.length} (${generales.length} generales · ${deptoObs.length} por departamento)`));
+  cuerpo.push(new Paragraph({
+    spacing: { before: 60, after: 200 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 10, color: C.azul, space: 4 } },
+    children: [],
+  }));
+
+  cuerpo.push(new Paragraph({
+    spacing: { after: 200 },
+    children: [new TextRun({ text: resumen, size: pt(9.5), color: C.oscuro })],
+  }));
+
   if (generales.length > 0) {
-    db.seccion(`Observaciones generales (${generales.length})`);
-
-    for (let i = 0; i < generales.length; i++) {
-      const obs  = generales[i];
-      const foto = fotosGen[i];
-
-      const nivelLabel = obs.nivel === 'torre'
-        ? `Torre ${obs.torres?.nombre ?? '—'}`
-        : 'Proyecto general';
-      const hora = new Date(obs.creado_en).toLocaleTimeString('es-CL', {
-        hour: '2-digit', minute: '2-digit'
-      });
-
-      db.check(18);
-
-      // Encabezado de la obs
-      d.setFontSize(8.5);
-      d.setFont('helvetica', 'bold');
-      rgb(d, C.negro);
-      d.text(nivelLabel, MARGIN, db.y);
-      d.setFontSize(7.5);
-      d.setFont('helvetica', 'normal');
-      rgb(d, C.grisClaro);
-      d.text(hora, PAGE_W - MARGIN, db.y, { align: 'right' });
-      db.skip(5);
-
-      // Texto observación
-      if (obs.observacion) {
-        db.parrafo(obs.observacion, 0, { size: 9.5, color: C.oscuro });
-        db.skip(2);
-      }
-
-      // Fotos
-      if (foto.length > 0) {
-        await db.dibujarFotos(foto);
-        db.skip(2);
-      }
-
-      // Divisor entre obs
-      if (i < generales.length - 1) {
-        db.divisor();
-      } else {
-        db.skip(4);
-      }
-    }
+    cuerpo.push(...tituloSeccion(`Observaciones generales (${generales.length})`));
+    generales.forEach((o, i) => {
+      cuerpo.push(...bloqueObservacionGeneral(o, fotosGen[i]));
+      if (i < generales.length - 1) cuerpo.push(divisor());
+    });
   }
 
-  // ── 8. SECCIÓN: OBSERVACIONES POR DEPARTAMENTO ────────────────────────────
   if (deptoObs.length > 0) {
-    // Salto de página si ya vamos por más de la mitad
-    if (db.y > PAGE_H * 0.55) db.nuevaPagina();
-    else db.skip(2);
-
-    db.seccion(`Observaciones por departamento (${deptoObs.length})`);
-
-    for (let i = 0; i < deptoObs.length; i++) {
-      const obs  = deptoObs[i];
-      const foto = fotosDepto[i];
-
-      const depto      = obs.departamentos;
-      const deptoLabel = depto
-        ? `Depto ${depto.numero ?? depto.id_obra} · Piso ${depto.piso ?? '—'}`
-        : '—';
-      const torreLabel = obs.torres?.nombre ? `Torre ${obs.torres.nombre} · ` : '';
-      const hora = new Date(obs.creado_en).toLocaleTimeString('es-CL', {
-        hour: '2-digit', minute: '2-digit'
-      });
-
-      // Desfase
-      let desfaseLabel = '';
-      let desfaseColor: [number, number, number] = C.gris;
-      if (obs.desfase_dias !== null && obs.desfase_dias !== undefined) {
-        if (obs.desfase_dias === 0) {
-          desfaseLabel = '● En programa';
-          desfaseColor = C.verde;
-        } else if (obs.desfase_dias < 0) {
-          desfaseLabel = `● Atraso ${Math.abs(obs.desfase_dias)} día${Math.abs(obs.desfase_dias) > 1 ? 's' : ''}`;
-          desfaseColor = C.rojo;
-        } else {
-          desfaseLabel = `● Adelanto ${obs.desfase_dias} día${obs.desfase_dias > 1 ? 's' : ''}`;
-          desfaseColor = C.azulLink;
-        }
-      }
-
-      db.check(20);
-
-      // Acento izquierdo coloreado según desfase
-      const bordeColor = obs.desfase_dias === null
-        ? C.azulMid
-        : obs.desfase_dias < 0
-          ? C.rojo
-          : obs.desfase_dias > 0
-            ? C.azulLink
-            : C.verde;
-
-      // Encabezado depto
-      d.setFontSize(8.5);
-      d.setFont('helvetica', 'bold');
-      rgb(d, C.negro);
-      d.text(`${torreLabel}${deptoLabel}`, MARGIN, db.y);
-      d.setFontSize(7.5);
-      d.setFont('helvetica', 'normal');
-      rgb(d, C.grisClaro);
-      d.text(hora, PAGE_W - MARGIN, db.y, { align: 'right' });
-      db.skip(5);
-
-      // Desfase en texto
-      if (desfaseLabel) {
-        d.setFontSize(7.5);
-        d.setFont('helvetica', 'bold');
-        rgb(d, desfaseColor);
-        d.text(desfaseLabel, MARGIN, db.y);
-        db.skip(4.5);
-      }
-
-      // Teórico / Real en dos columnas de texto
-      if (obs.actividad_teorica || obs.actividad_real) {
-        const halfW = CONTENT / 2 - 4;
-
-        if (obs.actividad_teorica) {
-          d.setFontSize(6.5);
-          d.setFont('helvetica', 'normal');
-          rgb(d, C.grisClaro);
-          d.text('TEÓRICO', MARGIN, db.y);
-
-          d.setFontSize(8);
-          rgb(d, C.oscuro);
-          const linTeo = d.splitTextToSize(obs.actividad_teorica, halfW);
-          linTeo.forEach((l: string, li: number) => d.text(l, MARGIN, db.y + 3.5 + li * 4));
-
-          if (obs.cuadrilla_teorica) {
-            const linCuad = linTeo.length;
-            d.setFontSize(7);
-            rgb(d, C.grisClaro);
-            d.text(obs.cuadrilla_teorica, MARGIN, db.y + 3.5 + linCuad * 4);
-          }
-        }
-
-        if (obs.actividad_real) {
-          const xr = MARGIN + CONTENT / 2 + 2;
-          d.setFontSize(6.5);
-          d.setFont('helvetica', 'normal');
-          rgb(d, C.grisClaro);
-          d.text('REAL', xr, db.y);
-
-          d.setFontSize(8);
-          rgb(d, C.oscuro);
-          const linReal = d.splitTextToSize(obs.actividad_real, halfW);
-          linReal.forEach((l: string, li: number) => d.text(l, xr, db.y + 3.5 + li * 4));
-        }
-
-        db.skip(13);
-      }
-
-      // Acento izquierdo (dibujado aquí para cubrir todo el bloque)
-      // Se pinta ANTES de que y avance más
-      const yInicioAcento = db.y;
-
-      // Texto de la observación
-      if (obs.observacion) {
-        db.parrafo(obs.observacion, 0, { size: 9.5, color: C.oscuro });
-        db.skip(2);
-      }
-
-      // Fotos
-      if (foto.length > 0) {
-        await db.dibujarFotos(foto);
-        db.skip(2);
-      }
-
-      // Acento izquierdo real (línea vertical fina)
-      const alturaBloque = db.y - yInicioAcento;
-      if (alturaBloque > 0) {
-        accentLine(d, MARGIN - 2, yInicioAcento - 12, alturaBloque + 12, bordeColor);
-      }
-
-      // Divisor
-      if (i < deptoObs.length - 1) {
-        db.divisor();
-      } else {
-        db.skip(4);
-      }
-    }
+    cuerpo.push(...tituloSeccion(`Observaciones por departamento (${deptoObs.length})`));
+    deptoObs.forEach((o, i) => {
+      cuerpo.push(bloqueObservacionDepto(o, fotosDepto[i]));
+      cuerpo.push(new Paragraph({ spacing: { after: 160 }, children: [] }));
+      if (i < deptoObs.length - 1) cuerpo.push(divisor());
+    });
   }
 
-  // ── 9. CIERRE DEL DOCUMENTO ────────────────────────────────────────────────
-  db.finalizar();
+  // ── 5. Encabezado y pie de página (se repiten en cada página) ───────────────
+  const header = new Header({
+    children: [
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: SIN_BORDES,
+        rows: [new TableRow({
+          children: [new TableCell({
+            shading: { type: ShadingType.CLEAR, fill: C.azul, color: 'auto' },
+            margins: { top: 100, bottom: 100, left: 160, right: 160 },
+            children: [
+              new Paragraph({
+                tabStops: [{ type: 'right' as any, position: mm(CONTENT_MM) }],
+                children: [
+                  new TextRun({ text: 'VAIN PROYECTOS', bold: true, size: pt(11), color: C.blanco }),
+                  new TextRun({ text: `\t${fecha}`, size: pt(7.5), color: C.blanco }),
+                ],
+              }),
+              new Paragraph({
+                children: [new TextRun({ text: 'CALIDAD · VISITA DE OBRA', size: pt(7), color: 'B4C8E6' })],
+              }),
+            ],
+          })],
+        })],
+      }),
+    ],
+  });
 
-  // ── 10. EXPORTAR ──────────────────────────────────────────────────────────
-  const nombreArchivo = `Visita_${proyectoNombre.replace(/\s+/g, '_')}_${
-    new Date().toISOString().slice(0, 10)
-  }.pdf`;
+  const footer = new Footer({
+    children: [
+      new Paragraph({
+        border: { top: { style: BorderStyle.SINGLE, size: 4, color: C.borde, space: 4 } },
+        tabStops: [{ type: 'right' as any, position: mm(CONTENT_MM) }],
+        children: [
+          new TextRun({ text: 'Informe generado por app VAIN Proyectos ‹FMS›', size: pt(6.5), color: C.grisClaro }),
+          new TextRun({
+            children: ['\t', 'Pág. ', PageNumber.CURRENT, ' / ', PageNumber.TOTAL_PAGES],
+            size: pt(6.5),
+            color: C.grisClaro,
+          } as any),
+        ],
+      }),
+    ],
+  });
 
-  const pdfBlob    = d.output('blob');
-  const pdfDataUri = d.output('datauristring');
-  const pdfBase64  = pdfDataUri.split(',')[1];
+  // ── 6. Documento ──────────────────────────────────────────────────────────
+  const documento = new Document({
+    sections: [{
+      properties: {
+        page: {
+          margin: { top: mm(20), bottom: mm(16), left: mm(MARGEN_MM), right: mm(MARGEN_MM) },
+        },
+      },
+      headers: { default: header },
+      footers: { default: footer },
+      children: cuerpo,
+    }],
+  });
 
+  // ── 7. Exportar ──────────────────────────────────────────────────────────
+  const nombreArchivo = `Visita_${proyectoNombre.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.docx`;
   const esCapacitor = !!(window as any).Capacitor?.isNativePlatform?.();
 
   if (esCapacitor) {
     try {
+      const base64 = await Packer.toBase64String(documento);
       const { uri } = await Filesystem.writeFile({
-        path:      nombreArchivo,
-        data:      pdfBase64,
+        path: nombreArchivo,
+        data: base64,
         directory: Directory.Documents,
       });
       await Share.share({
-        title:      `Visita ${proyectoNombre}`,
-        text:       `Reporte de visita de obra — ${proyectoNombre}`,
-        url:        uri,
+        title: `Visita ${proyectoNombre}`,
+        text: `Reporte de visita de obra — ${proyectoNombre}`,
+        url: uri,
         dialogTitle: 'Compartir o guardar reporte',
       });
     } catch (e) {
-      console.error('Error exportando PDF en Android:', e);
+      console.error('Error exportando DOCX en Android:', e);
     }
   } else {
-    const url = URL.createObjectURL(pdfBlob);
-    const a   = document.createElement('a');
-    a.href     = url;
+    const blob = await Packer.toBlob(documento);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
     a.download = nombreArchivo;
     document.body.appendChild(a);
     a.click();

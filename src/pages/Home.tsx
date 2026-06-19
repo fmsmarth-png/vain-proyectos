@@ -12,7 +12,7 @@ const ROLES = [
   { value: 'jefe_terreno',          label: 'Jefe de Terreno' },
   { value: 'prof_terminaciones',    label: 'Prof. Terminaciones' },
   { value: 'director_obra',         label: 'Director de Obra' },
-  { value: 'vendedor_inmobiliaria', label: 'Vendedor Inmobiliaria' },
+  { value: 'Staff', label: 'Staff' },
   { value: 'ayudante_bodega',       label: 'Ayudante de Bodega' },
   { value: 'jefe_bodega',           label: 'Jefe de Bodega' },
 ];

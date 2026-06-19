@@ -49,11 +49,11 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   const puedePostventa = rol === 'administrador' || usuario?.puede_postventa === true;
 const puedeOG = ['administrador'].includes(rol ?? '');
   // Bodega — Pantalla 1: jefe_terreno (cualquier especialidad) + staff/administrador para poder probar
-  const puedeGenerarVale = ['jefe_terreno', 'administrador', 'staff'].includes(rol ?? '');
+  const puedeGenerarVale = ['jefe_terreno', 'administrador',].includes(rol ?? '');
   // Bodega — Pantalla 2: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
-  const puedeAprobarBodega = ['ayudante_bodega', 'jefe_bodega', 'administrador', 'staff'].includes(rol ?? '');
+  const puedeAprobarBodega = ['ayudante_bodega', 'jefe_bodega', 'administrador',].includes(rol ?? '');
   // Bodega — Pantalla 3: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
-  const puedeVerStock = ['ayudante_bodega', 'jefe_bodega', 'administrador', 'staff'].includes(rol ?? '');
+  const puedeVerStock = ['ayudante_bodega', 'jefe_bodega', 'administrador'].includes(rol ?? '');
   // Roles cuyo único contexto es bodega: solo ven Inicio + lo relacionado a bodega
   const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(rol ?? '');
 
