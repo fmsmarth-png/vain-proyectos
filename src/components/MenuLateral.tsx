@@ -48,7 +48,20 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   // Post venta: administrador siempre puede; el resto solo si tiene puede_postventa = true
   const puedePostventa = rol === 'administrador' || usuario?.puede_postventa === true;
 const puedeOG = ['administrador'].includes(rol ?? '');
-  const menuItems = [
+  // Bodega — Pantalla 1: jefe_terreno (cualquier especialidad) + staff/administrador para poder probar
+  const puedeGenerarVale = ['jefe_terreno', 'administrador', 'staff'].includes(rol ?? '');
+  // Bodega — Pantalla 2: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
+  const puedeAprobarBodega = ['ayudante_bodega', 'jefe_bodega', 'administrador', 'staff'].includes(rol ?? '');
+  // Bodega — Pantalla 3: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
+  const puedeVerStock = ['ayudante_bodega', 'jefe_bodega', 'administrador', 'staff'].includes(rol ?? '');
+  // Roles cuyo único contexto es bodega: solo ven Inicio + lo relacionado a bodega
+  const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(rol ?? '');
+
+  const menuItems = esRolBodega ? [
+    { icon: '🏠', label: 'Inicio',          ruta: '/dashboard',        seccion: 'principal' },
+    { icon: '🗃️', label: 'Vales de bodega', ruta: '/bodega/aprobacion', seccion: 'principal' },
+    { icon: '📊', label: 'Stock de bodega', ruta: '/bodega/stock',      seccion: 'principal' },
+  ] : [
     { icon: '🏠', label: 'Inicio',                       ruta: '/dashboard',   seccion: 'principal' },
     { icon: '🏗️', label: 'Proyectos',                   ruta: '/proyectos',   seccion: 'principal' },
     ...(puedeRegistrar  ? [{ icon: '📋', label: 'Registrar Observaciones',  ruta: '/inspeccion',  seccion: 'principal' }] : []),
@@ -57,7 +70,10 @@ const puedeOG = ['administrador'].includes(rol ?? '');
     ...(puedePostventa  ? [{ icon: '🔧', label: 'Post Venta',                ruta: '/post-venta',  seccion: 'principal' }] : []),
     ...(puedeVisitar    ? [{ icon: '🔍', label: 'Visita de obra',             ruta: '/visita-obra', seccion: 'principal' }] : []),
     ...(puedeOG      ? [{ icon: '📐', label: 'Revisión OG',     ruta: '/revision-og', seccion: 'principal' }] : []),
-    
+    ...(puedeGenerarVale ? [{ icon: '📦', label: 'Generar Vale', ruta: '/bodega/generar-vale', seccion: 'principal' }] : []),
+    ...(puedeAprobarBodega ? [{ icon: '🗃️', label: 'Vales de bodega', ruta: '/bodega/aprobacion', seccion: 'principal' }] : []),
+    ...(puedeVerStock ? [{ icon: '📊', label: 'Stock de bodega', ruta: '/bodega/stock', seccion: 'principal' }] : []),
+
     ...(rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
   ];
 

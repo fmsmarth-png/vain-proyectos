@@ -91,6 +91,7 @@ const App: React.FC = () => {
                     <Route exact path="/inspeccion"       component={Inspeccion} />
                     <Route exact path="/inspeccion/depto" component={InspeccionDepto} />
                      {/* <Route exact path="/revision" component={Revision} /> */}
+                     
                     <Redirect exact from="/" to="/dashboard" />
                   </IonRouterOutlet>
                 </IonSplitPane>

@@ -13,6 +13,8 @@ const ROLES = [
   { value: 'prof_terminaciones',    label: 'Prof. Terminaciones' },
   { value: 'director_obra',         label: 'Director de Obra' },
   { value: 'vendedor_inmobiliaria', label: 'Vendedor Inmobiliaria' },
+  { value: 'ayudante_bodega',       label: 'Ayudante de Bodega' },
+  { value: 'jefe_bodega',           label: 'Jefe de Bodega' },
 ];
 
 const Home: React.FC = () => {

@@ -31,6 +31,10 @@ import RevisionOGDetalle  from './pages/RevisionOGDetalle';
 import RevisionOGAmbiente from './pages/RevisionOGAmbiente';
 import RevisionOGResumen  from './pages/RevisionOGResumen';
 import CalibradorPlano    from './pages/CalibradorPlano';
+import GenerarVale        from './pages/GenerarVale';
+import AprobacionBodega   from './pages/Aprobacionbodega';
+import StockBodega        from './pages/StockBodega';
+import DashboardBodega    from './pages/DashboardBodega';
 import './theme/variables.css';
 
 setupIonicReact();
@@ -139,9 +143,17 @@ const App: React.FC = () => {
     </div>
   );
 
-  const puedeVisitar   = ['staff', 'administrador'].includes(usuario?.rol);
-  const puedePostventa = usuario?.rol === 'administrador' || usuario?.puede_postventa === true;
-  const puedeOG        = ['staff', 'administrador', 'prof_obra_gruesa'].includes(usuario?.rol ?? '');
+  const puedeVisitar      = ['staff', 'administrador'].includes(usuario?.rol);
+  const puedePostventa    = usuario?.rol === 'administrador' || usuario?.puede_postventa === true;
+  const puedeOG           = ['staff', 'administrador', 'prof_obra_gruesa'].includes(usuario?.rol ?? '');
+  // Bodega — Pantalla 1: jefe_terreno (cualquier especialidad) + staff/administrador para poder probar
+  const puedeGenerarVale  = ['staff', 'administrador', 'jefe_terreno'].includes(usuario?.rol ?? '');
+  // Bodega — Pantalla 2: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
+  const puedeAprobarBodega = ['staff', 'administrador', 'ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
+  // Bodega — Pantalla 3: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
+  const puedeVerStock = ['staff', 'administrador', 'ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
+  // Roles cuyo único contexto es bodega: ven un dashboard distinto y un menú acotado
+  const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
 
   return (
     <ThemeProvider>
@@ -153,17 +165,39 @@ const App: React.FC = () => {
                 <IonSplitPane contentId="main-content" when="false">
                   <MenuLateral usuario={usuario} />
                   <IonRouterOutlet id="main-content">
-                    <Route exact path="/dashboard"        component={Dashboard} />
-                    <Route exact path="/proyectos"        component={Proyectos} />
-                    <Route exact path="/proyectos/:id"    component={DetalleProyecto} />
-                    <Route exact path="/registros/:id"    component={DetalleRegistro} />
-                    <Route exact path="/admin"            component={Admin} />
-                    <Route exact path="/reportes"         component={Reportes} />
-                    <Route exact path="/inspeccion"       component={Inspeccion} />
-                    <Route exact path="/inspeccion/depto" component={InspeccionDepto} />
-                    <Route exact path="/revision"         component={Revision} />
-                    <Route exact path="/zonas-comunes"    component={ZonasComunes} />
-                    <Route exact path="/post-venta"       component={PostVenta} />
+                    <Route exact path="/dashboard" render={() =>
+                      esRolBodega ? <DashboardBodega /> : <Dashboard />
+                    } />
+                    <Route exact path="/proyectos" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <Proyectos />
+                    } />
+                    <Route exact path="/proyectos/:id" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <DetalleProyecto />
+                    } />
+                    <Route exact path="/registros/:id" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <DetalleRegistro />
+                    } />
+                    <Route exact path="/admin" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <Admin />
+                    } />
+                    <Route exact path="/reportes" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <Reportes />
+                    } />
+                    <Route exact path="/inspeccion" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <Inspeccion />
+                    } />
+                    <Route exact path="/inspeccion/depto" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <InspeccionDepto />
+                    } />
+                    <Route exact path="/revision" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <Revision />
+                    } />
+                    <Route exact path="/zonas-comunes" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <ZonasComunes />
+                    } />
+                    <Route exact path="/post-venta" render={() =>
+                      esRolBodega ? <Redirect to="/dashboard" /> : <PostVenta />
+                    } />
 
                     {/* Revisión OG */}
                     <Route exact path="/revision-og" render={() =>
@@ -187,6 +221,21 @@ const App: React.FC = () => {
                     {/* Visita de obra */}
                     <Route exact path="/visita-obra" render={() =>
                       puedeVisitar ? <VisitaObra /> : <Redirect to="/dashboard" />
+                    } />
+
+                    {/* Bodega — Pantalla 1: Generar Vale */}
+                    <Route exact path="/bodega/generar-vale" render={() =>
+                      puedeGenerarVale ? <GenerarVale /> : <Redirect to="/dashboard" />
+                    } />
+
+                    {/* Bodega — Pantalla 2: Aprobación */}
+                    <Route exact path="/bodega/aprobacion" render={() =>
+                      puedeAprobarBodega ? <AprobacionBodega /> : <Redirect to="/dashboard" />
+                    } />
+
+                    {/* Bodega — Pantalla 3: Stock */}
+                    <Route exact path="/bodega/stock" render={() =>
+                      puedeVerStock ? <StockBodega /> : <Redirect to="/dashboard" />
                     } />
 
                     <Redirect exact from="/" to="/dashboard" />

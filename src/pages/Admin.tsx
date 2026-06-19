@@ -15,6 +15,8 @@ const ROLES = [
   { value: 'administrador',         label: 'Administrador' },
   { value: 'vendedor_inmobiliaria', label: 'Vendedor Inmobiliaria' },
   { value: 'staff',                 label: 'Staff' },
+  { value: 'ayudante_bodega',       label: 'Ayudante de Bodega' },
+  { value: 'jefe_bodega',           label: 'Jefe de Bodega' },
 ];
 
 const TIPOS_CAUSA = [
