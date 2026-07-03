@@ -3,6 +3,7 @@
 // Muestra el plano general del depto con botones superpuestos por ambiente.
 // Al tocar un ambiente navega a RevisionOGAmbiente.tsx (zoom + elementos).
 // FMS · Junio 2026
+// Offline: pasa cacheOk al navegar, muestra aviso si no hay cache
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
@@ -12,6 +13,9 @@ import { useIonViewDidEnter } from '@ionic/react';
 import { useLocation, useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
+import { hayCacheOG, getPlanoCache, getAmbientesPlanoCache } from '../utils/Ogcache';       // ← FMS offline OG
+import { getImagenUrlDB } from '../utils/ogImageDB';                                         // ← FMS offline OG (imágenes IndexedDB)
+import { useOffline } from '../Context/OfflineContext'; // ← FMS offline OG
 
 // ── Dimensiones originales del plano base ────────────────────────────────────
 const PLANO_W = 674;
@@ -28,6 +32,7 @@ interface PlanoAmbiente {
   id: string;
   titulo: string;
   ambiente_cod: string;
+  grupo_imagen: string | null;
   pos_x_base: number;
   pos_y_base: number;
   ancho_base: number;
@@ -42,6 +47,7 @@ const RevisionOGDetalle: React.FC = () => {
   const history = useHistory();
   const mounted = useRef(false);
   const contenedorRef = useRef<HTMLDivElement>(null);
+  const { online } = useOffline(); // ← FMS offline OG
 
   // ── tokens ────────────────────────────────────────────────────────────────
   const bg          = dark ? '#000000' : '#f0f4f8';
@@ -54,16 +60,45 @@ const RevisionOGDetalle: React.FC = () => {
   const rojo        = dark ? '#f87171' : '#b91c1c';
   const rojoBg      = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
   const rojoBord    = dark ? 'rgba(239,68,68,0.15)' : '#fecaca';
+  const amarillo    = dark ? '#fbbf24' : '#a16207';   // ← FMS offline OG
+  const amarilloBg  = dark ? 'rgba(251,191,36,0.06)' : '#fffbeb'; // ← FMS offline OG
+  const amarilloBord = dark ? 'rgba(251,191,36,0.2)' : '#fde68a'; // ← FMS offline OG
 
   // ── nav state ─────────────────────────────────────────────────────────────
   const { proyecto, torre, depto, cerrado } = (location.state || {}) as NavState;
 
   // ── state ─────────────────────────────────────────────────────────────────
   const [planoUrl, setPlanoUrl]         = useState<string | null>(null);
+  const [planoBlob, setPlanoBlob]       = useState<string | null>(null); // blob URL local (legacy)
   const [ambientes, setAmbientes]       = useState<PlanoAmbiente[]>([]);
   const [cargando, setCargando]         = useState(true);
   const [imgSize, setImgSize]           = useState<{ w: number; h: number } | null>(null);
   const [contenedorW, setContenedorW]   = useState(0);
+  const [cacheOk]                       = useState(hayCacheOG()); // ← FMS offline OG
+
+  // Revocar blob URLs al desmontar para evitar memory leak.
+  // Con IndexedDB (data: URLs) esto queda como no-op seguro: revokeObjectURL
+  // sobre un data: URL no hace nada. Se mantiene por compatibilidad.
+  useEffect(() => {
+    return () => {
+      if (planoBlob) URL.revokeObjectURL(planoBlob);
+    };
+  }, [planoBlob]);
+
+  // ── medir contenedor — con reintento para Android ─────────────────────────
+  const medirContenedor = useCallback(() => {
+    if (!contenedorRef.current) return;
+    const w = contenedorRef.current.offsetWidth;
+    if (w > 0) {
+      setContenedorW(w);
+    } else {
+      setTimeout(() => {
+        if (contenedorRef.current) {
+          setContenedorW(contenedorRef.current.offsetWidth);
+        }
+      }, 100);
+    }
+  }, []);
 
   // ── init ──────────────────────────────────────────────────────────────────
   useIonViewDidEnter(() => {
@@ -74,36 +109,44 @@ const RevisionOGDetalle: React.FC = () => {
     if (!depto?.plano_version_id) { setCargando(false); return; }
     setCargando(true);
     try {
-      // Cargar URL del plano
-      const { data: plano } = await supabase
-        .from('og_planos')
-        .select('plano_url')
-        .eq('plano_version_id', depto.plano_version_id)
-        .eq('activo', true)
-        .maybeSingle();
+      let urlParaCargar: string | null = null;
 
-      if (plano?.plano_url) setPlanoUrl(plano.plano_url);
+      if (online) {
+        const { data: plano } = await supabase
+          .from('og_planos')
+          .select('plano_url')
+          .eq('plano_version_id', depto.plano_version_id)
+          .eq('activo', true)
+          .maybeSingle();
+        if (plano?.plano_url) urlParaCargar = plano.plano_url;
 
-      // Cargar ambientes del plano
-      const { data: ams } = await supabase
-        .from('og_planos_ambientes')
-        .select('id, titulo, ambiente_cod, pos_x_base, pos_y_base, ancho_base, alto_base, orden')
-        .eq('plano_version_id', depto.plano_version_id)
-        .eq('activo', true)
-        .order('orden');
+        const { data: ams } = await supabase
+          .from('og_planos_ambientes')
+          .select('id, titulo, ambiente_cod, grupo_imagen, pos_x_base, pos_y_base, ancho_base, alto_base, orden')
+          .eq('plano_version_id', depto.plano_version_id)
+          .eq('activo', true)
+          .order('orden');
+        setAmbientes(ams || []);
+      } else {
+        const planoCached = getPlanoCache(depto.plano_version_id);
+        if (planoCached) urlParaCargar = planoCached.plano_url;
 
-      setAmbientes(ams || []);
+        const ambsCached = getAmbientesPlanoCache(depto.plano_version_id);
+        setAmbientes(ambsCached);
+      }
+
+      if (urlParaCargar) {
+        // Servir desde IndexedDB si está descargada (offline); si no, URL original (online)
+        const src = await getImagenUrlDB(urlParaCargar);
+        setPlanoUrl(src);
+        setPlanoBlob(null); // data: URLs no requieren revoke (a diferencia de los blob URLs)
+      }
+
+      setTimeout(medirContenedor, 150);
     } finally {
       setCargando(false);
     }
   };
-
-  // ── medir contenedor para escalar coordenadas ─────────────────────────────
-  const medirContenedor = useCallback(() => {
-    if (contenedorRef.current) {
-      setContenedorW(contenedorRef.current.offsetWidth);
-    }
-  }, []);
 
   useEffect(() => {
     medirContenedor();
@@ -111,14 +154,13 @@ const RevisionOGDetalle: React.FC = () => {
     return () => window.removeEventListener('resize', medirContenedor);
   }, [medirContenedor]);
 
-  // ── al cargar la imagen → obtener dimensiones reales renderizadas ─────────
   const onImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     setImgSize({ w: img.offsetWidth, h: img.offsetHeight });
+    medirContenedor();
   };
 
   // ── escalar coordenadas base a tamaño renderizado ─────────────────────────
-  // La imagen se renderiza con width: 100% del contenedor, height proporcional
   const escalarX = (v: number) => contenedorW > 0 ? (v / PLANO_W) * contenedorW : 0;
   const escalarY = (v: number) => {
     if (!contenedorW) return 0;
@@ -130,14 +172,16 @@ const RevisionOGDetalle: React.FC = () => {
   // ── navegar al ambiente ───────────────────────────────────────────────────
   const irAAmbiente = (amb: PlanoAmbiente) => {
     if (cerrado) return;
+    if (!cacheOk) return; // sin cache no se puede inspeccionar offline
     history.push('/revision-og/ambiente', {
       proyecto,
       torre,
       depto,
       cerrado,
       ambiente: {
-        titulo:       amb.titulo,
-        ambiente_cod: amb.ambiente_cod,
+        titulo:           amb.titulo,
+        ambiente_cod:     amb.ambiente_cod,
+        grupo_imagen:     amb.grupo_imagen,
         plano_version_id: depto.plano_version_id,
       },
     });
@@ -216,6 +260,31 @@ const RevisionOGDetalle: React.FC = () => {
             </div>
           )}
 
+          {/* FMS offline OG — banner sin red + sin cache */}
+          {!online && !cacheOk && !cerrado && (
+            <div style={{
+              background: amarilloBg, border: `0.5px solid ${amarilloBord}`,
+              borderRadius: 12, padding: '10px 14px', marginBottom: 12,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: amarillo }}>📶 Sin conexión y sin cache</div>
+              <div style={{ fontSize: 12, color: textSecondary, marginTop: 3 }}>
+                Los ambientes del plano no están disponibles offline. Conectate para descargar el cache primero.
+              </div>
+            </div>
+          )}
+
+          {/* FMS offline OG — banner sin red pero CON cache */}
+          {!online && cacheOk && !cerrado && (
+            <div style={{
+              background: amarilloBg, border: `0.5px solid ${amarilloBord}`,
+              borderRadius: 12, padding: '8px 14px', marginBottom: 12,
+            }}>
+              <span style={{ fontSize: 12, color: amarillo, fontWeight: 600 }}>
+                📶 Sin red — si descargaste el modo offline verás el plano; si no, toca un ambiente abajo para inspeccionar
+              </span>
+            </div>
+          )}
+
           {/* Instrucción */}
           {!cargando && planoUrl && (
             <div style={{
@@ -228,25 +297,51 @@ const RevisionOGDetalle: React.FC = () => {
 
           {/* ── Plano con hotspots ──────────────────────────────── */}
           {cargando ? (
-            <div style={{
-              textAlign: 'center', padding: 48, color: textMuted, fontSize: 13,
-            }}>
+            <div style={{ textAlign: 'center', padding: 48, color: textMuted, fontSize: 13 }}>
               Cargando plano...
             </div>
           ) : !planoUrl ? (
-            <div style={{
-              background: cardGrad, borderRadius: 16,
-              border: `0.5px solid ${border}`,
-              padding: 32, textAlign: 'center',
-            }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🗺️</div>
-              <div style={{ fontSize: 14, color: textSecondary }}>
-                Sin plano asignado para este tipo de departamento
+            <>
+              <div style={{
+                background: cardGrad, borderRadius: 16,
+                border: `0.5px solid ${border}`,
+                padding: 32, textAlign: 'center', marginBottom: 12,
+              }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🗺️</div>
+                <div style={{ fontSize: 14, color: textSecondary }}>
+                  {!online
+                    ? 'Sin conexión — el plano no está disponible offline'
+                    : 'Sin plano asignado para este tipo de departamento'
+                  }
+                </div>
+                <div style={{ fontSize: 11, color: textMuted, marginTop: 4 }}>
+                  {depto.plano_version_id || 'Sin plano_version_id'}
+                </div>
               </div>
-              <div style={{ fontSize: 11, color: textMuted, marginTop: 4 }}>
-                {depto.plano_version_id || 'Sin plano_version_id'}
-              </div>
-            </div>
+
+              {/* FMS offline OG — botones de texto por ambiente cuando no hay plano visual */}
+              {!online && cacheOk && ambientes.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>
+                    Ambientes disponibles
+                  </div>
+                  {ambientes.map(amb => (
+                    <button
+                      key={amb.id}
+                      onClick={() => irAAmbiente(amb)}
+                      disabled={cerrado}
+                      style={{
+                        padding: '12px 16px', borderRadius: 12, border: `0.5px solid ${border}`,
+                        background: cardGrad, color: textPrimary, fontSize: 14, fontWeight: 600,
+                        cursor: cerrado ? 'not-allowed' : 'pointer', textAlign: 'left',
+                      }}
+                    >
+                      🏠 {amb.titulo}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           ) : (
             <div
               ref={contenedorRef}
@@ -257,18 +352,17 @@ const RevisionOGDetalle: React.FC = () => {
                 overflow: 'hidden',
                 border: `0.5px solid ${border}`,
                 background: dark ? '#0a0a0a' : '#f8fafc',
-                // Altura proporcional al plano original
                 height: alturaPlano > 0 ? alturaPlano : 'auto',
+                minHeight: alturaPlano > 0 ? undefined : 200,
               }}
             >
-              {/* Imagen del plano */}
               <img
                 src={planoUrl}
                 alt="Plano departamento"
                 onLoad={onImgLoad}
                 style={{
                   width: '100%',
-                  height: '100%',
+                  height: alturaPlano > 0 ? '100%' : 'auto',
                   objectFit: 'fill',
                   display: 'block',
                   userSelect: 'none',
@@ -276,7 +370,6 @@ const RevisionOGDetalle: React.FC = () => {
                 }}
               />
 
-              {/* Hotspots de ambientes */}
               {contenedorW > 0 && ambientes.map(amb => (
                 <button
                   key={amb.id}
@@ -287,28 +380,27 @@ const RevisionOGDetalle: React.FC = () => {
                     top:    escalarY(amb.pos_y_base),
                     width:  escalarX(amb.ancho_base),
                     height: escalarY(amb.alto_base),
-                    background: cerrado
+                    background: (cerrado || !cacheOk)
                       ? 'rgba(100,100,100,0.15)'
                       : 'rgba(30, 58, 95, 0.18)',
-                    border: cerrado
+                    border: (cerrado || !cacheOk)
                       ? '1.5px solid rgba(100,100,100,0.3)'
                       : '1.5px solid rgba(37, 99, 235, 0.5)',
                     borderRadius: 6,
-                    cursor: cerrado ? 'not-allowed' : 'pointer',
+                    cursor: (cerrado || !cacheOk) ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     padding: 2,
                     transition: 'background 0.15s',
-                    backdropFilter: 'blur(0px)',
                   }}
                   onMouseEnter={e => {
-                    if (!cerrado) {
+                    if (!cerrado && cacheOk) {
                       (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37,99,235,0.35)';
                     }
                   }}
                   onMouseLeave={e => {
-                    if (!cerrado) {
+                    if (!cerrado && cacheOk) {
                       (e.currentTarget as HTMLButtonElement).style.background = 'rgba(30, 58, 95, 0.18)';
                     }
                   }}
@@ -316,7 +408,7 @@ const RevisionOGDetalle: React.FC = () => {
                   <span style={{
                     fontSize: Math.max(8, escalarX(30) * 0.35),
                     fontWeight: 700,
-                    color: cerrado ? 'rgba(150,150,150,0.8)' : 'rgba(255,255,255,0.95)',
+                    color: (cerrado || !cacheOk) ? 'rgba(150,150,150,0.8)' : 'rgba(255,255,255,0.95)',
                     textAlign: 'center',
                     lineHeight: 1.2,
                     textShadow: '0 1px 3px rgba(0,0,0,0.6)',
@@ -331,7 +423,6 @@ const RevisionOGDetalle: React.FC = () => {
             </div>
           )}
 
-          {/* Sin ambientes configurados */}
           {!cargando && planoUrl && ambientes.length === 0 && (
             <div style={{
               marginTop: 10, fontSize: 12, color: textMuted,

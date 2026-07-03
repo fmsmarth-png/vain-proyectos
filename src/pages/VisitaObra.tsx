@@ -271,7 +271,7 @@ const VisitaObra: React.FC = () => {
     setGenerandoPDF(true);
     await supabase.from('visitas_obra').update({ estado: 'terminada', terminada_en: new Date().toISOString() }).eq('id', visita.id);
     try {
-      await generarPDFVisita(visita.id, proyectoSel?.nombre ?? 'Proyecto', resultadoCalculo ? frenteMoldaje : undefined);
+      await generarDOCVisita(visita.id, proyectoSel?.nombre ?? 'Proyecto', resultadoCalculo ? frenteMoldaje : undefined);
     } catch (e) { console.error('Error generando PDF:', e); }
     setGenerandoPDF(false);
     setVisita(null); setPantalla('inicio'); setProyectoSel(null);

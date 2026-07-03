@@ -450,6 +450,16 @@ const Admin: React.FC = () => {
   >
     📐 Calibrador Planos OG
   </button>
+  <button
+    onClick={() => router.push('/calibrador-elementos')}
+    style={{
+      flex: 1, height: 34, borderRadius: 10, cursor: 'pointer',
+      fontSize: 10, fontWeight: 600, background: 'transparent',
+      color: textMuted, border: `0.5px solid ${border}`,
+    }}
+  >
+    🎯 Calibrador Elementos OG
+  </button>
 </div>
           {/* ── USUARIOS ── */}
           {seccion === 'usuarios' && (

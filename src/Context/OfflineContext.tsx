@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Network } from '@capacitor/network';
 import { supabase } from '../supabase';
+import { flushColaOG, contarPendientesOG } from '../utils/Ogofflinequeue'; // ← FMS offline OG
 
 interface RegistroPendiente {
   id: string;
@@ -32,6 +33,7 @@ interface OfflineContextType {
   pendientes: number;
   pendientesZC: number;
   cambiosPendientes: number;
+  pendientesOG: number; // ← FMS offline OG
   agregarPendiente: (datos: any, foto?: File) => Promise<void>;
   agregarPendienteZC: (datos: any, foto?: File) => Promise<void>;
   agregarCambioPendiente: (tipo: 'estado' | 'edicion' | 'eliminacion', registro_id: string, datos: any) => void;
@@ -43,6 +45,7 @@ const OfflineContext = createContext<OfflineContextType>({
   pendientes: 0,
   pendientesZC: 0,
   cambiosPendientes: 0,
+  pendientesOG: 0, // ← FMS offline OG
   agregarPendiente: async () => {},
   agregarPendienteZC: async () => {},
   agregarCambioPendiente: () => {},
@@ -95,9 +98,11 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [pendientes, setPendientes]               = useState(0);
   const [pendientesZC, setPendientesZC]           = useState(0);
   const [cambiosPendientes, setCambiosPendientes] = useState(0);
+  const [pendientesOG, setPendientesOG]           = useState(contarPendientesOG()); // ← FMS offline OG
   const sincronizando                             = useRef(false);
   const sincronizandoZC                           = useRef(false);
   const sincronizandoCambios                      = useRef(false);
+  const sincronizandoOG                           = useRef(false); // ← FMS offline OG
   const onlineRef                                 = useRef(true);
 
   useEffect(() => {
@@ -113,6 +118,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         sincronizar();
         sincronizarZC();
         sincronizarCambios();
+        sincronizarOG(); // ← FMS offline OG
       }
     });
 
@@ -125,6 +131,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         sincronizar();
         sincronizarZC();
         sincronizarCambios();
+        sincronizarOG(); // ← FMS offline OG
       }
     }, 30000);
 
@@ -139,6 +146,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       sincronizar();
       sincronizarZC();
       sincronizarCambios();
+      sincronizarOG(); // ← FMS offline OG
     }
   }, [online]);
 
@@ -189,7 +197,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const fileName = `${userId}/${Date.now()}_antes.${ext}`;
           const blob = await fetch((reg as any).foto_antes_base64).then(r => r.blob());
           const { error: uploadError } = await supabase.storage.from('fotos-registros').upload(fileName, blob, { contentType: 'image/jpeg' });
-          if (!uploadError) { const { data: urlData } = supabase.storage.from('fotos-registros').getPublicUrl(fileName); foto_antes_url = urlData.publicUrl; }
+          if (!uploadError) { const { data: urlData } = supabase.storage.from('fotos-registros').getPublicUrl(fileName); foto_url = urlData.publicUrl; }
         }
         const { error } = await supabase.from('registros').insert({ ...reg.datos, foto_url, foto_antes_url, creado_por: userId });
         if (!error) exitosos.push(reg.id);
@@ -296,9 +304,27 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     sincronizandoCambios.current = false;
   };
 
+  // ── Cola OG ───────────────────────────────────────────────────────────────
+  // FMS offline OG — flush delegado a ogOfflineQueue.ts (sube fotos + INSERT)
+
+  const sincronizarOG = async () => {
+    if (sincronizandoOG.current) return;
+    if (contarPendientesOG() === 0) return;
+    sincronizandoOG.current = true;
+    try {
+      await flushColaOG();
+      setPendientesOG(contarPendientesOG());
+    } catch (e) {
+      console.error('[OfflineContext] Error sincronizando OG:', e);
+    } finally {
+      sincronizandoOG.current = false;
+    }
+  };
+
   return (
     <OfflineContext.Provider value={{
       online, pendientes, pendientesZC, cambiosPendientes,
+      pendientesOG, // ← FMS offline OG
       agregarPendiente, agregarPendienteZC, agregarCambioPendiente,
       obtenerPendientesZC: obtenerColaZC,
     }}>

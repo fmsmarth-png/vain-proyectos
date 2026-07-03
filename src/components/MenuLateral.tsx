@@ -7,6 +7,9 @@ import { lineaConfig } from '../utils/lineas';
 
 interface Props { usuario: any; }
 
+// Levantamiento Cerámicos: pantalla provisoria, visible solo para estos dos correos
+const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
+
 const MenuLateral: React.FC<Props> = ({ usuario }) => {
   const history = useHistory();
   const { theme, toggleTheme } = useTheme();
@@ -47,7 +50,7 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   const puedeVisitar   = ['staff', 'administrador'].includes(rol);
   // Post venta: administrador siempre puede; el resto solo si tiene puede_postventa = true
   const puedePostventa = rol === 'administrador' || usuario?.puede_postventa === true;
-const puedeOG = ['administrador'].includes(rol ?? '');
+  const puedeOG = ['administrador'].includes(rol ?? '');
   // Bodega — Pantalla 1: jefe_terreno (cualquier especialidad) + staff/administrador para poder probar
   const puedeGenerarVale = ['jefe_terreno', 'administrador',].includes(rol ?? '');
   // Bodega — Pantalla 2: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
@@ -56,6 +59,8 @@ const puedeOG = ['administrador'].includes(rol ?? '');
   const puedeVerStock = ['ayudante_bodega', 'jefe_bodega', 'administrador'].includes(rol ?? '');
   // Roles cuyo único contexto es bodega: solo ven Inicio + lo relacionado a bodega
   const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(rol ?? '');
+  // Levantamiento Cerámicos: solo dos correos puntuales, independiente del rol
+  const puedeCeramicos = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
 
   const menuItems = esRolBodega ? [
     { icon: '🏠', label: 'Inicio',          ruta: '/dashboard',        seccion: 'principal' },
@@ -73,6 +78,7 @@ const puedeOG = ['administrador'].includes(rol ?? '');
     ...(puedeGenerarVale ? [{ icon: '📦', label: 'Generar Vale', ruta: '/bodega/generar-vale', seccion: 'principal' }] : []),
     ...(puedeAprobarBodega ? [{ icon: '🗃️', label: 'Vales de bodega', ruta: '/bodega/aprobacion', seccion: 'principal' }] : []),
     ...(puedeVerStock ? [{ icon: '📊', label: 'Stock de bodega', ruta: '/bodega/stock', seccion: 'principal' }] : []),
+    ...(puedeCeramicos ? [{ icon: '🧱', label: 'Levantamiento Cerámicos', ruta: '/levantamiento-ceramicos', seccion: 'principal' }] : []),
 
     ...(rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
   ];

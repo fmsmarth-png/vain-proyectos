@@ -26,18 +26,25 @@ import '@ionic/react/css/core.css';
 import '@ionic/react/css/normalize.css';
 import '@ionic/react/css/structure.css';
 import '@ionic/react/css/typography.css';
-import RevisionOG         from './pages/RevisionOG';
-import RevisionOGDetalle  from './pages/RevisionOGDetalle';
-import RevisionOGAmbiente from './pages/RevisionOGAmbiente';
-import RevisionOGResumen  from './pages/RevisionOGResumen';
-import CalibradorPlano    from './pages/CalibradorPlano';
-import GenerarVale        from './pages/GenerarVale';
-import AprobacionBodega   from './pages/Aprobacionbodega';
-import StockBodega        from './pages/StockBodega';
-import DashboardBodega    from './pages/DashboardBodega';
+import RevisionOG            from './pages/RevisionOG';
+import RevisionOGDetalle     from './pages/RevisionOGDetalle';
+import RevisionOGAmbiente    from './pages/RevisionOGAmbiente';
+import RevisionOGResumen     from './pages/RevisionOGResumen';
+import CalibradorPlano       from './pages/CalibradorPlano';
+import CalibradorElementos   from './pages/Calibradorelementos';
+import GenerarVale           from './pages/GenerarVale';
+import AprobacionBodega      from './pages/Aprobacionbodega';
+import StockBodega           from './pages/StockBodega';
+import DashboardBodega       from './pages/DashboardBodega';
+import LevantamientoCeramicos          from './pages/LevantamientoCeramicos';
+import LevantamientoCeramicosDetalle   from './pages/LevantamientoCeramicosDetalle';
+import LevantamientoCeramicosChecklist from './pages/LevantamientoCeramicosChecklist';
 import './theme/variables.css';
 
 setupIonicReact();
+
+// Levantamiento Cerámicos: pantalla provisoria, acceso restringido a estos dos correos
+const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
 
 const App: React.FC = () => {
   const [session, setSession]     = useState<any>(null);
@@ -143,17 +150,15 @@ const App: React.FC = () => {
     </div>
   );
 
-  const puedeVisitar      = ['staff', 'administrador'].includes(usuario?.rol);
-  const puedePostventa    = usuario?.rol === 'administrador' || usuario?.puede_postventa === true;
-  const puedeOG           = ['staff', 'administrador', 'prof_obra_gruesa'].includes(usuario?.rol ?? '');
-  // Bodega — Pantalla 1: jefe_terreno (cualquier especialidad) + staff/administrador para poder probar
-  const puedeGenerarVale  = ['staff', 'administrador', 'jefe_terreno'].includes(usuario?.rol ?? '');
-  // Bodega — Pantalla 2: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
+  const puedeVisitar       = ['staff', 'administrador'].includes(usuario?.rol);
+  const puedePostventa     = usuario?.rol === 'administrador' || usuario?.puede_postventa === true;
+  const puedeOG            = ['staff', 'administrador', 'prof_obra_gruesa'].includes(usuario?.rol ?? '');
+  const puedeGenerarVale   = ['staff', 'administrador', 'jefe_terreno'].includes(usuario?.rol ?? '');
   const puedeAprobarBodega = ['staff', 'administrador', 'ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
-  // Bodega — Pantalla 3: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
-  const puedeVerStock = ['staff', 'administrador', 'ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
-  // Roles cuyo único contexto es bodega: ven un dashboard distinto y un menú acotado
-  const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
+  const puedeVerStock      = ['staff', 'administrador', 'ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
+  const esRolBodega        = ['ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
+  const esAdmin            = usuario?.rol === 'administrador';
+  const puedeCeramicos     = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
 
   return (
     <ThemeProvider>
@@ -213,9 +218,12 @@ const App: React.FC = () => {
                       puedeOG ? <RevisionOGResumen /> : <Redirect to="/dashboard" />
                     } />
 
-                    {/* Calibrador de planos OG — solo admin */}
+                    {/* Calibradores OG — solo admin */}
                     <Route exact path="/calibrador-plano" render={() =>
-                      usuario?.rol === 'administrador' ? <CalibradorPlano /> : <Redirect to="/dashboard" />
+                      esAdmin ? <CalibradorPlano /> : <Redirect to="/dashboard" />
+                    } />
+                    <Route exact path="/calibrador-elementos" render={() =>
+                      esAdmin ? <CalibradorElementos /> : <Redirect to="/dashboard" />
                     } />
 
                     {/* Visita de obra */}
@@ -223,19 +231,26 @@ const App: React.FC = () => {
                       puedeVisitar ? <VisitaObra /> : <Redirect to="/dashboard" />
                     } />
 
-                    {/* Bodega — Pantalla 1: Generar Vale */}
+                    {/* Bodega */}
                     <Route exact path="/bodega/generar-vale" render={() =>
                       puedeGenerarVale ? <GenerarVale /> : <Redirect to="/dashboard" />
                     } />
-
-                    {/* Bodega — Pantalla 2: Aprobación */}
                     <Route exact path="/bodega/aprobacion" render={() =>
                       puedeAprobarBodega ? <AprobacionBodega /> : <Redirect to="/dashboard" />
                     } />
-
-                    {/* Bodega — Pantalla 3: Stock */}
                     <Route exact path="/bodega/stock" render={() =>
                       puedeVerStock ? <StockBodega /> : <Redirect to="/dashboard" />
+                    } />
+
+                    {/* Levantamiento Cerámicos — solo jcaballero@vain.cl y cgarces@vain.cl */}
+                    <Route exact path="/levantamiento-ceramicos" render={() =>
+                      puedeCeramicos ? <LevantamientoCeramicos /> : <Redirect to="/dashboard" />
+                    } />
+                    <Route exact path="/levantamiento-ceramicos/detalle" render={() =>
+                      puedeCeramicos ? <LevantamientoCeramicosDetalle /> : <Redirect to="/dashboard" />
+                    } />
+                    <Route exact path="/levantamiento-ceramicos/checklist" render={() =>
+                      puedeCeramicos ? <LevantamientoCeramicosChecklist /> : <Redirect to="/dashboard" />
                     } />
 
                     <Redirect exact from="/" to="/dashboard" />
