@@ -12,12 +12,13 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.4",
+    "@capacitor/android": "^8.4.1",
     "@capacitor/app": "^8.1.0",
     "@capacitor/browser": "^8.0.3",
-    "@capacitor/core": "8.3.4",
+    "@capacitor/core": "^8.4.1",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/haptics": "8.0.2",
+    "@capacitor/ios": "^8.4.1",
     "@capacitor/keyboard": "8.0.3",
     "@capacitor/network": "^8.0.1",
     "@capacitor/share": "^8.0.1",
@@ -29,14 +30,17 @@
     "@types/react-router": "^5.1.20",
     "@types/react-router-dom": "^5.3.3",
     "docx": "^9.7.1",
+    "html2canvas": "^1.4.1",
     "ionicons": "^7.4.0",
+    "jspdf": "^4.2.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-router": "^5.3.4",
-    "react-router-dom": "^5.3.4"
+    "react-router-dom": "^5.3.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@capacitor/cli": "8.3.4",
+    "@capacitor/cli": "^8.4.1",
     "@testing-library/dom": ">=7.21.4",
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^16.2.0",
