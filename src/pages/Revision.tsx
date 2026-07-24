@@ -51,6 +51,8 @@ const Revision: React.FC = () => {
   const [torres, setTorres]             = useState<any[]>([]);
   const [deptos, setDeptos]             = useState<any[]>([]);
   const [registros, setRegistros]       = useState<any[]>([]);
+  // 🆕 Estado para observaciones de PRE-E/PV desde ObservacionesInformePV
+  const [observacionesInforme, setObservacionesInforme] = useState<any[]>([]);
   const [ambientes, setAmbientes]       = useState<any[]>([]);
   const [partidas, setPartidas]         = useState<any[]>([]);
   const [proyectoId, setProyectoId]     = useState('');
@@ -110,20 +112,87 @@ const Revision: React.FC = () => {
   const [resumenTorres, setResumenTorres] = useState<any[]>([]);  
   const [cargandoModal, setCargandoModal] = useState(false);
 
+  // 🔧 ACTUALIZADO: Cargar observaciones de forma directa en useEffect
+  // (Sin hook complicado que causaba problemas de sincronización)
+
+  useEffect(() => {
+    if (!deptoId || !proyectoId) {
+      setObservacionesInforme([]);
+      return;
+    }
+
+    const cargarObservacionesInforme = async () => {
+      try {
+        const deptoNum = deptos.find(d => d.id === deptoId)?.numero;
+        if (!deptoNum) return;
+
+        // Determinar tipo a filtrar
+        let tipoFiltro: string | null = null;
+        if (filtroEtapa === 'pre_entrega') {
+          tipoFiltro = 'PRE-E';
+        } else if (filtroEtapa === 'postventa') {
+          tipoFiltro = 'PV';
+        }
+
+        console.log('Cargando observaciones:', { deptoNum, proyectoId, filtroEtapa, tipoFiltro });
+
+        // Query directa - traer TODOS los campos (sin numero_obs que se calcula en app)
+        let query = supabase
+          .from('observacionesinformepv')
+          .select('id, proyecto_id, proyecto_codigo, torre_codigo, depto_numero, tipo, estado, observacion, ambiente, partida_afectada, causa, usuario_email, usuario_id, fecha_creacion, fecha_resolucion, semana_creacion, semana_resolucion')
+          .eq('depto_numero', deptoNum)
+          .eq('proyecto_id', proyectoId);
+
+        // Agregar filtro de tipo si corresponde
+        if (tipoFiltro) {
+          query = query.eq('tipo', tipoFiltro);
+        }
+
+        const { data, error } = await query.order('fecha_creacion', { ascending: true });
+
+        if (error) {
+          console.error('Error cargando observaciones informe:', error);
+          setObservacionesInforme([]);
+          return;
+        }
+
+        console.log('Observaciones cargadas:', data?.length || 0, data);
+
+        // Calcular numero_obs
+        const obsMap = new Map<number, number>();
+        const withNumero = (data || []).map((obs: any) => {
+          const count = (obsMap.get(obs.depto_numero) || 0) + 1;
+          obsMap.set(obs.depto_numero, count);
+          return {
+            ...obs,
+            numero_obs: count,
+          };
+        });
+
+        setObservacionesInforme(withNumero);
+      } catch (err) {
+        console.error('Error inesperado cargando observaciones:', err);
+        setObservacionesInforme([]);
+      }
+    };
+
+    cargarObservacionesInforme();
+  }, [deptoId, proyectoId, deptos, filtroEtapa]);
+
   useEffect(() => { cargar(); }, []);
   useAppFocus(() => { cargar(); });
 
   useEffect(() => {
-    if (proyectoId) { cargarTorres(proyectoId); setTorreId(''); setDeptoId(''); setRegistros([]); setEsZC(false); }
+    if (proyectoId) { cargarTorres(proyectoId); setTorreId(''); setDeptoId(''); setRegistros([]); setObservacionesInforme([]); setEsZC(false); }
   }, [proyectoId]);
 
   useEffect(() => {
-    if (torreId) { cargarDeptos(torreId); setDeptoId(''); setRegistros([]); setEsZC(false); }
+    if (torreId) { cargarDeptos(torreId); setDeptoId(''); setRegistros([]); setObservacionesInforme([]); setEsZC(false); }
   }, [torreId]);
 
   useEffect(() => {
     if (!deptoId) return;
-    setRegistros([]); setRegistrosZC([]); setCheckPendientes([]); setFiltro('todos'); setFiltroEtapa('todas');
+    setRegistros([]); setObservacionesInforme([]); setRegistrosZC([]); setCheckPendientes([]); setFiltro('todos'); setFiltroEtapa('todas');
     if (deptoId === '__ZC__') {
       setEsZC(true); setDeptoData(null); cargarDatosZC();
     } else {
@@ -161,11 +230,25 @@ const Revision: React.FC = () => {
 
   useEffect(() => {
     if (!deptoId || !online || esZC) return;
-    const channel = supabase.channel(`registros_${deptoId}`)
+    // 🆕 Cambiar: escuchar AMBAS tablas (registros + ObservacionesInformePV)
+    const depto = deptos.find(d => d.id === deptoId);
+    const deptoNumero = depto?.numero;
+
+    const channel1 = supabase.channel(`registros_${deptoId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'registros', filter: `departamento_id=eq.${deptoId}` }, () => { cargarRegistros(deptoId); })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [deptoId, online, esZC]);
+
+    const channel2 = deptoNumero ? supabase.channel(`observaciones_informe_${deptoNumero}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ObservacionesInformePV', filter: `depto_numero=eq.${deptoNumero}` }, () => {
+        // Recargar desde el hook (ya lo hace automáticamente al cambiar filtroObservacionesInforme)
+      })
+      .subscribe() : null;
+
+    return () => {
+      supabase.removeChannel(channel1);
+      if (channel2) supabase.removeChannel(channel2);
+    };
+  }, [deptoId, online, esZC, deptos]);
 
   const cargar = async () => {
     setLoading(true);
@@ -202,6 +285,7 @@ const Revision: React.FC = () => {
     if (online) { try { const { data } = await supabase.from('departamentos').select('*').eq('torre_id', tId).order('numero'); if (data) { setDeptos(data); cache.setDeptos(tId, data); } } catch {} }
   };
 
+  // 🆕 CAMBIO: Cargar registros SOLO de la tabla `registros` (para etapa 'obra')
   const cargarRegistros = async (dId: string) => {
     setCargandoRegs(true);
     if (online) {
@@ -343,10 +427,55 @@ const Revision: React.FC = () => {
 
   const cambiarEstado = async (reg: any, nuevoEstado: string, comentarioRechazo?: string) => {
     setGuardando(true);
-    const registrosActualizados = registros.map(r => r.id === reg.id ? { ...r, estado: nuevoEstado, comentario_rechazo: comentarioRechazo ?? null } : r);
-    setRegistros(registrosActualizados); cache.setRegistros(deptoId, registrosActualizados);
-    if (online) { const { error } = await supabase.from('registros').update({ estado: nuevoEstado, comentario_rechazo: comentarioRechazo ?? null, ...(nuevoEstado === 'solucionado' ? { fecha_reparacion: new Date().toISOString() } : {}) }).eq('id', reg.id); if (error) { setRegistros(registros); cache.setRegistros(deptoId, registros); } }
-    else { agregarCambioPendiente('estado', reg.id, { estado: nuevoEstado, comentario_rechazo: comentarioRechazo ?? null, fecha_reparacion: nuevoEstado === 'solucionado' ? new Date().toISOString() : null }); }
+    
+    // 🆕 Detectar si es observación de informe: Debe tener partida_afectada (clave)
+    // O si tiene usuario_email (las nuevas observaciones las tendrán)
+    const esObservacionInforme = reg.partida_afectada !== null && reg.partida_afectada !== undefined;
+    console.log('🔍 DEBUG cambiarEstado:', { id: reg.id, esObservacionInforme, usuario_email: reg.usuario_email, partida_afectada: reg.partida_afectada });
+    
+    if (esObservacionInforme) {
+      // 🆕 Es de observacionesinformepv → actualizar esa tabla
+      // Normalizar estado a mayúsculas para cumplir con CHECK constraint
+      const estadoNormalizado = nuevoEstado.toUpperCase();
+      const obsActualizadas = observacionesInforme.map(o => 
+        o.id === reg.id ? { ...o, estado: estadoNormalizado } : o
+      );
+      setObservacionesInforme(obsActualizadas);
+      
+      if (online) {
+        try {
+          let updateData: any = { estado: estadoNormalizado };
+          
+          // Agregar fecha_resolucion y semana_resolucion si cambia a SOLUCIONADO
+          if (estadoNormalizado === 'SOLUCIONADO') {
+            const ahora = new Date();
+            updateData.fecha_resolucion = ahora.toISOString();
+            
+            // Calcular semana de resolución
+            const inicio = new Date(ahora.getFullYear(), 0, 1);
+            const diff = ahora.getTime() - inicio.getTime();
+            const semana = Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1;
+            updateData.semana_resolucion = `${semana}-${ahora.getFullYear()}`;
+          }
+          
+          const { error } = await supabase.from('observacionesinformepv').update(updateData).eq('id', reg.id);
+          if (error) {
+            console.error('Error actualizando observación:', error);
+            setObservacionesInforme(observacionesInforme);
+          }
+        } catch (e: any) {
+          console.error('Error:', e.message);
+          setObservacionesInforme(observacionesInforme);
+        }
+      }
+    } else {
+      // Es de registros → actualizar esa tabla (lógica original)
+      const registrosActualizados = registros.map(r => r.id === reg.id ? { ...r, estado: nuevoEstado, comentario_rechazo: comentarioRechazo ?? null } : r);
+      setRegistros(registrosActualizados); cache.setRegistros(deptoId, registrosActualizados);
+      if (online) { const { error } = await supabase.from('registros').update({ estado: nuevoEstado, comentario_rechazo: comentarioRechazo ?? null, ...(nuevoEstado === 'solucionado' ? { fecha_reparacion: new Date().toISOString() } : {}) }).eq('id', reg.id); if (error) { setRegistros(registros); cache.setRegistros(deptoId, registros); } }
+      else { agregarCambioPendiente('estado', reg.id, { estado: nuevoEstado, comentario_rechazo: comentarioRechazo ?? null, fecha_reparacion: nuevoEstado === 'solucionado' ? new Date().toISOString() : null }); }
+    }
+    
     setGuardando(false);
   };
 
@@ -409,19 +538,52 @@ const Revision: React.FC = () => {
   const puedeRecibirInmob = ['vendedor_inmobiliaria', 'administrador'].includes(usuario?.rol);
   const puedeEntregarProp = ['vendedor_inmobiliaria', 'administrador'].includes(usuario?.rol);
 
-  const registrosFiltradosPorEtapa = filtroEtapa === 'todas' ? registros : registros.filter(r => r.etapa === filtroEtapa);
-  const registrosFiltrados = registrosFiltradosPorEtapa.filter(r => {
-    if (filtro === 'todos') return true;
-    if (filtro === 'rechazado') return !!r.comentario_rechazo;
-    if (filtro === 'pendiente') return r.estado === 'pendiente' && !r.comentario_rechazo;
-    return r.estado === filtro;
-  });
-  const conteos = {
-    pendiente:   registrosFiltradosPorEtapa.filter(r => r.estado === 'pendiente' && !r.comentario_rechazo).length,
-    solucionado: registrosFiltradosPorEtapa.filter(r => r.estado === 'solucionado').length,
+  // 🆕 LÓGICA DE MEZCLA: Combinar registros (obra) + observacionesInforme (PRE-E/PV)
+  let registrosFiltradosPorEtapa: any[] = [];
+  let conteos: any = { pendiente: 0, solucionado: 0, aprobado: 0, rechazado: 0 };
+
+  // Normalizar observacionesInforme con campo etapa
+  const observacionesConEtapa = observacionesInforme.map(o => ({ 
+    ...o, 
+    etapa: o.tipo === 'PRE-E' ? 'pre_entrega' : 'postventa' 
+  }));
+
+  // Filtrar registros SOLO para etapa 'obra' (excluir pre_entrega y postventa que están en ObservacionesInformePV)
+  const registrosObraOnly = registros.filter(r => r.etapa === 'obra' || !r.etapa);
+
+  if (filtroEtapa === 'todas') {
+    // Mezclar: registros de obra + todas las observaciones de informe
+    registrosFiltradosPorEtapa = [
+      ...registrosObraOnly,
+      ...observacionesConEtapa
+    ];
+  } else if (filtroEtapa === 'obra') {
+    // SOLO registros de obra (excluir pre_entrega y postventa)
+    registrosFiltradosPorEtapa = registrosObraOnly;
+  } else if (filtroEtapa === 'pre_entrega') {
+    // SOLO observaciones PRE-E de ObservacionesInformePV
+    registrosFiltradosPorEtapa = observacionesConEtapa.filter(o => o.tipo === 'PRE-E');
+  } else if (filtroEtapa === 'postventa') {
+    // SOLO observaciones PV de ObservacionesInformePV
+    registrosFiltradosPorEtapa = observacionesConEtapa.filter(o => o.tipo === 'PV');
+  }
+
+  // Calcular conteos
+  conteos = {
+    pendiente:   registrosFiltradosPorEtapa.filter(r => r.estado === 'PENDIENTE' || (r.estado === 'pendiente' && !r.comentario_rechazo)).length,
+    solucionado: registrosFiltradosPorEtapa.filter(r => r.estado === 'SOLUCIONADO' || r.estado === 'solucionado').length,
     aprobado:    registrosFiltradosPorEtapa.filter(r => r.estado === 'aprobado').length,
     rechazado:   registrosFiltradosPorEtapa.filter(r => r.comentario_rechazo).length,
   };
+
+  // Aplicar filtro por estado
+  const registrosFiltrados = registrosFiltradosPorEtapa.filter(r => {
+    if (filtro === 'todos') return true;
+    if (filtro === 'rechazado') return !!r.comentario_rechazo;
+    if (filtro === 'pendiente') return (r.estado === 'PENDIENTE' || r.estado === 'pendiente') && !r.comentario_rechazo;
+    if (filtro === 'solucionado') return r.estado === 'SOLUCIONADO' || r.estado === 'solucionado';
+    return r.estado === filtro;
+  });
 
   const conteosZC = {
     pendiente:   registrosZC.filter(r => r.estado === 'pendiente' && !r.comentario_rechazo).length,
@@ -515,6 +677,74 @@ const Revision: React.FC = () => {
     );
   };
 
+  // 🆕 HELPER: Normalizar campos de ObservacionesInformePV para renderizado
+  const renderRegistro = (r: any, index: number): React.ReactNode => {
+    // Si viene de ObservacionesInformePV, adaptar campos
+    const esDelInforme: boolean = r.usuario_email !== undefined && r.partida_afectada !== undefined;
+    const esCreador: boolean = esDelInforme ? r.usuario_id === usuario?.id : r.usuarios?.id === usuario?.id;
+    const puedeEditarEliminar: boolean = esCreador && (r.estado === 'PENDIENTE' || r.estado === 'pendiente');
+    const estado: string = r.estado?.toLowerCase() || 'pendiente';
+    const eColor: string = estadoColors[estado] || '#94a3b8';
+    const pill: any = etapaPill(r.etapa || (r.tipo === 'PRE-E' ? 'pre_entrega' : 'postventa'));
+
+    return (
+      <div key={r.id + index} style={{ background: regCardBg, borderRadius: 16, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 10, fontWeight: 600, background: pill.bg, color: pill.color, border: `0.5px solid ${pill.border}` }}>
+                {r.etapa === 'postventa' || r.tipo === 'PV' ? '🔧 PV' : r.etapa === 'pre_entrega' || r.tipo === 'PRE-E' ? '🏠 Pre-E' : '🏗️ Obra'}
+              </span>
+              <span style={{ fontSize: 11, color: textSecondary }}>
+                {esDelInforme ? `${r.ambiente} · ${r.partida_afectada}` : `${r.ambientes?.nombre} · ${r.partidas?.nombre}`}
+              </span>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: textPrimary, marginBottom: 4 }}>{r.observacion}</div>
+            {r.causa && <div style={{ fontSize: 11, color: textSecondary, marginBottom: 4 }}><strong style={{ color: textMuted }}>Causa:</strong> {r.causa}</div>}
+            {r.comentario_rechazo && (
+              <div style={{ fontSize: 11, color: dark ? '#fbbf24' : '#a16207', background: dark ? 'rgba(251,191,36,0.06)' : '#fffbeb', padding: '6px 10px', borderRadius: 8, border: dark ? '0.5px solid rgba(251,191,36,0.15)' : '0.5px solid #fde68a', marginBottom: 4 }}>
+                ⚠️ Rechazo: {r.comentario_rechazo}
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>
+              {esDelInforme ? r.usuario_email : r.usuarios?.nombre ?? 'desconocido'}
+            </div>
+          </div>
+          {r.foto_url && (
+            <div onClick={() => setFotoModal(r.foto_url)} style={{ flexShrink: 0, cursor: 'pointer' }}>
+              <img src={r.foto_url} style={{ width: 100, height: 75, objectFit: 'cover', borderRadius: 10, border: `0.5px solid ${border}`, display: 'block' }}
+                onError={e => { const img = e.target as HTMLImageElement; if (!img.dataset.retried) { img.dataset.retried = '1'; setTimeout(() => { img.src = r.foto_url + '?r=' + Date.now(); }, 1500); } }} />
+              <div style={{ fontSize: 9, color: textMuted, marginTop: 3, textAlign: 'center' }}>ampliar</div>
+            </div>
+          )}
+          <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, flexShrink: 0, background: eColor + (dark ? '15' : '12'), color: eColor, border: `0.5px solid ${eColor}40`, fontWeight: 600, alignSelf: 'flex-start' }}>
+            {r.estado === 'PENDIENTE' || r.estado === 'SOLUCIONADO' ? estadoLabel[r.estado.toLowerCase()] : estadoLabel[r.estado]}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {puedeEditarEliminar && (
+            <>
+              <button onClick={() => abrirEditar(r)} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>✏️ Editar</button>
+              <button onClick={() => { setRegEliminar(r); setEsEliminarZC(false); setAlertEliminar(true); }} style={{ height: 34, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 12, cursor: 'pointer' }}>🗑️</button>
+            </>
+          )}
+          {puedeSolucionar && ((r.estado === 'PENDIENTE' || r.estado === 'pendiente') || r.estado === 'rechazado') && (
+            <button onClick={() => cambiarEstado(r, 'solucionado')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>🔧 Solucionado</button>
+          )}
+          {puedeAprobar && (r.estado === 'SOLUCIONADO' || r.estado === 'solucionado') && (
+            <button onClick={() => cambiarEstado(r, 'aprobado')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', color: dark ? '#4ade80' : '#15803d', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>✓ Aprobar</button>
+          )}
+          {puedeAprobar && (r.estado === 'SOLUCIONADO' || r.estado === 'solucionado') && (
+            <button onClick={() => abrirRechazo(r)} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(251,191,36,0.06)' : '#fffbeb', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a', color: dark ? '#fbbf24' : '#a16207', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>✗ Rechazar</button>
+          )}
+          {usuario?.rol === 'administrador' && r.estado === 'aprobado' && (
+            <button onClick={() => cambiarEstado(r, 'pendiente')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, cursor: 'pointer' }}>↩ Reabrir</button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <IonPage id="main-content">
       <IonHeader>
@@ -537,18 +767,18 @@ const Revision: React.FC = () => {
             <label style={labelStyle}>proyecto</label>
             <select value={proyectoId} onChange={e => setProyectoId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar proyecto...</option>
-              {proyectos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+              {proyectos.map((p: any) => <option key={p.id as string} value={p.id as string}>{p.nombre}</option>)}
             </select>
             <label style={labelStyle}>torre</label>
             <select value={torreId} onChange={e => setTorreId(e.target.value)} style={{ ...selectStyle, opacity: !proyectoId ? 0.3 : 1 }} disabled={!proyectoId}>
               <option value="">Seleccionar torre...</option>
-              {torres.map(t => <option key={t.id} value={t.id}>Torre {t.nombre}{t.frente ? ` (${t.frente})` : ''}</option>)}
+              {torres.map((t: any) => <option key={t.id as string} value={t.id as string}>Torre {t.nombre}{t.frente ? ` (${t.frente})` : ''}</option>)}
             </select>
             <label style={labelStyle}>departamento</label>
             <select value={deptoId} onChange={e => setDeptoId(e.target.value)} style={{ ...selectStyle, opacity: !torreId ? 0.3 : 1, marginBottom: 0 }} disabled={!torreId}>
               <option value="">Seleccionar departamento...</option>
               {torreId && <option value="__ZC__">🏢 Zona Común</option>}
-              {deptos.map(d => <option key={d.id} value={d.id}>{d.numero}{d.id_obra ? ` · ${d.id_obra}` : ''}</option>)}
+              {deptos.map((d: any) => <option key={d.id as string} value={d.id as string}>{d.numero}{d.id_obra ? ` · ${d.id_obra}` : ''}</option>)}
             </select>
           </div>
 
@@ -598,7 +828,7 @@ const Revision: React.FC = () => {
                       <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Observaciones Zona Común</div>
                       <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-                        {Object.entries(conteosZC).map(([estado, count]) => {
+                        {Object.entries(conteosZC).map(([estado, count]: [string, any]) => {
                           const ec = estadoColors[estado];
                           return (
                             <div key={estado} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 14, padding: '12px 14px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -612,7 +842,7 @@ const Revision: React.FC = () => {
                         })}
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 4 }}>
-                        {(['todos', 'pendiente', 'solucionado', 'aprobado', 'rechazado'] as const).map(f => {
+                        {(['todos', 'pendiente', 'solucionado', 'aprobado', 'rechazado'] as const).map((f: any) => {
                           const ec = f !== 'todos' ? estadoColors[f] : undefined;
                           const activo = filtro === f;
                           return (
@@ -622,7 +852,7 @@ const Revision: React.FC = () => {
                           );
                         })}
                       </div>
-                      {registrosZCFiltrados.map(r => <CardObsZC key={r.id} r={r} />)}
+                      {registrosZCFiltrados.map((r: any) => <CardObsZC key={r.id as string} r={r} />)}
                     </>
                   )}
                   {registrosZC.length === 0 && (
@@ -634,7 +864,7 @@ const Revision: React.FC = () => {
                         ☑️ Checklist pendiente ({checkPendientes.length} ítems sin OK)
                       </div>
                       <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
-                      {checkPendientes.map(item => (
+                      {checkPendientes.map((item: any) => (
                         <div key={item.item_numero} style={{ background: regCardBg, borderRadius: 14, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${dark ? 'rgba(251,191,36,0.2)' : '#fde68a'}`, display: 'flex', alignItems: 'center', gap: 12 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
@@ -664,17 +894,21 @@ const Revision: React.FC = () => {
           {/* ── DEPTO NORMAL ── */}
           {!esZC && (
             <>
-              {deptoId && registros.length > 0 && (
+              {deptoId && (
                 <>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                    {(['todas', 'obra', 'pre_entrega', 'postventa'] as const).map(e => (
+                    {(['todas', 'obra', 'pre_entrega', 'postventa'] as const).map((e: any) => (
                       <button key={e} onClick={() => setFiltroEtapa(e)} style={{ flex: 1, height: 30, borderRadius: 8, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: filtroEtapa === e ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: filtroEtapa === e ? '#fff' : textMuted, border: `0.5px solid ${filtroEtapa === e ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>
                         {e === 'todas' ? '📋 Todas' : e === 'obra' ? '🏗️ Obra' : e === 'pre_entrega' ? '🏠 Pre-E' : '🔧 PV'}
                       </button>
                     ))}
                   </div>
+                </>
+              )}
+              {deptoId && registrosFiltradosPorEtapa.length > 0 && (
+                <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-                    {Object.entries(conteos).map(([estado, count]) => {
+                    {Object.entries(conteos).map(([estado, count]: [string, any]) => {
                       const ec = estadoColors[estado];
                       return (
                         <div key={estado} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 14, padding: '12px 14px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -688,7 +922,7 @@ const Revision: React.FC = () => {
                     })}
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 4 }}>
-                    {(['todos', 'pendiente', 'solucionado', 'aprobado', 'rechazado'] as const).map(f => {
+                    {(['todos', 'pendiente', 'solucionado', 'aprobado', 'rechazado'] as const).map((f: any) => {
                       const ec = f !== 'todos' ? estadoColors[f] : undefined;
                       const activo = filtro === f;
                       return (
@@ -702,69 +936,12 @@ const Revision: React.FC = () => {
               )}
               {cargandoRegs ? (
                 <div style={{ textAlign: 'center', marginTop: 40 }}><IonSpinner name="crescent" /></div>
-              ) : deptoId && registros.length === 0 ? (
+              ) : deptoId && registrosFiltradosPorEtapa.length === 0 ? (
                 <div style={{ textAlign: 'center', marginTop: 60 }}>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
                   <div style={{ fontSize: 14, color: textSecondary }}>Sin observaciones registradas</div>
                 </div>
-              ) : registrosFiltrados.map(r => {
-                const esCreador = r.usuarios?.id === usuario?.id;
-                const puedeEditarEliminar = esCreador && r.estado === 'pendiente';
-                const eColor = estadoColors[r.estado];
-                const pill = etapaPill(r.etapa);
-                return (
-                  <div key={r.id} style={{ background: regCardBg, borderRadius: 16, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 12 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                          <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 10, fontWeight: 600, background: pill.bg, color: pill.color, border: `0.5px solid ${pill.border}` }}>
-                            {r.etapa === 'postventa' ? '🔧 PV' : r.etapa === 'pre_entrega' ? '🏠 Pre-E' : '🏗️ Obra'}
-                          </span>
-                          <span style={{ fontSize: 11, color: textSecondary }}>{r.ambientes?.nombre} · {r.partidas?.nombre}</span>
-                        </div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: textPrimary, marginBottom: 4 }}>{r.observacion}</div>
-                        {r.causa && <div style={{ fontSize: 11, color: textSecondary, marginBottom: 4 }}><strong style={{ color: textMuted }}>Causa:</strong> {r.causa}</div>}
-                        {r.comentario_rechazo && (
-                          <div style={{ fontSize: 11, color: dark ? '#fbbf24' : '#a16207', background: dark ? 'rgba(251,191,36,0.06)' : '#fffbeb', padding: '6px 10px', borderRadius: 8, border: dark ? '0.5px solid rgba(251,191,36,0.15)' : '0.5px solid #fde68a', marginBottom: 4 }}>
-                            ⚠️ Rechazo: {r.comentario_rechazo}
-                          </div>
-                        )}
-                        <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>{r.usuarios?.nombre ?? 'desconocido'}</div>
-                      </div>
-                      {r.foto_url && (
-                        <div onClick={() => setFotoModal(r.foto_url)} style={{ flexShrink: 0, cursor: 'pointer' }}>
-                          <img src={r.foto_url} style={{ width: 100, height: 75, objectFit: 'cover', borderRadius: 10, border: `0.5px solid ${border}`, display: 'block' }}
-                            onError={e => { const img = e.target as HTMLImageElement; if (!img.dataset.retried) { img.dataset.retried = '1'; setTimeout(() => { img.src = r.foto_url + '?r=' + Date.now(); }, 1500); } }} />
-                          <div style={{ fontSize: 9, color: textMuted, marginTop: 3, textAlign: 'center' }}>ampliar</div>
-                        </div>
-                      )}
-                      <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, flexShrink: 0, background: eColor + (dark ? '15' : '12'), color: eColor, border: `0.5px solid ${eColor}40`, fontWeight: 600, alignSelf: 'flex-start' }}>
-                        {estadoLabel[r.estado]}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {puedeEditarEliminar && (
-                        <>
-                          <button onClick={() => abrirEditar(r)} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>✏️ Editar</button>
-                          <button onClick={() => { setRegEliminar(r); setEsEliminarZC(false); setAlertEliminar(true); }} style={{ height: 34, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 12, cursor: 'pointer' }}>🗑️</button>
-                        </>
-                      )}
-                      {puedeSolucionar && (r.estado === 'pendiente' || r.estado === 'rechazado') && (
-                        <button onClick={() => cambiarEstado(r, 'solucionado')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>🔧 Solucionado</button>
-                      )}
-                      {puedeAprobar && r.estado === 'solucionado' && (
-                        <button onClick={() => cambiarEstado(r, 'aprobado')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', color: dark ? '#4ade80' : '#15803d', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>✓ Aprobar</button>
-                      )}
-                      {puedeAprobar && r.estado === 'solucionado' && (
-                        <button onClick={() => abrirRechazo(r)} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(251,191,36,0.06)' : '#fffbeb', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a', color: dark ? '#fbbf24' : '#a16207', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>✗ Rechazar</button>
-                      )}
-                      {usuario?.rol === 'administrador' && r.estado === 'aprobado' && (
-                        <button onClick={() => cambiarEstado(r, 'pendiente')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, cursor: 'pointer' }}>↩ Reabrir</button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              ) : registrosFiltrados.map((r: any, idx: number) => renderRegistro(r, idx) as React.ReactNode)}
               {deptoId && online && (
                 <>
                   {puedeRecibirInmob && deptoData?.estado_entrega === 'pre_entrega' && (
@@ -789,12 +966,14 @@ const Revision: React.FC = () => {
           <div style={{ height: 40 }} />
         </div>
 
+        {/* ────────────────────── MODALES (sin cambios) ────────────────────── */}
+        
         {/* Modal mapa torres */}
         <IonModal isOpen={modalTorres} onDidDismiss={() => setModalTorres(false)} initialBreakpoint={0.85} breakpoints={[0, 0.85, 1]}>
           <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
             <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>Torres del proyecto</div>
             <div style={{ fontSize: 12, color: textSecondary, marginBottom: 20 }}>Toca una torre para ver sus departamentos</div>
-            {resumenTorres.length === 0 ? <div style={{ textAlign: 'center', marginTop: 40 }}><IonSpinner name="crescent" /></div> : resumenTorres.map(t => {
+            {resumenTorres.length === 0 ? <div style={{ textAlign: 'center', marginTop: 40 }}><IonSpinner name="crescent" /></div> : resumenTorres.map((t: any) => {
               const pct = t.total > 0 ? Math.round((t.conObs / t.total) * 100) : 0;
               return (
                 <div key={t.id} style={{ background: dark ? 'linear-gradient(135deg, #111, #181818)' : '#f8fafc', borderRadius: 14, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
@@ -880,9 +1059,9 @@ const Revision: React.FC = () => {
           <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Editar observación</div>
             <label style={labelStyle}>ambiente *</label>
-            <select value={editAmbienteId} onChange={e => setEditAmbienteId(e.target.value)} style={selectStyle}><option value="">Seleccionar ambiente...</option>{ambientes.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}</select>
+            <select value={editAmbienteId} onChange={e => setEditAmbienteId(e.target.value)} style={selectStyle}><option value="">Seleccionar ambiente...</option>{ambientes.map((a: any) => <option key={a.id as string} value={a.id as string}>{a.nombre}</option>)}</select>
             <label style={labelStyle}>partida *</label>
-            <select value={editPartidaId} onChange={e => setEditPartidaId(e.target.value)} style={selectStyle}><option value="">Seleccionar partida...</option>{partidas.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select>
+            <select value={editPartidaId} onChange={e => setEditPartidaId(e.target.value)} style={selectStyle}><option value="">Seleccionar partida...</option>{partidas.map((p: any) => <option key={p.id as string} value={p.id as string}>{p.nombre}</option>)}</select>
             <label style={labelStyle}>observación *</label>
             <textarea value={editObservacion} onChange={e => setEditObservacion(e.target.value)} style={taStyle} />
             <label style={labelStyle}>causa</label>
@@ -907,12 +1086,12 @@ const Revision: React.FC = () => {
             <label style={labelStyle}>ambiente *</label>
             <select value={editZCAmbiId} onChange={e => setEditZCAmbiId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar ambiente...</option>
-              {ambientesZC.filter(a => a.activo).map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+              {ambientesZC.filter((a: any) => a.activo).map((a: any) => <option key={a.id as string} value={a.id as string}>{a.nombre}</option>)}
             </select>
             <label style={labelStyle}>partida *</label>
             <select value={editZCPartidaId} onChange={e => setEditZCPartidaId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar partida...</option>
-              {partidas.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+              {partidas.map((p: any) => <option key={p.id as string} value={p.id as string}>{p.nombre}</option>)}
             </select>
             <label style={labelStyle}>observación *</label>
             <textarea value={editZCObservacion} onChange={e => setEditZCObservacion(e.target.value)} style={taStyle} />

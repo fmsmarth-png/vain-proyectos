@@ -2,6 +2,15 @@
 // Módulo Revisión Tolerancias OG — Selector con pantallas internas tipo VisitaObra
 // FMS · Junio 2026
 // Offline: descarga cache OG al entrar, muestra pendientes, mezcla obs locales
+// Offline (jul 2026): el SELECTOR (proyecto → torre → depto) también funciona sin
+//   red leyendo el snapshot de datos guardado por "Preparar modo offline" (ogDataDB)
+//
+// FIX (jul 2026 · navegación OG): la selección (proyecto/torre/depto) ya NO viaja
+//   por location.state en history.push. En Ionic React el state NO sobrevive a un
+//   remount de la vista ni a que el outlet se recree → al volver atrás la sub-página
+//   quedaba sin datos y crasheaba (pantalla blanca) o redirigía (dashboard).
+//   Ahora se persiste en sessionStorage bajo 'og_seleccion' y las sub-páginas la
+//   re-hidratan desde ahí. Mismo patrón que ya usábamos con 'og_depto_activo'.
 
 import React, { useRef, useState, useMemo } from 'react';
 import {
@@ -14,6 +23,7 @@ import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
 import { descargarCacheOG, hayCacheOG, fechaCacheOG, getDeptosTorreCache, cacheDeptosTorre } from '../utils/Ogcache';
 import { getPendientesOG, contarPendientesOG, flushColaOG } from '../utils/Ogofflinequeue';
+import { getProyectosDB, getTorresDB, getDeptosDB } from '../utils/ogDataDB';
 import { useOffline } from '../Context/OfflineContext';
 import PrepararOfflineOG from '../components/PrepararOfflineOG';
 
@@ -99,44 +109,54 @@ const RevisionOG: React.FC = () => {
   const cargar = async () => {
     setCargando(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      // ── OFFLINE: leer proyectos desde el snapshot guardado (ogDataDB) ──
+      // Sin esto, el selector quedaba vacío sin conexión (antes ni siquiera
+      // llegaba a cargar por usar getUser(), que requiere red).
+      if (!online) {
+        const cachedProyectos = await getProyectosDB();
+        setProyectos(cachedProyectos);
+        setCacheOk(hayCacheOG());
+        setPendientesOGCount(contarPendientesOG());
+        return;
+      }
+
+      // ── ONLINE ──
+      // getSession (no getUser): no requiere red y no rompe en modo offline
+      const { data: { session } } = await supabase.auth.getSession();
+      const email = session?.user?.email;
+      if (!email) return;
 
       const { data: u } = await supabase
         .from('usuarios')
         .select('id, nombre, rol')
-        .eq('email', user.email)
+        .eq('email', email.toLowerCase())
         .maybeSingle();
       setUsuario(u);
 
-      let query = supabase
-        .from('proyectos')
-        .select('id, nombre, codigo')
-        .eq('estado', 'activo')
-        .order('nombre');
+      // Solo proyectos ASIGNADOS al usuario (usuario_proyectos), para todos los roles
+      const { data: up } = await supabase
+        .from('usuario_proyectos')
+        .select('proyecto_id')
+        .eq('usuario_id', u?.id);
+      const ids = (up || []).map((x: any) => x.proyecto_id);
 
-      if (u?.rol !== 'administrador') {
-        const { data: up } = await supabase
-          .from('usuario_proyectos')
-          .select('proyecto_id')
-          .eq('usuario_id', u?.id);
-        const ids = (up || []).map((x: any) => x.proyecto_id);
-        if (ids.length === 0) { setProyectos([]); return; }
-        query = query.in('id', ids);
+      if (ids.length === 0) {
+        setProyectos([]);
+      } else {
+        const { data: p } = await supabase
+          .from('proyectos')
+          .select('id, nombre, codigo')
+          .eq('estado', 'activo')
+          .in('id', ids)
+          .order('nombre');
+        setProyectos(p || []);
       }
 
-      const { data: p } = await query;
-      setProyectos(p || []);
-
-      // Cache OG: descargar si hay red, verificar si hay local
-      if (online) {
-        const ok = await descargarCacheOG(); // no-op si tiene < 24h
-        setCacheOk(ok || hayCacheOG());
-        if (contarPendientesOG() > 0) {
-          await sincronizarPendientesOG(false);
-        }
-      } else {
-        setCacheOk(hayCacheOG());
+      // Cache de datos de referencia OG (catálogo/hotspots) — no-op si tiene < 24h
+      const ok = await descargarCacheOG();
+      setCacheOk(ok || hayCacheOG());
+      if (contarPendientesOG() > 0) {
+        await sincronizarPendientesOG(false);
       }
       setPendientesOGCount(contarPendientesOG());
     } finally {
@@ -172,12 +192,18 @@ const RevisionOG: React.FC = () => {
     setDeptoSel(null);
     setObsDepto([]);
     setCerrado(false);
-    const { data } = await supabase
-      .from('torres')
-      .select('id, nombre, frente, pisos')
-      .eq('proyecto_id', p.id)
-      .order('nombre');
-    setTorres(data || []);
+
+    if (online) {
+      const { data } = await supabase
+        .from('torres')
+        .select('id, nombre, frente, pisos')
+        .eq('proyecto_id', p.id)
+        .order('nombre');
+      setTorres(data || []);
+    } else {
+      // Offline: torres desde el snapshot (ogDataDB)
+      setTorres(await getTorresDB(p.id));
+    }
     setPantalla('torres');
   };
 
@@ -188,7 +214,7 @@ const RevisionOG: React.FC = () => {
     setCerrado(false);
 
     if (online) {
-      // Online: buscar en Supabase y actualizar cache
+      // Online: buscar en Supabase y actualizar cache lazy
       const { data } = await supabase
         .from('departamentos')
         .select('id, numero, id_obra, piso, frente_depto, plano_version_id')
@@ -196,11 +222,12 @@ const RevisionOG: React.FC = () => {
         .order('id_obra');
       const deptosList = data || [];
       setDeptos(deptosList);
-      cacheDeptosTorre(torre.id, deptosList); // guardar para uso offline
+      cacheDeptosTorre(torre.id, deptosList); // guardar para uso offline (Ogcache)
     } else {
-      // Offline: leer desde cache
-      const deptosCached = getDeptosTorreCache(torre.id);
-      setDeptos(deptosCached);
+      // Offline: preferir el snapshot completo (ogDataDB); fallback a cache lazy
+      let cached: any[] = await getDeptosDB(torre.id);
+      if (!cached || cached.length === 0) cached = getDeptosTorreCache(torre.id);
+      setDeptos(cached);
     }
   };
 
@@ -335,23 +362,29 @@ const RevisionOG: React.FC = () => {
     return porPiso;
   }, [deptos]);
 
+  // ── navegación a sub-páginas ───────────────────────────────────────────────
+  // FIX: la selección se persiste en sessionStorage ('og_seleccion') en vez de
+  //   viajar por location.state. Así sobrevive a remounts / back del router y las
+  //   sub-páginas la re-hidratan sin quedar en blanco ni ser botadas al dashboard.
   const irADetalle = () => {
     if (!proyectoSel || !torreSel || !deptoSel) return;
-    history.push('/revision-og/detalle', {
+    sessionStorage.setItem('og_seleccion', JSON.stringify({
       proyecto: proyectoSel,
       torre:    torreSel,
       depto:    deptoSel,
       cerrado,
-    });
+    }));
+    history.push('/revision-og/detalle');
   };
 
   const irAResumen = () => {
     if (!proyectoSel || !torreSel || !deptoSel) return;
-    history.push('/revision-og/resumen', {
+    sessionStorage.setItem('og_seleccion', JSON.stringify({
       proyecto: proyectoSel,
       torre:    torreSel,
       depto:    deptoSel,
-    });
+    }));
+    history.push('/revision-og/resumen');
   };
 
   const esAdmin = usuario?.rol === 'administrador';
@@ -451,12 +484,12 @@ const RevisionOG: React.FC = () => {
                 </IonSelect>
               </div>
 
-              {/* Descarga de imágenes (planos + ambientes) a IndexedDB para uso offline */}
-              <PrepararOfflineOG />
+              {/* Descarga de imágenes + datos (proyectos/torres/deptos) a IndexedDB */}
+              <PrepararOfflineOG proyectos={proyectos} />
 
               {proyectos.length === 0 && !cargando && (
                 <div style={{ textAlign: 'center', padding: '40px 16px', color: textMuted, fontSize: 13 }}>
-                  Sin proyectos asignados
+                  {online ? 'Sin proyectos asignados' : 'Sin datos offline — conéctate y presiona "Preparar modo offline"'}
                 </div>
               )}
             </>

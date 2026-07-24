@@ -1,44 +1,22 @@
+import { PermisosProvider } from './Context/PermisosContext';
 import { Redirect, Route } from 'react-router-dom';
-import { IonApp, IonRouterOutlet, IonSplitPane, setupIonicReact } from '@ionic/react';
+import { IonApp, setupIonicReact } from '@ionic/react';
 import { IonReactRouter } from '@ionic/react-router';
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { SplashScreen } from '@capacitor/splash-screen';
 import Home from './pages/Home';
-import Dashboard from './pages/Dashboard';
-import Proyectos from './pages/Proyectos';
-import DetalleProyecto from './pages/DetalleProyecto';
-import DetalleRegistro from './pages/DetalleRegistro';
-import Admin from './pages/Admin';
-import Reportes from './pages/Reportes';
-import Inspeccion from './pages/Inspeccion';
-import InspeccionDepto from './pages/InspeccionDepto';
-import Revision from './pages/Revision';
-import ZonasComunes from './pages/ZonasComunes';
-import VisitaObra from './pages/VisitaObra';
-import PostVenta from './pages/PostVenta';
-import MenuLateral from './components/MenuLateral';
 import { ThemeProvider } from './Context/ThemeContext';
 import { OfflineProvider } from './Context/OfflineContext';
 import { CacheProvider } from './Context/CacheContext';
+import ProtectedRoutes from './components/ProtectedRoutes';
+import InformePV from './components/InformePV';
 
 import '@ionic/react/css/core.css';
 import '@ionic/react/css/normalize.css';
 import '@ionic/react/css/structure.css';
 import '@ionic/react/css/typography.css';
-import RevisionOG            from './pages/RevisionOG';
-import RevisionOGDetalle     from './pages/RevisionOGDetalle';
-import RevisionOGAmbiente    from './pages/RevisionOGAmbiente';
-import RevisionOGResumen     from './pages/RevisionOGResumen';
-import CalibradorPlano       from './pages/CalibradorPlano';
-import CalibradorElementos   from './pages/Calibradorelementos';
-import GenerarVale           from './pages/GenerarVale';
-import AprobacionBodega      from './pages/Aprobacionbodega';
-import StockBodega           from './pages/StockBodega';
-import DashboardBodega       from './pages/DashboardBodega';
-import LevantamientoCeramicos          from './pages/LevantamientoCeramicos';
-import LevantamientoCeramicosDetalle   from './pages/LevantamientoCeramicosDetalle';
-import LevantamientoCeramicosChecklist from './pages/LevantamientoCeramicosChecklist';
+
 import './theme/variables.css';
 
 setupIonicReact();
@@ -150,120 +128,24 @@ const App: React.FC = () => {
     </div>
   );
 
-  const puedeVisitar       = ['staff', 'administrador'].includes(usuario?.rol);
-  const puedePostventa     = usuario?.rol === 'administrador' || usuario?.puede_postventa === true;
-  const puedeOG            = ['staff', 'administrador', 'prof_obra_gruesa'].includes(usuario?.rol ?? '');
-  const puedeGenerarVale   = ['staff', 'administrador', 'jefe_terreno'].includes(usuario?.rol ?? '');
-  const puedeAprobarBodega = ['staff', 'administrador', 'ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
-  const puedeVerStock      = ['staff', 'administrador', 'ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
-  const esRolBodega        = ['ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
-  const esAdmin            = usuario?.rol === 'administrador';
-  const puedeCeramicos     = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
-
   return (
     <ThemeProvider>
       <OfflineProvider>
         <CacheProvider>
-          <IonApp>
-            <IonReactRouter>
-              {session && usuario ? (
-                <IonSplitPane contentId="main-content" when="false">
-                  <MenuLateral usuario={usuario} />
-                  <IonRouterOutlet id="main-content">
-                    <Route exact path="/dashboard" render={() =>
-                      esRolBodega ? <DashboardBodega /> : <Dashboard />
-                    } />
-                    <Route exact path="/proyectos" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <Proyectos />
-                    } />
-                    <Route exact path="/proyectos/:id" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <DetalleProyecto />
-                    } />
-                    <Route exact path="/registros/:id" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <DetalleRegistro />
-                    } />
-                    <Route exact path="/admin" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <Admin />
-                    } />
-                    <Route exact path="/reportes" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <Reportes />
-                    } />
-                    <Route exact path="/inspeccion" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <Inspeccion />
-                    } />
-                    <Route exact path="/inspeccion/depto" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <InspeccionDepto />
-                    } />
-                    <Route exact path="/revision" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <Revision />
-                    } />
-                    <Route exact path="/zonas-comunes" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <ZonasComunes />
-                    } />
-                    <Route exact path="/post-venta" render={() =>
-                      esRolBodega ? <Redirect to="/dashboard" /> : <PostVenta />
-                    } />
-
-                    {/* Revisión OG */}
-                    <Route exact path="/revision-og" render={() =>
-                      puedeOG ? <RevisionOG /> : <Redirect to="/dashboard" />
-                    } />
-                    <Route exact path="/revision-og/detalle" render={() =>
-                      puedeOG ? <RevisionOGDetalle /> : <Redirect to="/dashboard" />
-                    } />
-                    <Route exact path="/revision-og/ambiente" render={() =>
-                      puedeOG ? <RevisionOGAmbiente /> : <Redirect to="/dashboard" />
-                    } />
-                    <Route exact path="/revision-og/resumen" render={() =>
-                      puedeOG ? <RevisionOGResumen /> : <Redirect to="/dashboard" />
-                    } />
-
-                    {/* Calibradores OG — solo admin */}
-                    <Route exact path="/calibrador-plano" render={() =>
-                      esAdmin ? <CalibradorPlano /> : <Redirect to="/dashboard" />
-                    } />
-                    <Route exact path="/calibrador-elementos" render={() =>
-                      esAdmin ? <CalibradorElementos /> : <Redirect to="/dashboard" />
-                    } />
-
-                    {/* Visita de obra */}
-                    <Route exact path="/visita-obra" render={() =>
-                      puedeVisitar ? <VisitaObra /> : <Redirect to="/dashboard" />
-                    } />
-
-                    {/* Bodega */}
-                    <Route exact path="/bodega/generar-vale" render={() =>
-                      puedeGenerarVale ? <GenerarVale /> : <Redirect to="/dashboard" />
-                    } />
-                    <Route exact path="/bodega/aprobacion" render={() =>
-                      puedeAprobarBodega ? <AprobacionBodega /> : <Redirect to="/dashboard" />
-                    } />
-                    <Route exact path="/bodega/stock" render={() =>
-                      puedeVerStock ? <StockBodega /> : <Redirect to="/dashboard" />
-                    } />
-
-                    {/* Levantamiento Cerámicos — solo jcaballero@vain.cl y cgarces@vain.cl */}
-                    <Route exact path="/levantamiento-ceramicos" render={() =>
-                      puedeCeramicos ? <LevantamientoCeramicos /> : <Redirect to="/dashboard" />
-                    } />
-                    <Route exact path="/levantamiento-ceramicos/detalle" render={() =>
-                      puedeCeramicos ? <LevantamientoCeramicosDetalle /> : <Redirect to="/dashboard" />
-                    } />
-                    <Route exact path="/levantamiento-ceramicos/checklist" render={() =>
-                      puedeCeramicos ? <LevantamientoCeramicosChecklist /> : <Redirect to="/dashboard" />
-                    } />
-
-                    <Redirect exact from="/" to="/dashboard" />
-                  </IonRouterOutlet>
-                </IonSplitPane>
-              ) : (
-                <IonRouterOutlet>
-                  <Route exact path="/home" component={Home} />
-                  <Redirect to="/home" />
-                </IonRouterOutlet>
-              )}
-            </IonReactRouter>
-          </IonApp>
+          <PermisosProvider>
+            <IonApp>
+              <IonReactRouter>
+                {session && usuario ? (
+                  <ProtectedRoutes usuario={usuario} />
+                ) : (
+                  <>
+                    <Route exact path="/home" component={Home} />
+                    <Redirect to="/home" />
+                  </>
+                )}
+              </IonReactRouter>
+            </IonApp>
+          </PermisosProvider>
         </CacheProvider>
       </OfflineProvider>
     </ThemeProvider>

@@ -3,7 +3,7 @@ import {
   IonButton, IonSpinner, IonModal, IonAlert
 } from '@ionic/react';
 import { useEffect, useState } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
+import { useParams, useHistory, useRouteMatch } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { useOffline } from '../Context/OfflineContext';
@@ -43,8 +43,13 @@ const estadoDeptoLabel: Record<string, string> = {
   aprobado:     'Aprobado',
 };
 
-const DetalleProyecto: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+const DetalleProyecto: React.FC<any> = (props) => {
+  // useParams a veces NO resuelve el :id dentro de IonRouterOutlet.
+  // Se recupera de forma robusta: props.match (si la ruta lo pasa) →
+  // useRouteMatch (recalcula el parámetro desde la URL actual) → useParams.
+  const params = useParams<{ id: string }>();
+  const routeMatch = useRouteMatch<{ id: string }>('/proyectos/:id');
+  const id = props?.match?.params?.id ?? routeMatch?.params?.id ?? params?.id;
   const history = useHistory();
   const { online } = useOffline();
   const [proyecto, setProyecto]                   = useState<any>(null);
@@ -99,20 +104,40 @@ const DetalleProyecto: React.FC = () => {
 
   const cargar = async () => {
     console.log('cargar DetalleProyecto, id:', id);
+    if (!id || id === 'undefined') {
+      console.warn('DetalleProyecto: id no disponible, se omite la carga.', { id });
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    setLoading(true);
+
+    // 1) TORRES + DEPTOS — NO dependen del usuario ni del perfil.
+    //    Se cargan primero y en su propio try, para que un fallo de auth
+    //    (token vencido, red, getSession) nunca deje la vista vacía.
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: perfil } = await supabase.from('usuarios').select('*').eq('id', user!.id).maybeSingle();
-      setEsAdmin(perfil?.rol === 'administrador');
-      setUsuario(perfil);
-      const { data: proy } = await supabase.from('proyectos').select('*').eq('id', id).single();
+      const { data: proy, error: errProy } = await supabase
+        .from('proyectos')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (errProy) console.error('error proyecto:', errProy);
       setProyecto(proy);
-      const { data: torresData } = await supabase.from('torres').select('*, departamentos(*)').eq('proyecto_id', id).order('nombre');
+
+      const { data: torresData, error: errTorres } = await supabase
+        .from('torres')
+        .select('*, departamentos(*)')
+        .eq('proyecto_id', id)
+        .order('nombre');
+      if (errTorres) console.error('error torres:', errTorres);
       setTorres(torresData ?? []);
+
       const todosDeptoIds = (torresData ?? []).flatMap((t: any) => (t.departamentos ?? []).map((d: any) => d.id));
       if (todosDeptoIds.length > 0) {
-        const { data: regs } = await supabase.from('registros').select('departamento_id, estado').in('departamento_id', todosDeptoIds);
+        const { data: regs, error: errRegs } = await supabase
+          .from('registros')
+          .select('departamento_id, estado')
+          .in('departamento_id', todosDeptoIds);
+        if (errRegs) console.error('error registros:', errRegs);
         const porDepto: Record<string, any[]> = {};
         (regs ?? []).forEach(r => {
           if (!porDepto[r.departamento_id]) porDepto[r.departamento_id] = [];
@@ -120,7 +145,30 @@ const DetalleProyecto: React.FC = () => {
         });
         setRegistrosPorDepto(porDepto);
       }
-    } catch (e) { console.error('error en cargar DetalleProyecto:', e); }
+    } catch (e) {
+      console.error('error cargando torres/deptos:', e);
+    }
+
+    // 2) PERFIL — solo para el flag de admin. Aislado en su propio try y
+    //    con getSession() (patrón offline-safe, nunca getUser). Si falla,
+    //    NO afecta la carga de torres/deptos: como mucho no se ven los
+    //    botones de admin.
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
+      if (user) {
+        const { data: perfil } = await supabase
+          .from('usuarios')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
+        setEsAdmin(perfil?.rol === 'administrador');
+        setUsuario(perfil);
+      }
+    } catch (e) {
+      console.error('error cargando perfil (no crítico):', e);
+    }
+
     setLoading(false);
   };
 

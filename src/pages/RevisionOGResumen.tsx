@@ -2,13 +2,16 @@
 // Resumen de cierre de departamento — Revisión Tolerancias OG
 // Muestra heatmap del plano, tabla resumen por ambiente y detalle con hotspots
 // FMS · Junio 2026
+//
+// FIX (jul 2026 · navegación OG): la selección (proyecto/torre/depto/cerrado) ya
+//   NO llega por location.state (se perdía al volver atrás → blanco / dashboard).
+//   Se lee desde sessionStorage ('og_seleccion'), que deja seteada RevisionOG.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
   IonButtons, IonMenuButton, useIonViewDidEnter,
 } from '@ionic/react';
-import { useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 
@@ -61,6 +64,12 @@ interface AmbienteDetalle {
   elementos: ElementoAmb[];
 }
 
+// ─── Selección OG persistida (reemplaza a location.state) ─────────────────────
+const leerSeleccionOG = (): any => {
+  try { return JSON.parse(sessionStorage.getItem('og_seleccion') || 'null'); }
+  catch { return null; }
+};
+
 // ─── Helpers de color heatmap ─────────────────────────────────────────────────
 function heatColor(count: number, dark: boolean) {
   if (count === 0) return {
@@ -94,7 +103,6 @@ function estadoBadge(count: number, dark: boolean) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 const RevisionOGResumen: React.FC = () => {
-  const location = useLocation<any>();
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const iniciado = useRef(false);
@@ -117,8 +125,8 @@ const RevisionOGResumen: React.FC = () => {
     letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12,
   };
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  const state = location.state || {};
+  // ── Selección (desde sessionStorage, re-hidratada en cada montaje) ─────────
+  const state = leerSeleccionOG() || {};
   const { proyecto, torre, depto, cerrado } = state;
 
   const [cargando, setCargando]             = useState(true);

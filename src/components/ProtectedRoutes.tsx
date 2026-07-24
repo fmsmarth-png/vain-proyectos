@@ -1,0 +1,228 @@
+// src/components/ProtectedRoutes.tsx
+// FMS — Julio 2026
+// Rutas protegidas por permisos dinámicos
+//
+// FIX (jul 2026 · navegación OG): la rama "cargando" ya NO reemplaza el
+//   IonRouterOutlet por un <Dashboard/> pelado. Eso destruía el stack de
+//   navegación cada vez que los permisos se recalculaban en caliente
+//   (onAuthStateChange / resume desde segundo plano), botando al usuario al
+//   dashboard o a pantalla blanca estando dentro de un flujo (p. ej. OG).
+//   Ahora el bloqueo de carga solo aplica en la PRIMERA carga (yaCargo);
+//   en recomputes posteriores las <Route> siguen montadas.
+
+import React, { useRef } from 'react';
+import { Route, Redirect } from 'react-router-dom';
+import { IonSplitPane, IonRouterOutlet } from '@ionic/react';
+import { usePermiso } from '../Context/usePermiso';
+import MenuLateral from './MenuLateral';
+
+// Páginas
+import Dashboard from '../pages/Dashboard';
+import Proyectos from '../pages/Proyectos';
+import DetalleProyecto from '../pages/DetalleProyecto';
+import DetalleRegistro from '../pages/DetalleRegistro';
+import Admin from '../pages/Admin';
+import Reportes from '../pages/Reportes';
+import Inspeccion from '../pages/Inspeccion';
+import InspeccionDepto from '../pages/InspeccionDepto';
+import Revision from '../pages/Revision';
+import ZonasComunes from '../pages/ZonasComunes';
+import VisitaObra from '../pages/VisitaObra';
+import PostVenta from '../pages/PostVenta';
+import PreEntrega from '../pages/PreEntrega';
+import PreEntregaDepto from '../pages/PreEntregaDepto';
+import DeptosFiltrados from '../pages/DeptosFiltrados';
+import DetalleDepto from '../pages/DetalleDepto';
+import InformePV from '../components/InformePV';
+import RevisionOG from '../pages/RevisionOG';
+import RevisionOGDetalle from '../pages/RevisionOGDetalle';
+import RevisionOGAmbiente from '../pages/RevisionOGAmbiente';
+import RevisionOGResumen from '../pages/RevisionOGResumen';
+import ReporteOG from '../pages/ReporteOG';
+import CalibradorPlano from '../pages/CalibradorPlano';
+import CalibradorElementos from '../pages/Calibradorelementos';
+import GenerarVale from '../pages/GenerarVale';
+import AprobacionBodega from '../pages/Aprobacionbodega';
+import StockBodega from '../pages/StockBodega';
+import DashboardBodega from '../pages/DashboardBodega';
+import LevantamientoCeramicos from '../pages/LevantamientoCeramicos';
+import LevantamientoCeramicosDetalle from '../pages/LevantamientoCeramicosDetalle';
+import LevantamientoCeramicosChecklist from '../pages/LevantamientoCeramicosChecklist';
+
+const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
+
+interface ProtectedRoutesProps {
+  usuario: any;
+}
+
+/**
+ * Componente que renderiza rutas protegidas por permisos dinámicos
+ * Este componente DEBE estar dentro de <PermisosProvider>
+ */
+const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
+  const { tienePermiso, cargando } = usePermiso();
+
+  // Marca si los permisos ya se cargaron alguna vez. En recomputes en caliente
+  // (login/logout/cambio de usuario, resume desde segundo plano) NO volvemos a
+  // mostrar la pantalla de carga: eso vaciaría el outlet y rompería el stack.
+  const yaCargo = useRef(false);
+  if (!cargando) yaCargo.current = true;
+
+  // Solo bloquea la PRIMERA carga (aún sin permisos resueltos).
+  if (cargando && !yaCargo.current) {
+    return (
+      <IonSplitPane contentId="main-content" when="false">
+        <MenuLateral usuario={usuario} />
+        <IonRouterOutlet id="main-content">
+          <Dashboard />
+        </IonRouterOutlet>
+      </IonSplitPane>
+    );
+  }
+
+  const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
+  const puedeCeramicos = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
+
+  return (
+    <IonSplitPane contentId="main-content" when="false">
+      <MenuLateral usuario={usuario} />
+      <IonRouterOutlet id="main-content">
+        <Route exact path="/dashboard" render={() =>
+          esRolBodega ? <DashboardBodega /> : <Dashboard />
+        } />
+
+        <Route exact path="/proyectos" render={() =>
+          !esRolBodega ? <Proyectos /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/proyectos/:id" render={() =>
+          !esRolBodega ? <DetalleProyecto /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/registros/:id" render={() =>
+          !esRolBodega ? <DetalleRegistro /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Inspección */}
+        <Route exact path="/inspeccion" render={() =>
+          tienePermiso('inspeccion_crear') ? <Inspeccion /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/inspeccion/depto" render={() =>
+          tienePermiso('inspeccion_crear') ? <InspeccionDepto /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Revisión */}
+        <Route exact path="/revision" render={() =>
+          tienePermiso('revision_ver') ? <Revision /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Zonas Comunes */}
+        <Route exact path="/zonas-comunes" render={() =>
+          tienePermiso('zc_ver') ? <ZonasComunes /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Post Venta */}
+        <Route exact path={['/post-venta', '/post-venta/:deptoId']} render={() =>
+          tienePermiso('postventa_ver') ? <PostVenta /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Pre Entrega */}
+        <Route exact path="/pre-entrega" render={() =>
+          tienePermiso('preentrega_ver') ? <PreEntrega /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route path="/pre-entrega/:deptoId" render={() =>
+          tienePermiso('preentrega_ver') ? <PreEntregaDepto /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/deptos-filtrados" render={() =>
+          tienePermiso('preentrega_ver') ? <DeptosFiltrados /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route path="/detalle-depto/:id" component={DetalleDepto} />
+
+        {/* Informe PV — Indicador de Producción */}
+        <Route exact path="/informe-pv" render={() =>
+          tienePermiso('preentrega_ver') ? <InformePV /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Revisión OG */}
+        <Route exact path="/revision-og" render={() =>
+          tienePermiso('og_ver') ? <RevisionOG /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/revision-og/detalle" render={() =>
+          tienePermiso('og_ver') ? <RevisionOGDetalle /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/revision-og/ambiente" render={() =>
+          tienePermiso('og_ver') ? <RevisionOGAmbiente /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/revision-og/resumen" render={() =>
+          tienePermiso('og_ver') ? <RevisionOGResumen /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Reporte OG (analítico · autofiltro estilo Excel) */}
+        <Route exact path="/reporte-og" render={() =>
+          tienePermiso('og_ver') ? <ReporteOG /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Calibradores OG */}
+        <Route exact path="/calibrador-plano" render={() =>
+          tienePermiso('admin_permisos') ? <CalibradorPlano /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/calibrador-elementos" render={() =>
+          tienePermiso('admin_permisos') ? <CalibradorElementos /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Visita de Obra */}
+        <Route exact path="/visita-obra" render={() =>
+          tienePermiso('visita_ver') ? <VisitaObra /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Bodega */}
+        <Route exact path="/bodega/generar-vale" render={() =>
+          tienePermiso('bodega_ver') ? <GenerarVale /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/bodega/aprobacion" render={() =>
+          tienePermiso('bodega_aprobar') ? <AprobacionBodega /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/bodega/stock" render={() =>
+          tienePermiso('bodega_ver') ? <StockBodega /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Levantamiento Cerámicos */}
+        <Route exact path="/levantamiento-ceramicos" render={() =>
+          puedeCeramicos ? <LevantamientoCeramicos /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/levantamiento-ceramicos/detalle" render={() =>
+          puedeCeramicos ? <LevantamientoCeramicosDetalle /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/levantamiento-ceramicos/checklist" render={() =>
+          puedeCeramicos ? <LevantamientoCeramicosChecklist /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Admin */}
+        <Route exact path="/admin" render={() =>
+          tienePermiso('admin_permisos') ? <Admin /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Reportes */}
+        <Route exact path="/reportes" render={() =>
+          tienePermiso('revision_ver') ? <Reportes /> : <Redirect to="/dashboard" />
+        } />
+
+        <Redirect exact from="/" to="/dashboard" />
+      </IonRouterOutlet>
+    </IonSplitPane>
+  );
+};
+
+export default ProtectedRoutes;

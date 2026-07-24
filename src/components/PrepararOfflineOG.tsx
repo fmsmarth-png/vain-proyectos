@@ -2,13 +2,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Botón "Preparar modo offline" para RevisionOG  ‹FMS›
 //
-// Descarga los planos e imágenes de ambiente a IndexedDB (vía ogImageDB.ts) para
-// poder inspeccionar sin conexión en terreno. Muestra estado actual (cantidad +
-// fecha), progreso real durante la descarga y resultado.
+// Descarga a este dispositivo TODO lo necesario para inspeccionar sin conexión:
+//   1) Planos e imágenes de ambiente → IndexedDB (vía ogImageDB.ts)
+//   2) Datos estructurales: proyectos, torres y departamentos → IndexedDB
+//      (vía ogDataDB.ts) — así el SELECTOR (proyecto → torre → depto) también
+//      funciona sin red, no solo la pantalla posterior a elegir el depto.
 //
-// Drop-in: colocar <PrepararOfflineOG /> debajo del selector de proyecto en la
-// pantalla `inicio` de RevisionOG.tsx. Lee el tema por su cuenta (useTheme), no
-// requiere props.
+// Recibe `proyectos` (los MISMOS que muestra el selector = solo los asignados al
+// usuario) para cachear exactamente ese set y que offline == online.
+//
+// Drop-in: <PrepararOfflineOG proyectos={proyectos} /> debajo del selector de
+// proyecto en la pantalla `inicio` de RevisionOG.tsx.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect } from 'react';
@@ -19,14 +23,27 @@ import {
   contarImagenesDescargadas,
   fechaDescargaImagenes,
 } from '../utils/ogImageDB';
+import {
+  descargarDatosOG,
+  contarDatosDescargados,
+  ProyectoOffline,
+} from '../utils/ogDataDB';
 
-const PrepararOfflineOG: React.FC = () => {
+interface Props {
+  proyectos: any[]; // los asignados al usuario, tal cual los muestra el selector
+}
+
+const PrepararOfflineOG: React.FC<Props> = ({ proyectos = [] }) => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
   const [descargando, setDescargando] = useState(false);
   const [prog, setProg]               = useState<{ hechas: number; total: number }>({ hechas: 0, total: 0 });
-  const [cantidad, setCantidad]       = useState<number>(0);
+  const [faseData, setFaseData]       = useState<string>('');   // etiqueta durante descarga de datos
+  const [cantidad, setCantidad]       = useState<number>(0);    // imágenes
+  const [datos, setDatos]             = useState<{ proyectos: number; torres: number; departamentos: number }>(
+    { proyectos: 0, torres: 0, departamentos: 0 },
+  );
   const [fecha, setFecha]             = useState<Date | null>(null);
   const [resultado, setResultado]     = useState<string>('');
 
@@ -43,6 +60,7 @@ const PrepararOfflineOG: React.FC = () => {
   const cargarEstado = async () => {
     setCantidad(await contarImagenesDescargadas());
     setFecha(await fechaDescargaImagenes());
+    setDatos(await contarDatosDescargados());
   };
 
   // Montaje: garantiza que el estado refleje lo ya descargado en arranque en frío
@@ -55,14 +73,24 @@ const PrepararOfflineOG: React.FC = () => {
     setResultado('');
     setDescargando(true);
     setProg({ hechas: 0, total: 0 });
+    setFaseData('');
     try {
+      // 1) Imágenes (planos + ambientes)
       const r = await descargarTodasLasImagenesOG((hechas, total) => {
         setProg({ hechas, total });
       });
+
+      // 2) Datos estructurales (proyectos → torres → departamentos)
+      setFaseData('Guardando datos de proyectos…');
+      const d = await descargarDatosOG(proyectos as ProyectoOffline[], (p) => {
+        if (p.fase === 'proyectos')       setFaseData(`Guardando proyectos… ${p.actual}`);
+        else if (p.fase === 'torres')     setFaseData(`Guardando torres… ${p.actual}`);
+        else if (p.fase === 'departamentos') setFaseData(`Guardando departamentos… ${p.actual}`);
+      });
+
+      const avisoImg = r.fail > 0 ? ` · ⚠️ ${r.fail} imágenes fallaron` : '';
       setResultado(
-        r.fail > 0
-          ? `Descarga completa con avisos: ${r.ok} guardadas, ${r.fail} fallaron.`
-          : `✓ ${r.ok} imágenes listas para usar offline.`,
+        `✓ Listo offline: ${r.ok} imágenes · ${d.departamentos} deptos en ${d.proyectos} proyecto${d.proyectos !== 1 ? 's' : ''}.${avisoImg}`,
       );
       await cargarEstado();
     } catch (e) {
@@ -70,6 +98,7 @@ const PrepararOfflineOG: React.FC = () => {
       setResultado('No se pudo completar la descarga. Revisa tu conexión e intenta de nuevo.');
     } finally {
       setDescargando(false);
+      setFaseData('');
     }
   };
 
@@ -81,6 +110,7 @@ const PrepararOfflineOG: React.FC = () => {
 
   const pct       = prog.total > 0 ? Math.round((prog.hechas / prog.total) * 100) : 0;
   const conAvisos = resultado.includes('fallaron') || resultado.startsWith('No se pudo');
+  const hayAlgo   = cantidad > 0 || datos.departamentos > 0;
 
   return (
     <div style={{
@@ -95,16 +125,17 @@ const PrepararOfflineOG: React.FC = () => {
       </div>
 
       <div style={{ fontSize: 13, color: textSecondary, lineHeight: 1.5, marginBottom: 12 }}>
-        Descarga los planos e imágenes de ambiente a este dispositivo para inspeccionar
-        sin conexión en terreno. Hazlo con red antes de salir.
+        Descarga a este dispositivo los planos, las imágenes de ambiente y los datos de
+        proyectos, torres y departamentos, para inspeccionar sin conexión en terreno.
+        Hazlo con red antes de salir.
       </div>
 
       {/* Estado actual */}
       {!descargando && (
-        <div style={{ fontSize: 12, color: cantidad > 0 ? verde : textMuted, marginBottom: 12 }}>
-          {cantidad > 0
-            ? `✓ ${cantidad} imágenes guardadas${fechaTxt ? ` · ${fechaTxt}` : ''}`
-            : 'Aún no has descargado imágenes.'}
+        <div style={{ fontSize: 12, color: hayAlgo ? verde : textMuted, marginBottom: 12 }}>
+          {hayAlgo
+            ? `✓ ${cantidad} imágenes · ${datos.departamentos} deptos (${datos.proyectos} proy)${fechaTxt ? ` · ${fechaTxt}` : ''}`
+            : 'Aún no has preparado el modo offline.'}
         </div>
       )}
 
@@ -112,11 +143,11 @@ const PrepararOfflineOG: React.FC = () => {
       {descargando && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: textPrimary, marginBottom: 6 }}>
-            Descargando… {prog.hechas}/{prog.total || '…'}
+            {faseData ? faseData : `Descargando imágenes… ${prog.hechas}/${prog.total || '…'}`}
           </div>
           <div style={{ height: 6, borderRadius: 999, background: border, overflow: 'hidden' }}>
             <div style={{
-              height: '100%', width: `${pct}%`, background: azul,
+              height: '100%', width: faseData ? '100%' : `${pct}%`, background: azul,
               transition: 'width .2s ease',
             }} />
           </div>
@@ -137,7 +168,7 @@ const PrepararOfflineOG: React.FC = () => {
       >
         {descargando
           ? 'Descargando…'
-          : (cantidad > 0 ? '↻ Actualizar imágenes offline' : '⬇️ Preparar modo offline')}
+          : (hayAlgo ? '↻ Actualizar datos offline' : '⬇️ Preparar modo offline')}
       </button>
 
       {resultado && !descargando && (
@@ -153,4 +184,3 @@ const PrepararOfflineOG: React.FC = () => {
 };
 
 export default PrepararOfflineOG;
-        

@@ -4,13 +4,19 @@
 // Al tocar un ambiente navega a RevisionOGAmbiente.tsx (zoom + elementos).
 // FMS · Junio 2026
 // Offline: pasa cacheOk al navegar, muestra aviso si no hay cache
+//
+// FIX (jul 2026 · navegación OG): la selección ya NO llega por location.state
+//   (no sobrevive al back del router → pantalla blanca / rebote al dashboard).
+//   Se lee desde sessionStorage ('og_seleccion') que setea RevisionOG, y al
+//   avanzar al ambiente se hace merge de la clave 'ambiente' sobre esa misma
+//   selección en vez de pasarla por state.
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   IonContent, IonHeader, IonMenuButton, IonPage, IonTitle, IonToolbar,
 } from '@ionic/react';
 import { useIonViewDidEnter } from '@ionic/react';
-import { useLocation, useHistory } from 'react-router-dom';
+import { useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
 import { hayCacheOG, getPlanoCache, getAmbientesPlanoCache } from '../utils/Ogcache';       // ← FMS offline OG
@@ -40,10 +46,15 @@ interface PlanoAmbiente {
   orden: number;
 }
 
+// ── Selección OG persistida (reemplaza a location.state) ─────────────────────
+const leerSeleccionOG = (): NavState | null => {
+  try { return JSON.parse(sessionStorage.getItem('og_seleccion') || 'null'); }
+  catch { return null; }
+};
+
 const RevisionOGDetalle: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
-  const location = useLocation<NavState>();
   const history = useHistory();
   const mounted = useRef(false);
   const contenedorRef = useRef<HTMLDivElement>(null);
@@ -64,8 +75,12 @@ const RevisionOGDetalle: React.FC = () => {
   const amarilloBg  = dark ? 'rgba(251,191,36,0.06)' : '#fffbeb'; // ← FMS offline OG
   const amarilloBord = dark ? 'rgba(251,191,36,0.2)' : '#fde68a'; // ← FMS offline OG
 
-  // ── nav state ─────────────────────────────────────────────────────────────
-  const { proyecto, torre, depto, cerrado } = (location.state || {}) as NavState;
+  // ── selección (desde sessionStorage, re-hidratada en cada montaje) ─────────
+  const sel = leerSeleccionOG();
+  const proyecto = sel?.proyecto;
+  const torre    = sel?.torre;
+  const depto     = sel?.depto;
+  const cerrado   = sel?.cerrado ?? false;
 
   // ── state ─────────────────────────────────────────────────────────────────
   const [planoUrl, setPlanoUrl]         = useState<string | null>(null);
@@ -170,21 +185,21 @@ const RevisionOGDetalle: React.FC = () => {
   const alturaPlano = contenedorW > 0 ? (PLANO_H / PLANO_W) * contenedorW : 0;
 
   // ── navegar al ambiente ───────────────────────────────────────────────────
+  // FIX: se hace merge de 'ambiente' sobre og_seleccion y push sin state.
   const irAAmbiente = (amb: PlanoAmbiente) => {
     if (cerrado) return;
     if (!cacheOk) return; // sin cache no se puede inspeccionar offline
-    history.push('/revision-og/ambiente', {
-      proyecto,
-      torre,
-      depto,
-      cerrado,
+    const actual = leerSeleccionOG() || ({} as NavState);
+    sessionStorage.setItem('og_seleccion', JSON.stringify({
+      ...actual,
       ambiente: {
         titulo:           amb.titulo,
         ambiente_cod:     amb.ambiente_cod,
         grupo_imagen:     amb.grupo_imagen,
-        plano_version_id: depto.plano_version_id,
+        plano_version_id: depto?.plano_version_id,
       },
-    });
+    }));
+    history.push('/revision-og/ambiente');
   };
 
   // ── guard ─────────────────────────────────────────────────────────────────

@@ -8,16 +8,42 @@ import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { lineaConfig, lineas } from '../utils/lineas';
 
-const ROLES = [
-  { value: 'jefe_terreno',          label: 'Jefe de Terreno' },
-  { value: 'prof_terminaciones',    label: 'Prof. Terminaciones' },
-  { value: 'director_obra',         label: 'Director de Obra' },
-  { value: 'administrador',         label: 'Administrador' },
-  { value: 'vendedor_inmobiliaria', label: 'Vendedor Inmobiliaria' },
-  { value: 'staff',                 label: 'Staff' },
-  { value: 'ayudante_bodega',       label: 'Ayudante de Bodega' },
-  { value: 'jefe_bodega',           label: 'Jefe de Bodega' },
-];
+// Etiquetas conocidas de roles. Los roles nuevos (creados desde la app)
+// caen al helper labelRol y muestran su descripcion o el codigo prettificado.
+const ROLES_LABELS: Record<string, string> = {
+  jefe_terreno:          'Jefe de Terreno',
+  prof_terminaciones:    'Prof. Terminaciones',
+  prof_obra_gruesa:      'Prof. Obra Gruesa',
+  director_obra:         'Director de Obra',
+  administrador:         'Administrador',
+  vendedor_inmobiliaria: 'Vendedor Inmobiliaria',
+  staff:                 'Staff',
+  ayudante_bodega:       'Ayudante de Bodega',
+  jefe_bodega:           'Jefe de Bodega',
+};
+const prettify = (s: string) => (s ?? '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+const labelRol = (nombre?: string, descripcion?: string) => {
+  if (!nombre) return '';
+  if (ROLES_LABELS[nombre]) return ROLES_LABELS[nombre];
+  if (descripcion && descripcion.trim()) return descripcion.trim();
+  return prettify(nombre);
+};
+
+// Orden y etiquetas de modulos para las pantallas de permisos (usuario y rol)
+const MODULOS_ORDEN = ['proyectos', 'inspeccion', 'revision', 'reportes', 'postventa', 'preentrega', 'visita', 'og', 'bodega', 'zc', 'admin'];
+const MODULO_LABEL: Record<string, string> = {
+  proyectos:  'Proyectos',
+  inspeccion: 'Registrar Observaciones',
+  revision:   'Revisión Observaciones',
+  reportes:   'Reportes',
+  postventa:  'Post Venta',
+  preentrega: 'Acta Pre Entrega',
+  visita:     'Visita de Obra',
+  og:         'Revisión OG',
+  bodega:     'Bodega',
+  zc:         'Zonas Comunes',
+  admin:      'Administración',
+};
 
 const TIPOS_CAUSA = [
   { value: 'estandar',       label: 'Causa Estándar' },
@@ -96,9 +122,10 @@ const ModalPerfil: React.FC<ModalPerfilProps> = ({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: textPrimary }}>{usuario?.nombre}</div>
             <div style={{ fontSize: 12, color: textSecondary, marginTop: 2 }}>{usuario?.email}</div>
+            {usuario?.rut && <div style={{ fontSize: 12, color: textMuted, marginTop: 2 }}>RUT: {usuario.rut}</div>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
               <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, fontWeight: 600, background: dark ? 'rgba(96,165,250,0.1)' : '#eff6ff', color: dark ? '#60a5fa' : '#1d4ed8', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe' }}>
-                {ROLES.find(r => r.value === usuario?.rol)?.label ?? usuario?.rol}
+                {labelRol(usuario?.rol)}
               </span>
               {lc && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -156,7 +183,7 @@ const Admin: React.FC = () => {
   const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
   const sepLine       = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
- const [seccion, setSeccion] = useState<'usuarios' | 'ambientes' | 'partidas' | 'causas' | 'proyectos' | 'ambientes_zc' | 'planos_og'>('usuarios');
+  const [seccion, setSeccion] = useState<'usuarios' | 'ambientes' | 'partidas' | 'causas' | 'proyectos' | 'ambientes_zc' | 'bancos' | 'permisos' | 'roles'>('usuarios');
   const [usuarios, setUsuarios]       = useState<any[]>([]);
   const [pendientes, setPendientes]   = useState<any[]>([]);
   const [proyectos, setProyectos]     = useState<any[]>([]);
@@ -164,6 +191,8 @@ const Admin: React.FC = () => {
   const [partidas, setPartidas]       = useState<any[]>([]);
   const [causas, setCausas]           = useState<any[]>([]);
   const [ambientesZC, setAmbientesZC] = useState<any[]>([]);
+  const [bancos, setBancos]           = useState<any[]>([]);
+  const [todosLosPermisosList, setTodosLosPermisosList] = useState<any[]>([]);
   const [loading, setLoading]         = useState(true);
   const [guardando, setGuardando]     = useState(false);
   const [error, setError]             = useState('');
@@ -178,19 +207,35 @@ const Admin: React.FC = () => {
   const [modalCausa, setModalCausa]           = useState(false);
   const [modalAmbienteZC, setModalAmbienteZC] = useState(false);
   const [modalPerfil, setModalPerfil]         = useState(false);
+  const [modalActa, setModalActa]             = useState(false);
+  const [modalBanco, setModalBanco]           = useState(false);
   const [usuarioPerfil, setUsuarioPerfil]     = useState<any>(null);
+  const [proyectoActa, setProyectoActa]       = useState<any>(null);
 
-  const [nuevoEmail, setNuevoEmail]       = useState('');
-  const [nuevoNombre, setNuevoNombre]     = useState('');
-  const [nuevoPassword, setNuevoPassword] = useState('');
-  const [nuevoRol, setNuevoRol]           = useState('jefe_terreno');
-  const [nuevoLinea, setNuevoLinea]       = useState('');
-  const [nuevoAmbiente, setNuevoAmbiente] = useState('');
-  const [nuevoPartida, setNuevoPartida]   = useState('');
-  const [nuevaCausa, setNuevaCausa]       = useState('');
-  const [nuevaCausaTipo, setNuevaCausaTipo] = useState('estandar');
+  const [nuevoEmail, setNuevoEmail]           = useState('');
+  const [nuevoNombre, setNuevoNombre]         = useState('');
+  const [nuevoPassword, setNuevoPassword]     = useState('');
+  const [nuevoRol, setNuevoRol]               = useState('jefe_terreno');
+  const [nuevoLinea, setNuevoLinea]           = useState('');
+  const [nuevoRut, setNuevoRut]               = useState('');
+  const [nuevoAmbiente, setNuevoAmbiente]     = useState('');
+  const [nuevoPartida, setNuevoPartida]       = useState('');
+  const [nuevaCausa, setNuevaCausa]           = useState('');
+  const [nuevaCausaTipo, setNuevaCausaTipo]   = useState('estandar');
   const [nuevoAmbienteZC, setNuevoAmbienteZC]                   = useState('');
   const [nuevoAmbienteZCSoloPiso1, setNuevoAmbienteZCSoloPiso1] = useState(false);
+  const [nuevoBanco, setNuevoBanco]           = useState('');
+
+  const [actaForm, setActaForm] = useState({
+    acta_nombre_inmobiliaria: '',
+    acta_direccion: '',
+    acta_ciudad: '',
+    acta_telefono: '',
+    acta_email: '',
+    acta_nombre_legal: '',
+    acta_logo_url: '',
+  });
+  const [actaLogoPreview, setActaLogoPreview] = useState('');
 
   const [usuarioSel, setUsuarioSel]               = useState<any>(null);
   const [proyectosSel, setProyectosSel]           = useState<string[]>([]);
@@ -202,11 +247,25 @@ const Admin: React.FC = () => {
   const [alertRechazar, setAlertRechazar]     = useState(false);
   const [usuarioRechazar, setUsuarioRechazar] = useState<any>(null);
 
+  // Permisos por usuario (rol + overrides individuales grant/revoke)
+  const [modalPermisos, setModalPermisos] = useState(false);
+  const [usuarioPermisos, setUsuarioPermisos] = useState<any>(null);
+  const [permisosRolUsuario, setPermisosRolUsuario] = useState<string[]>([]);         // permisos que otorga el rol
+  const [overridesUsuario, setOverridesUsuario] = useState<Record<string, boolean>>({}); // true=otorgado, false=revocado
+
+  // Roles: crear + permisos por defecto
+  const [rolesDB, setRolesDB]                   = useState<any[]>([]);
+  const [modalRol, setModalRol]                 = useState(false);
+  const [nuevoRolNombre, setNuevoRolNombre]     = useState('');
+  const [modalPermisosRol, setModalPermisosRol] = useState(false);
+  const [rolSel, setRolSel]                     = useState<any>(null);
+  const [permisosRolSel, setPermisosRolSel]     = useState<string[]>([]);
+
   useEffect(() => { cargar(); }, []);
 
   const cargar = async () => {
     setLoading(true);
-    const [u, p, a, pa, pend, c, azc] = await Promise.all([
+    const [u, p, a, pa, pend, c, azc, b, perms, rls] = await Promise.all([
       supabase.from('usuarios').select('*, usuario_proyectos(proyecto_id, es_principal)').eq('estado', 'activo').order('nombre'),
       supabase.from('proyectos').select('*').order('nombre'),
       supabase.from('ambientes').select('*').order('nombre'),
@@ -214,6 +273,9 @@ const Admin: React.FC = () => {
       supabase.from('usuarios').select('*').eq('estado', 'pendiente').order('nombre'),
       supabase.from('causas').select('*').order('tipo').order('nombre'),
       supabase.from('ambientes_zc').select('*').order('orden'),
+      supabase.from('bancos').select('*').order('orden'),
+      supabase.from('permisos').select('*').order('modulo, nombre'),
+      supabase.from('roles').select('*').order('nombre'),
     ]);
     setUsuarios(u.data ?? []);
     setProyectos(p.data ?? []);
@@ -222,6 +284,9 @@ const Admin: React.FC = () => {
     setPendientes(pend.data ?? []);
     setCausas(c.data ?? []);
     setAmbientesZC(azc.data ?? []);
+    setBancos(b.data ?? []);
+    setTodosLosPermisosList(perms.data ?? []);
+    setRolesDB(rls.data ?? []);
     setLoading(false);
   };
 
@@ -233,13 +298,111 @@ const Admin: React.FC = () => {
       const response = await fetch('https://swjmqtnhdtiwopexbezx.supabase.co/functions/v1/crear-usuario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ email: nuevoEmail, password: nuevoPassword, nombre: nuevoNombre, rol: nuevoRol, linea: nuevoLinea || null }),
+        body: JSON.stringify({ email: nuevoEmail, password: nuevoPassword, nombre: nuevoNombre, rol: nuevoRol, linea: nuevoLinea || null, rut: nuevoRut || null }),
       });
       const result = await response.json();
       if (!response.ok) { setError(result.error ?? 'Error al crear usuario'); }
-      else { setNuevoEmail(''); setNuevoNombre(''); setNuevoPassword(''); setNuevoRol('jefe_terreno'); setNuevoLinea(''); setModalUsuario(false); cargar(); }
+      else { 
+        // Si la función no devolvió el RUT, actualizar manualmente
+        if (nuevoRut && result.usuario_id) {
+          await supabase.from('usuarios').update({ rut: nuevoRut }).eq('id', result.usuario_id);
+        }
+        setNuevoEmail(''); setNuevoNombre(''); setNuevoPassword(''); setNuevoRol('jefe_terreno'); setNuevoLinea(''); setNuevoRut(''); setModalUsuario(false); cargar(); 
+      }
     } catch (e: any) { setError('Error de conexión: ' + e.message); }
     setGuardando(false);
+  };
+
+  const cambiarRutUsuario = async (usuario: any, nuevoRutValue: string) => {
+    if (nuevoRutValue === (usuario.rut ?? '')) return;
+    const { error } = await supabase.from('usuarios').update({ rut: nuevoRutValue }).eq('id', usuario.id);
+    if (error) { setError('Error: ' + error.message); } else { cargar(); }
+  };
+
+  // Abre el modal de permisos de un usuario: carga los permisos por defecto de su
+  // rol y los overrides individuales (concedido true/false).
+  const abrirModalPermisos = async (usuario: any) => {
+    setUsuarioPermisos(usuario);
+    const { data: rolData } = await supabase.from('roles').select('id').eq('nombre', usuario.rol).maybeSingle();
+    let defaults: string[] = [];
+    if (rolData) {
+      const { data: rp } = await supabase.from('rol_permisos').select('permiso_id').eq('rol_id', rolData.id);
+      defaults = rp?.map(x => x.permiso_id) ?? [];
+    }
+    setPermisosRolUsuario(defaults);
+    const { data: ov } = await supabase.from('usuario_permisos').select('permiso_id, concedido').eq('usuario_id', usuario.id);
+    const map: Record<string, boolean> = {};
+    (ov ?? []).forEach((o: any) => { map[o.permiso_id] = o.concedido !== false; });
+    setOverridesUsuario(map);
+    setModalPermisos(true);
+  };
+
+  // Estado efectivo de un permiso para el usuario abierto: override si existe, si no el default del rol.
+  const estadoEfectivoUsuario = (permisoId: string) => {
+    if (permisoId in overridesUsuario) return overridesUsuario[permisoId];
+    return permisosRolUsuario.includes(permisoId);
+  };
+
+  const togglePermisoUsuario = async (permisoId: string) => {
+    if (!usuarioPermisos) return;
+    const esDefault = permisosRolUsuario.includes(permisoId);
+    const deseado = !estadoEfectivoUsuario(permisoId);
+    if (deseado === esDefault) {
+      // Vuelve al comportamiento por defecto del rol -> se borra el override
+      await supabase.from('usuario_permisos').delete()
+        .eq('usuario_id', usuarioPermisos.id)
+        .eq('permiso_id', permisoId);
+    } else {
+      // Override explícito: grant (deseado true, rol no lo da) o revoke (deseado false, rol sí lo da)
+      await supabase.from('usuario_permisos').upsert(
+        { usuario_id: usuarioPermisos.id, permiso_id: permisoId, concedido: deseado },
+        { onConflict: 'usuario_id,permiso_id' },
+      );
+    }
+    await abrirModalPermisos(usuarioPermisos);
+  };
+
+  // ---- Roles: crear + permisos por defecto ----
+  const slugRol = (s: string) =>
+    s.trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+  const crearRol = async () => {
+    const display = nuevoRolNombre.trim();
+    if (!display) { setError('Escribe un nombre de rol'); return; }
+    const codigo = slugRol(display);
+    if (!codigo) { setError('Nombre de rol inválido'); return; }
+    if (rolesDB.some(r => r.nombre === codigo)) { setError('Ya existe un rol con ese código: ' + codigo); return; }
+    setGuardando(true); setError('');
+    const { error } = await supabase.from('roles').insert({ nombre: codigo, descripcion: display, activo: true });
+    if (error) { setError('Error: ' + error.message); setGuardando(false); return; }
+    setNuevoRolNombre(''); setModalRol(false); setGuardando(false); cargar();
+  };
+
+  const toggleRolActivo = async (r: any) => {
+    const { error } = await supabase.from('roles').update({ activo: !r.activo }).eq('id', r.id);
+    if (error) { setError('Error: ' + error.message); return; }
+    cargar();
+  };
+
+  const abrirPermisosRol = async (r: any) => {
+    setRolSel(r);
+    const { data } = await supabase.from('rol_permisos').select('permiso_id').eq('rol_id', r.id);
+    setPermisosRolSel(data?.map(x => x.permiso_id) ?? []);
+    setModalPermisosRol(true);
+  };
+
+  const togglePermisoRol = async (permisoId: string) => {
+    if (!rolSel) return;
+    const tiene = permisosRolSel.includes(permisoId);
+    if (tiene) {
+      await supabase.from('rol_permisos').delete().eq('rol_id', rolSel.id).eq('permiso_id', permisoId);
+    } else {
+      await supabase.from('rol_permisos').insert({ rol_id: rolSel.id, permiso_id: permisoId });
+    }
+    const { data } = await supabase.from('rol_permisos').select('permiso_id').eq('rol_id', rolSel.id);
+    setPermisosRolSel(data?.map(x => x.permiso_id) ?? []);
   };
 
   const eliminarUsuario = async (usuario: any) => {
@@ -269,7 +432,6 @@ const Admin: React.FC = () => {
     cargar();
   };
 
-  // ── NUEVO: toggle Post Venta ───────────────────────────────────────────────
   const togglePostventa = async (usuario: any) => {
     const nuevoValor = !usuario.puede_postventa;
     const { error } = await supabase
@@ -283,6 +445,48 @@ const Admin: React.FC = () => {
   const cambiarLineaProyecto = async (proyId: string, linea: string) => {
     await supabase.from('proyectos').update({ linea: linea || null }).eq('id', proyId);
     cargar();
+  };
+
+  const abrirActaProyecto = (p: any) => {
+    setProyectoActa(p);
+    setActaForm({
+      acta_nombre_inmobiliaria: p.acta_nombre_inmobiliaria ?? '',
+      acta_direccion: p.acta_direccion ?? '',
+      acta_ciudad: p.acta_ciudad ?? '',
+      acta_telefono: p.acta_telefono ?? '',
+      acta_email: p.acta_email ?? '',
+      acta_nombre_legal: p.acta_nombre_legal ?? '',
+      acta_logo_url: p.acta_logo_url ?? '',
+    });
+    setActaLogoPreview(p.acta_logo_url ?? '');
+    setModalActa(true);
+  };
+
+  const guardarActaProyecto = async () => {
+    if (!proyectoActa) return;
+    setGuardando(true); setError('');
+    const { error } = await supabase.from('proyectos').update(actaForm).eq('id', proyectoActa.id);
+    if (error) { setError('Error: ' + error.message); setGuardando(false); return; }
+    setModalActa(false); setGuardando(false); cargar();
+  };
+
+  const subirLogoProyecto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0];
+    if (!file) return;
+    setGuardando(true); setError('');
+    try {
+      const nombreArchivo = `logos-proyecto/${proyectoActa.id}_${Date.now()}.png`;
+      const { error: errUpload } = await supabase.storage
+        .from('fotos-registros')
+        .upload(nombreArchivo, file, { upsert: true });
+      if (errUpload) { setError('Error al subir logo: ' + errUpload.message); setGuardando(false); return; }
+      
+      const { data } = supabase.storage.from('fotos-registros').getPublicUrl(nombreArchivo);
+      const publicUrl = data?.publicUrl ?? '';
+      setActaForm(prev => ({ ...prev, acta_logo_url: publicUrl }));
+      setActaLogoPreview(publicUrl);
+    } catch (err: any) { setError('Error: ' + err.message); }
+    setGuardando(false);
   };
 
   const abrirAsignar = (usuario: any) => {
@@ -344,6 +548,24 @@ const Admin: React.FC = () => {
     cargar();
   };
 
+  const crearBanco = async () => {
+    if (!nuevoBanco.trim()) { setError('Escribe un nombre'); return; }
+    setGuardando(true); setError('');
+    const maxOrden = bancos.reduce((m, b) => Math.max(m, b.orden ?? 0), 0);
+    const { error } = await supabase.from('bancos').insert({
+      nombre: nuevoBanco.trim(), orden: maxOrden + 1, activo: true,
+    });
+    if (error) { setError('Error: ' + error.message); }
+    else { setNuevoBanco(''); setModalBanco(false); cargar(); }
+    setGuardando(false);
+  };
+
+  const toggleBancoActivo = async (b: any) => {
+    const { error } = await supabase.from('bancos').update({ activo: !b.activo }).eq('id', b.id);
+    if (error) { setError('Error: ' + error.message); return; }
+    cargar();
+  };
+
   const eliminar = async () => {
     setAlertEliminar(false);
     if (tipoEliminar === 'usuario')     { await eliminarUsuario(itemEliminar); return; }
@@ -351,6 +573,7 @@ const Admin: React.FC = () => {
     if (tipoEliminar === 'partida')     { const { error } = await supabase.from('partidas').delete().eq('id', itemEliminar.id);     if (error) { setError('Error: ' + error.message); return; } }
     if (tipoEliminar === 'causa')       { const { error } = await supabase.from('causas').delete().eq('id', itemEliminar.id);       if (error) { setError('Error: ' + error.message); return; } }
     if (tipoEliminar === 'ambiente_zc') { const { error } = await supabase.from('ambientes_zc').delete().eq('id', itemEliminar.id); if (error) { setError('Error: ' + error.message); return; } }
+    if (tipoEliminar === 'banco')       { const { error } = await supabase.from('bancos').delete().eq('id', itemEliminar.id);       if (error) { setError('Error: ' + error.message); return; } }
     cargar();
   };
 
@@ -369,6 +592,15 @@ const Admin: React.FC = () => {
 
   const usuariosFiltrados  = filtroLineaUsuarios  ? usuarios.filter(u => u.linea === filtroLineaUsuarios)   : usuarios;
   const proyectosFiltrados = filtroLineaProyectos ? proyectos.filter(p => p.linea === filtroLineaProyectos) : proyectos;
+
+  // Modulos presentes en la tabla permisos, ordenados segun MODULOS_ORDEN
+  const modulosPresentes = () => {
+    const set = Array.from(new Set(todosLosPermisosList.map(p => p.modulo).filter(Boolean)));
+    return set.sort((a, b) => {
+      const ia = MODULOS_ORDEN.indexOf(a); const ib = MODULOS_ORDEN.indexOf(b);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+  };
 
   const LineaSelector = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
     <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
@@ -430,37 +662,41 @@ const Admin: React.FC = () => {
               </button>
             ))}
           </div>
+
           {/* Tabs fila 2 */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
             {(['causas', 'proyectos', 'ambientes_zc'] as const).map(s => (
               <button key={s} onClick={() => setSeccion(s)} style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: seccion === s ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: seccion === s ? '#fff' : textMuted, border: `0.5px solid ${seccion === s ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>
                 {s === 'causas' ? '⚠️ Causas' : s === 'proyectos' ? '🏗️ Proyectos' : '🏢 ZC'}
               </button>
             ))}
           </div>
-{/* Tabs fila 3 */}
-<div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-  <button
-    onClick={() => router.push('/calibrador-plano')}
-    style={{
-      flex: 1, height: 34, borderRadius: 10, cursor: 'pointer',
-      fontSize: 10, fontWeight: 600, background: 'transparent',
-      color: textMuted, border: `0.5px solid ${border}`,
-    }}
-  >
-    📐 Calibrador Planos OG
-  </button>
-  <button
-    onClick={() => router.push('/calibrador-elementos')}
-    style={{
-      flex: 1, height: 34, borderRadius: 10, cursor: 'pointer',
-      fontSize: 10, fontWeight: 600, background: 'transparent',
-      color: textMuted, border: `0.5px solid ${border}`,
-    }}
-  >
-    🎯 Calibrador Elementos OG
-  </button>
-</div>
+
+          {/* Tabs fila 3 */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            {(['bancos', 'permisos', 'roles'] as const).map(s => (
+              <button key={s} onClick={() => setSeccion(s)} style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: seccion === s ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: seccion === s ? '#fff' : textMuted, border: `0.5px solid ${seccion === s ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>
+                {s === 'bancos' ? '🏦 Bancos' : s === 'permisos' ? '🔐 Permisos' : '🧩 Roles'}
+              </button>
+            ))}
+          </div>
+
+          {/* Tabs fila 4 */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+            <button
+              onClick={() => router.push('/calibrador-plano')}
+              style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
+            >
+              📐 Cal. Planos
+            </button>
+            <button
+              onClick={() => router.push('/calibrador-elementos')}
+              style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
+            >
+              🎯 Cal. Elem.
+            </button>
+          </div>
+
           {/* ── USUARIOS ── */}
           {seccion === 'usuarios' && (
             <>
@@ -476,7 +712,7 @@ const Admin: React.FC = () => {
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{u.nombre}</div>
                           <div style={{ fontSize: 11, color: textSecondary }}>{u.email}</div>
-                          <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 2 }}>💼 {ROLES.find(r => r.value === u.rol)?.label ?? u.rol}</div>
+                          <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 2 }}>💼 {labelRol(u.rol)}</div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -509,7 +745,6 @@ const Admin: React.FC = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
                           {lc && (<><div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color }} /><span style={{ fontSize: 10, color: lc.color, fontWeight: 600 }}>{lc.label}</span></>)}
                           {proyPrincipal && <span style={{ fontSize: 10, color: dark ? '#60a5fa' : '#2563eb' }}>⭐ {proyPrincipal.nombre}</span>}
-                          {/* Badge Post Venta */}
                           {tienePostventa && (
                             <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 6, background: dark ? 'rgba(74,222,128,0.08)' : '#f0fdf4', color: dark ? '#4ade80' : '#15803d', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0' }}>
                               🔧 Post Venta
@@ -524,7 +759,7 @@ const Admin: React.FC = () => {
                       <div>
                         <label style={labelStyle}>rol</label>
                         <select value={u.rol} onChange={e => cambiarRol(u, e.target.value)} style={{ ...inputStyle, marginBottom: 0, height: 36, fontSize: 12 }}>
-                          {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                          {rolesDB.filter(r => r.activo || r.nombre === u.rol).map(r => <option key={r.id} value={r.nombre}>{labelRol(r.nombre, r.descripcion)}</option>)}
                         </select>
                       </div>
                       <div>
@@ -536,7 +771,16 @@ const Admin: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Toggle Post Venta */}
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={labelStyle}>rut</label>
+                      <input
+                        defaultValue={u.rut ?? ''}
+                        onBlur={e => cambiarRutUsuario(u, e.target.value.trim())}
+                        placeholder="12.345.678-9"
+                        style={{ ...inputStyle, marginBottom: 0, height: 36, fontSize: 12 }}
+                      />
+                    </div>
+
                     {u.rol !== 'administrador' && (
                       <div
                         onClick={() => togglePostventa(u)}
@@ -551,7 +795,6 @@ const Admin: React.FC = () => {
                             : border}`,
                         }}
                       >
-                        {/* toggle pill */}
                         <div style={{
                           width: 36, height: 20, borderRadius: 10, flexShrink: 0, position: 'relative',
                           background: tienePostventa ? (dark ? '#4ade80' : '#15803d') : (dark ? '#222' : '#cbd5e1'),
@@ -575,9 +818,9 @@ const Admin: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Botones */}
                     <div style={{ display: 'flex', gap: 8, borderTop: `0.5px solid ${border}`, paddingTop: 10 }}>
                       <button onClick={() => abrirAsignar(u)} style={{ flex: 1, height: 32, borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}>📋 Proyectos</button>
+                      <button onClick={() => abrirModalPermisos(u)} style={{ flex: 1, height: 32, borderRadius: 8, background: dark ? 'rgba(139,92,246,0.06)' : '#f3e8ff', border: dark ? '0.5px solid rgba(139,92,246,0.15)' : '0.5px solid #e9d5ff', color: dark ? '#a78bfa' : '#7c3aed', fontSize: 11, cursor: 'pointer' }}>🔐 Permisos</button>
                       <button onClick={() => { setUsuarioPerfil(u); setModalPerfil(true); }} style={{ flex: 1, height: 32, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.15)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 11, cursor: 'pointer' }}>👤 Perfil</button>
                       <button onClick={() => { setItemEliminar(u); setTipoEliminar('usuario'); setAlertEliminar(true); }} style={{ height: 32, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 11, cursor: 'pointer' }}>🗑️</button>
                     </div>
@@ -643,10 +886,11 @@ const Admin: React.FC = () => {
           {/* ── PROYECTOS ── */}
           {seccion === 'proyectos' && (
             <>
-              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>Asigna línea y etapa a cada proyecto.</div>
+              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>Asigna línea, etapa y datos del acta a cada proyecto.</div>
               <FiltroBotones valor={filtroLineaProyectos} onChange={setFiltroLineaProyectos} />
               {proyectosFiltrados.map(p => {
                 const lc = p.linea ? lineaConfig[p.linea] : null;
+                const tieneActa = !!p.acta_nombre_inmobiliaria;
                 return (
                   <div key={p.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -656,6 +900,7 @@ const Admin: React.FC = () => {
                         {lc && (<div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}><div style={{ width: 7, height: 7, borderRadius: '50%', background: lc.color }} /><span style={{ fontSize: 10, color: lc.color, fontWeight: 600 }}>{lc.label}</span></div>)}
                       </div>
                     </div>
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
                       <div>
                         <label style={labelStyle}>etapa</label>
@@ -672,10 +917,24 @@ const Admin: React.FC = () => {
                         </select>
                       </div>
                     </div>
-                    <div style={{ padding: '7px 10px', borderRadius: 8, background: p.etapa === 'pre_entrega_postventa' ? (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4') : (dark ? 'rgba(96,165,250,0.06)' : '#eff6ff'), border: `0.5px solid ${p.etapa === 'pre_entrega_postventa' ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(96,165,250,0.2)' : '#bfdbfe')}` }}>
-                      <span style={{ fontSize: 11, color: p.etapa === 'pre_entrega_postventa' ? (dark ? '#4ade80' : '#15803d') : (dark ? '#60a5fa' : '#1d4ed8') }}>
-                        {p.etapa === 'pre_entrega_postventa' ? '✓ Pre-entrega/Postventa' : '✓ Obra'}
-                      </span>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => abrirActaProyecto(p)}
+                        style={{
+                          flex: 1, height: 36, borderRadius: 10, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                          background: tieneActa ? (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4') : (dark ? '#111' : '#f8fafc'),
+                          border: `0.5px solid ${tieneActa ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : border}`,
+                          color: tieneActa ? (dark ? '#4ade80' : '#15803d') : textSecondary,
+                        }}
+                      >
+                        {tieneActa ? '✓ 📄 Datos acta' : '📄 Datos acta'}
+                      </button>
+                      <div style={{ padding: '7px 10px', borderRadius: 8, background: p.etapa === 'pre_entrega_postventa' ? (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4') : (dark ? 'rgba(96,165,250,0.06)' : '#eff6ff'), border: `0.5px solid ${p.etapa === 'pre_entrega_postventa' ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(96,165,250,0.2)' : '#bfdbfe')}`, flex: 1 }}>
+                        <span style={{ fontSize: 11, color: p.etapa === 'pre_entrega_postventa' ? (dark ? '#4ade80' : '#15803d') : (dark ? '#60a5fa' : '#1d4ed8') }}>
+                          {p.etapa === 'pre_entrega_postventa' ? '✓ Pre-entrega/PV' : '✓ Obra'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -708,8 +967,165 @@ const Admin: React.FC = () => {
             </>
           )}
 
+          {/* ── BANCOS ── */}
+          {seccion === 'bancos' && (
+            <>
+              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>Lista global de bancos para el punto 9 del acta de pre entrega.</div>
+              <button onClick={() => { setError(''); setNuevoBanco(''); setModalBanco(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>+ Agregar banco</button>
+              {bancos.map(b => (
+                <div key={b.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 12, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${b.activo ? border : (dark ? '#2a1a1a' : '#fecaca')}`, opacity: b.activo ? 1 : 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, color: textPrimary, fontWeight: 500 }}>{b.nombre}</div>
+                    <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: b.activo ? (dark ? 'rgba(74,222,128,0.1)' : '#f0fdf4') : (dark ? 'rgba(239,68,68,0.1)' : '#fef2f2'), color: b.activo ? (dark ? '#4ade80' : '#15803d') : (dark ? '#f87171' : '#b91c1c'), border: `0.5px solid ${b.activo ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(239,68,68,0.2)' : '#fecaca')}`, marginTop: 4, display: 'inline-block' }}>{b.activo ? 'Activo' : 'Inactivo'}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => toggleBancoActivo(b)} style={{ height: 30, padding: '0 10px', borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}>{b.activo ? 'Desactivar' : 'Activar'}</button>
+                    <button onClick={() => { setItemEliminar(b); setTipoEliminar('banco'); setAlertEliminar(true); }} style={{ background: 'none', border: 'none', color: dark ? '#f87171' : '#b91c1c', fontSize: 18, cursor: 'pointer' }}>×</button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* ── PERMISOS (por usuario) ── */}
+          {seccion === 'permisos' && (
+            <>
+              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>Otorga o quita permisos a un usuario específico por encima de su rol.</div>
+              {usuarios.map(u => (
+                <div key={u.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 12, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: textPrimary }}>{u.nombre}</div>
+                    <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>{u.email} · {labelRol(u.rol)}</div>
+                  </div>
+                  <button onClick={() => abrirModalPermisos(u)} style={{ padding: '6px 12px', borderRadius: 8, background: dark ? 'rgba(139,92,246,0.1)' : '#f3e8ff', border: dark ? '0.5px solid rgba(139,92,246,0.2)' : '0.5px solid #e9d5ff', color: dark ? '#a78bfa' : '#7c3aed', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Editar</button>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* ── ROLES (crear + permisos por defecto) ── */}
+          {seccion === 'roles' && (
+            <>
+              <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>Crea roles y define los permisos que traen por defecto. Estos son la base; luego puedes ajustar por usuario en "Permisos".</div>
+              <button onClick={() => { setError(''); setNuevoRolNombre(''); setModalRol(true); }} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>+ Crear rol</button>
+              {rolesDB.map(r => (
+                <div key={r.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 12, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${r.activo ? border : (dark ? '#2a1a1a' : '#fecaca')}`, opacity: r.activo ? 1 : 0.55 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{labelRol(r.nombre, r.descripcion)}</div>
+                      <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>{r.nombre}</div>
+                    </div>
+                    <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: r.activo ? (dark ? 'rgba(74,222,128,0.1)' : '#f0fdf4') : (dark ? 'rgba(239,68,68,0.1)' : '#fef2f2'), color: r.activo ? (dark ? '#4ade80' : '#15803d') : (dark ? '#f87171' : '#b91c1c'), border: `0.5px solid ${r.activo ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(239,68,68,0.2)' : '#fecaca')}` }}>{r.activo ? 'Activo' : 'Inactivo'}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => abrirPermisosRol(r)} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(139,92,246,0.06)' : '#f3e8ff', border: dark ? '0.5px solid rgba(139,92,246,0.15)' : '0.5px solid #e9d5ff', color: dark ? '#a78bfa' : '#7c3aed', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>🔐 Permisos por defecto</button>
+                    <button onClick={() => toggleRolActivo(r)} style={{ height: 34, padding: '0 12px', borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}>{r.activo ? 'Desactivar' : 'Activar'}</button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
           <div style={{ height: 40 }} />
         </div>
+
+        {/* Modal permisos por USUARIO (rol + overrides grant/revoke) */}
+        <IonModal isOpen={modalPermisos} onDidDismiss={() => setModalPermisos(false)} initialBreakpoint={0.8} breakpoints={[0, 0.8, 1]}>
+          <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>Permisos: {usuarioPermisos?.nombre}</div>
+            <div style={{ fontSize: 12, color: textSecondary, marginBottom: 8 }}>Rol: {labelRol(usuarioPermisos?.rol)}</div>
+            <div style={{ fontSize: 11, color: textMuted, marginBottom: 20, lineHeight: 1.5 }}>
+              Los permisos marcados vienen del rol por defecto. Puedes <b style={{ color: dark ? '#4ade80' : '#15803d' }}>otorgar</b> uno extra o <b style={{ color: dark ? '#f87171' : '#b91c1c' }}>revocar</b> uno del rol solo para este usuario.
+            </div>
+
+            {modulosPresentes().map(modulo => {
+              const permsModulo = todosLosPermisosList.filter(p => p.modulo === modulo);
+              if (permsModulo.length === 0) return null;
+              return (
+                <div key={modulo} style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 10, color: dark ? '#60a5fa' : '#1d4ed8', textTransform: 'uppercase', fontWeight: 700, marginBottom: 8, letterSpacing: '1px' }}>📦 {MODULO_LABEL[modulo] ?? modulo}</div>
+                  {permsModulo.map(perm => {
+                    const efectivo   = estadoEfectivoUsuario(perm.id);
+                    const esDefault  = permisosRolUsuario.includes(perm.id);
+                    const overridden = perm.id in overridesUsuario;
+                    let badge: { txt: string; color: string; bg: string } | null = null;
+                    if (overridden && !esDefault && efectivo)       badge = { txt: 'Otorgado', color: dark ? '#4ade80' : '#15803d', bg: dark ? 'rgba(74,222,128,0.1)' : '#f0fdf4' };
+                    else if (overridden && esDefault && !efectivo)  badge = { txt: 'Revocado', color: dark ? '#f87171' : '#b91c1c', bg: dark ? 'rgba(239,68,68,0.1)' : '#fef2f2' };
+                    else if (!overridden && esDefault)              badge = { txt: 'Por rol',  color: dark ? '#60a5fa' : '#1d4ed8', bg: dark ? 'rgba(96,165,250,0.1)' : '#eff6ff' };
+                    return (
+                      <div key={perm.id} onClick={() => togglePermisoUsuario(perm.id)} style={{ background: dark ? '#111' : '#f8fafc', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', gap: 10, alignItems: 'center', border: `0.5px solid ${border}`, cursor: 'pointer' }}>
+                        <div style={{ width: 18, height: 18, borderRadius: 6, border: `1.5px solid ${efectivo ? '#60a5fa' : inputBorder}`, background: efectivo ? '#60a5fa' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0 }}>
+                          {efectivo ? '✓' : ''}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: textPrimary }}>{perm.nombre}</div>
+                          <div style={{ fontSize: 10, color: textMuted }}>{perm.codigo}</div>
+                        </div>
+                        {badge && (
+                          <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 6, fontWeight: 600, color: badge.color, background: badge.bg, border: `0.5px solid ${badge.color}33` }}>{badge.txt}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            <button onClick={() => setModalPermisos(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, marginTop: 20, cursor: 'pointer' }}>Cerrar</button>
+          </div>
+        </IonModal>
+
+        {/* Modal permisos por DEFECTO de un ROL */}
+        <IonModal isOpen={modalPermisosRol} onDidDismiss={() => setModalPermisosRol(false)} initialBreakpoint={0.8} breakpoints={[0, 0.8, 1]}>
+          <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>Permisos por defecto</div>
+            <div style={{ fontSize: 12, color: textSecondary, marginBottom: 8 }}>Rol: {labelRol(rolSel?.nombre, rolSel?.descripcion)}</div>
+            <div style={{ fontSize: 11, color: textMuted, marginBottom: 20, lineHeight: 1.5 }}>
+              Lo que marques aquí es lo que traerá cualquier usuario con este rol. Los cambios aplican en el próximo inicio de sesión / recarga del usuario.
+            </div>
+
+            {modulosPresentes().map(modulo => {
+              const permsModulo = todosLosPermisosList.filter(p => p.modulo === modulo);
+              if (permsModulo.length === 0) return null;
+              return (
+                <div key={modulo} style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 10, color: dark ? '#60a5fa' : '#1d4ed8', textTransform: 'uppercase', fontWeight: 700, marginBottom: 8, letterSpacing: '1px' }}>📦 {MODULO_LABEL[modulo] ?? modulo}</div>
+                  {permsModulo.map(perm => {
+                    const tiene = permisosRolSel.includes(perm.id);
+                    return (
+                      <div key={perm.id} onClick={() => togglePermisoRol(perm.id)} style={{ background: dark ? '#111' : '#f8fafc', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', gap: 10, alignItems: 'center', border: `0.5px solid ${border}`, cursor: 'pointer' }}>
+                        <div style={{ width: 18, height: 18, borderRadius: 6, border: `1.5px solid ${tiene ? '#60a5fa' : inputBorder}`, background: tiene ? '#60a5fa' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0 }}>
+                          {tiene ? '✓' : ''}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: textPrimary }}>{perm.nombre}</div>
+                          <div style={{ fontSize: 10, color: textMuted }}>{perm.codigo}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            <button onClick={() => { setModalPermisosRol(false); cargar(); }} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, marginTop: 20, cursor: 'pointer' }}>Cerrar</button>
+          </div>
+        </IonModal>
+
+        {/* Modal crear ROL */}
+        <IonModal isOpen={modalRol} onDidDismiss={() => setModalRol(false)} initialBreakpoint={0.4} breakpoints={[0, 0.4, 0.9]}>
+          <div style={{ padding: 24, background: card, height: '100%' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nuevo rol</div>
+            <label style={labelStyle}>nombre del rol *</label>
+            <input value={nuevoRolNombre} onChange={e => setNuevoRolNombre(e.target.value)} placeholder="Ej: Supervisor de Calidad" style={inputStyle} />
+            {nuevoRolNombre.trim() && (
+              <div style={{ fontSize: 11, color: textMuted, marginBottom: 16 }}>código interno: <b style={{ color: textSecondary }}>{slugRol(nuevoRolNombre)}</b></div>
+            )}
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+            <button onClick={crearRol} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>{guardando ? 'Creando...' : 'Crear rol'}</button>
+            <button onClick={() => setModalRol(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </IonModal>
 
         {/* Modal perfil */}
         <ModalPerfil
@@ -729,9 +1145,11 @@ const Admin: React.FC = () => {
             <input value={nuevoEmail} onChange={e => setNuevoEmail(e.target.value)} placeholder="juan@empresa.cl" type="email" style={inputStyle} />
             <label style={labelStyle}>contraseña *</label>
             <input value={nuevoPassword} onChange={e => setNuevoPassword(e.target.value)} placeholder="Mínimo 6 caracteres" type="password" style={inputStyle} />
+            <label style={labelStyle}>rut</label>
+            <input value={nuevoRut} onChange={e => setNuevoRut(e.target.value)} placeholder="12.345.678-9" style={inputStyle} />
             <label style={labelStyle}>rol *</label>
             <select value={nuevoRol} onChange={e => setNuevoRol(e.target.value)} style={inputStyle}>
-              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              {rolesDB.filter(r => r.activo).map(r => <option key={r.id} value={r.nombre}>{labelRol(r.nombre, r.descripcion)}</option>)}
             </select>
             <label style={labelStyle}>línea</label>
             <LineaSelector value={nuevoLinea} onChange={setNuevoLinea} />
@@ -741,6 +1159,56 @@ const Admin: React.FC = () => {
               {guardando ? 'Creando...' : 'Crear usuario'}
             </button>
             <button onClick={() => setModalUsuario(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </IonModal>
+
+        {/* Modal datos acta */}
+        <IonModal isOpen={modalActa} onDidDismiss={() => setModalActa(false)} initialBreakpoint={0.9} breakpoints={[0, 0.9, 1]}>
+          <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>Datos del acta pre entrega</div>
+            <div style={{ fontSize: 12, color: textSecondary, marginBottom: 20 }}>{proyectoActa?.nombre}</div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={labelStyle}>logo proyecto</label>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 12 }}>
+                <div style={{ width: 60, height: 60, borderRadius: 12, background: dark ? '#111' : '#f8fafc', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                  {actaLogoPreview ? (
+                    <img src={actaLogoPreview} alt="logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ fontSize: 20 }}>📸</span>
+                  )}
+                </div>
+                <label style={{ flex: 1, height: 40, borderRadius: 10, background: dark ? 'rgba(37,99,235,0.08)' : '#eff6ff', border: `0.5px dashed ${dark ? 'rgba(37,99,235,0.3)' : '#bfdbfe'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 12, color: dark ? '#60a5fa' : '#1d4ed8', fontWeight: 500 }}>
+                  📤 Subir logo
+                  <input type="file" accept="image/*" onChange={subirLogoProyecto} style={{ display: 'none' }} />
+                </label>
+              </div>
+            </div>
+
+            <label style={labelStyle}>nombre inmobiliaria</label>
+            <input value={actaForm.acta_nombre_inmobiliaria} onChange={e => setActaForm(prev => ({ ...prev, acta_nombre_inmobiliaria: e.target.value }))} placeholder="CONDOMINIO SAN AGUSTIN" style={inputStyle} />
+
+            <label style={labelStyle}>dirección</label>
+            <input value={actaForm.acta_direccion} onChange={e => setActaForm(prev => ({ ...prev, acta_direccion: e.target.value }))} placeholder="AV PARQUE CENTRAL 06682 CORDILLERA - PUENTE ALTO" style={inputStyle} />
+
+            <label style={labelStyle}>ciudad</label>
+            <input value={actaForm.acta_ciudad} onChange={e => setActaForm(prev => ({ ...prev, acta_ciudad: e.target.value }))} placeholder="CORDILLERA" style={inputStyle} />
+
+            <label style={labelStyle}>teléfono</label>
+            <input value={actaForm.acta_telefono} onChange={e => setActaForm(prev => ({ ...prev, acta_telefono: e.target.value }))} placeholder="56968332775" style={inputStyle} />
+
+            <label style={labelStyle}>email</label>
+            <input value={actaForm.acta_email} onChange={e => setActaForm(prev => ({ ...prev, acta_email: e.target.value }))} placeholder="sanagustin@itodoslossantos.cl" style={inputStyle} />
+
+            <label style={labelStyle}>nombre legal</label>
+            <input value={actaForm.acta_nombre_legal} onChange={e => setActaForm(prev => ({ ...prev, acta_nombre_legal: e.target.value }))} placeholder="INMOBILIARIA SAN AGUSTÍN SPA" style={inputStyle} />
+
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px', borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca' }}>{error}</div>}
+
+            <button onClick={guardarActaProyecto} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>
+              {guardando ? 'Guardando...' : 'Guardar datos'}
+            </button>
+            <button onClick={() => setModalActa(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, cursor: 'pointer' }}>Cancelar</button>
           </div>
         </IonModal>
 
@@ -833,6 +1301,18 @@ const Admin: React.FC = () => {
           </div>
         </IonModal>
 
+        {/* Modal nuevo banco */}
+        <IonModal isOpen={modalBanco} onDidDismiss={() => setModalBanco(false)} initialBreakpoint={0.35} breakpoints={[0, 0.35, 0.9]}>
+          <div style={{ padding: 24, background: card, height: '100%' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 20 }}>Nuevo banco</div>
+            <label style={labelStyle}>nombre *</label>
+            <input value={nuevoBanco} onChange={e => setNuevoBanco(e.target.value)} placeholder="Ej: Banco de Chile" style={inputStyle} />
+            {error && <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+            <button onClick={crearBanco} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>{guardando ? 'Guardando...' : 'Agregar'}</button>
+            <button onClick={() => setModalBanco(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </IonModal>
+
         <IonAlert isOpen={alertEliminar} onDidDismiss={() => setAlertEliminar(false)}
           header="¿Eliminar?"
           message={tipoEliminar === 'usuario' ? `Se eliminará el usuario "${itemEliminar?.nombre}" permanentemente.` : `Se eliminará "${itemEliminar?.nombre}".`}
@@ -849,3 +1329,4 @@ const Admin: React.FC = () => {
 };
 
 export default Admin;
+

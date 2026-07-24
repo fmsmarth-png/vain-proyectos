@@ -3,13 +3,17 @@
 // Imagen del ambiente con hotspots, selección de elemento, registro de fallas.
 // FMS · Junio 2026
 // Offline: tolerancias desde ogCache, guardado encola en ogOfflineQueue si sin red
+//
+// FIX (jul 2026 · navegación OG): la selección (proyecto/torre/depto/cerrado/ambiente)
+//   ya NO llega por location.state (se perdía al volver atrás → blanco / dashboard).
+//   Se lee desde sessionStorage ('og_seleccion'), que dejan seteada RevisionOG
+//   (proyecto/torre/depto) y RevisionOGDetalle (merge de 'ambiente').
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   IonContent, IonHeader, IonMenuButton, IonPage, IonTitle, IonToolbar,
 } from '@ionic/react';
 import { useIonViewDidEnter } from '@ionic/react';
-import { useLocation } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
 import { getToleranciaCache, getImagenAmbienteCache, getElementosAmbienteCache } from '../utils/Ogcache';          // ← FMS offline OG
@@ -50,6 +54,12 @@ interface Elemento {
   alto:          number;
 }
 
+// ── Selección OG persistida (reemplaza a location.state) ─────────────────────
+const leerSeleccionOG = (): NavState | null => {
+  try { return JSON.parse(sessionStorage.getItem('og_seleccion') || 'null'); }
+  catch { return null; }
+};
+
 // ── Tab / tipos de revisión ───────────────────────────────────────────────────
 const TABS = ['Muros', 'Vanos'] as const;
 type Tab = typeof TABS[number];
@@ -82,7 +92,6 @@ const getRevisionReal = (
 const RevisionOGAmbiente: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
-  const location = useLocation<NavState>();
   const lastGrupo = useRef<string | null>(null);
   const contenedorRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
@@ -112,9 +121,13 @@ const RevisionOGAmbiente: React.FC = () => {
   const amarilloBg    = dark ? 'rgba(251,191,36,0.06)' : '#fffbeb'; // ← FMS
   const amarilloBord  = dark ? 'rgba(251,191,36,0.2)'  : '#fde68a'; // ← FMS
 
-  // ── nav state ────────────────────────────────────────────────────────────────
-  const { proyecto, torre, depto, cerrado, ambiente } =
-    (location.state || {}) as NavState;
+  // ── selección (desde sessionStorage, re-hidratada en cada montaje) ───────────
+  const sel = leerSeleccionOG();
+  const proyecto = sel?.proyecto;
+  const torre    = sel?.torre;
+  const depto    = sel?.depto;
+  const cerrado  = sel?.cerrado ?? false;
+  const ambiente = sel?.ambiente;
 
   const grupoImagenCompleto = ambiente?.grupo_imagen ?? null;
 
@@ -268,7 +281,7 @@ const RevisionOGAmbiente: React.FC = () => {
   // ── al tocar tipo de revisión ─────────────────────────────────────────────────
   // FMS offline OG: lee del cache local primero; si no hay resultado cae a Supabase (online).
   const onTipoClick = async (tipo: typeof TIPOS_POR_TAB[Tab][number]) => {
-    if (!elSel) return;
+    if (!elSel || !ambiente) return;
     setTipoSel(tipo);
     setTolSel('');
     setStatus(null);
@@ -331,7 +344,7 @@ const RevisionOGAmbiente: React.FC = () => {
   //   ONLINE  → sube foto a Storage (bucket fotos-registros) + INSERT directo en og_registros
   //   OFFLINE → convierte foto a base64 + encola en ogOfflineQueue (flush al reconectarse)
   const guardarObservacion = async () => {
-    if (!elSel || !tipoSel || !tolSel) return;
+    if (!elSel || !tipoSel || !tolSel || !proyecto || !torre || !depto || !ambiente) return;
     setGuardando(true);
     setStatus(null);
     try {

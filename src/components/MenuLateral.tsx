@@ -3,6 +3,7 @@ import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { useOffline } from '../Context/OfflineContext';
+import { usePermiso } from '../Context/usePermiso';
 import { lineaConfig } from '../utils/lineas';
 
 interface Props { usuario: any; }
@@ -44,44 +45,75 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
 
   const rol = usuario?.rol;
 
-  const puedeRegistrar = ['jefe_terreno', 'prof_terminaciones', 'director_obra', 'administrador', 'staff'].includes(rol);
-  const puedeRevisar   = ['jefe_terreno', 'prof_terminaciones', 'director_obra', 'administrador', 'staff'].includes(rol);
-  const puedeReportes  = ['prof_terminaciones', 'director_obra', 'administrador', 'staff'].includes(rol);
-  const puedeVisitar   = ['staff', 'administrador'].includes(rol);
-  // Post venta: administrador siempre puede; el resto solo si tiene puede_postventa = true
-  const puedePostventa = rol === 'administrador' || usuario?.puede_postventa === true;
-  const puedeOG = ['administrador'].includes(rol ?? '');
-  // Bodega — Pantalla 1: jefe_terreno (cualquier especialidad) + staff/administrador para poder probar
-  const puedeGenerarVale = ['jefe_terreno', 'administrador',].includes(rol ?? '');
-  // Bodega — Pantalla 2: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
-  const puedeAprobarBodega = ['ayudante_bodega', 'jefe_bodega', 'administrador',].includes(rol ?? '');
-  // Bodega — Pantalla 3: ayudante_bodega / jefe_bodega + staff/administrador para poder probar
-  const puedeVerStock = ['ayudante_bodega', 'jefe_bodega', 'administrador'].includes(rol ?? '');
-  // Roles cuyo único contexto es bodega: solo ven Inicio + lo relacionado a bodega
+  // Roles de bodega: no ven Proyectos (coincide con el gate de ProtectedRoutes)
   const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(rol ?? '');
-  // Levantamiento Cerámicos: solo dos correos puntuales, independiente del rol
-  const puedeCeramicos = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
 
-  const menuItems = esRolBodega ? [
-    { icon: '🏠', label: 'Inicio',          ruta: '/dashboard',        seccion: 'principal' },
-    { icon: '🗃️', label: 'Vales de bodega', ruta: '/bodega/aprobacion', seccion: 'principal' },
-    { icon: '📊', label: 'Stock de bodega', ruta: '/bodega/stock',      seccion: 'principal' },
-  ] : [
-    { icon: '🏠', label: 'Inicio',                       ruta: '/dashboard',   seccion: 'principal' },
-    { icon: '🏗️', label: 'Proyectos',                   ruta: '/proyectos',   seccion: 'principal' },
-    ...(puedeRegistrar  ? [{ icon: '📋', label: 'Registrar Observaciones',  ruta: '/inspeccion',  seccion: 'principal' }] : []),
-    ...(puedeRevisar    ? [{ icon: '✅', label: 'Revisión de Observaciones', ruta: '/revision',    seccion: 'principal' }] : []),
-    ...(puedeReportes   ? [{ icon: '📊', label: 'Reportes',                  ruta: '/reportes',    seccion: 'principal' }] : []),
-    ...(puedePostventa  ? [{ icon: '🔧', label: 'Post Venta',                ruta: '/post-venta',  seccion: 'principal' }] : []),
-    ...(puedeVisitar    ? [{ icon: '🔍', label: 'Visita de obra',             ruta: '/visita-obra', seccion: 'principal' }] : []),
-    ...(puedeOG      ? [{ icon: '📐', label: 'Revisión OG',     ruta: '/revision-og', seccion: 'principal' }] : []),
-    ...(puedeGenerarVale ? [{ icon: '📦', label: 'Generar Vale', ruta: '/bodega/generar-vale', seccion: 'principal' }] : []),
-    ...(puedeAprobarBodega ? [{ icon: '🗃️', label: 'Vales de bodega', ruta: '/bodega/aprobacion', seccion: 'principal' }] : []),
-    ...(puedeVerStock ? [{ icon: '📊', label: 'Stock de bodega', ruta: '/bodega/stock', seccion: 'principal' }] : []),
-    ...(puedeCeramicos ? [{ icon: '🧱', label: 'Levantamiento Cerámicos', ruta: '/levantamiento-ceramicos', seccion: 'principal' }] : []),
+  // ========================================================================
+  // PERMISOS DINÁMICOS (usando usePermiso)
+  // ========================================================================
+  const { tienePermiso, permisos, cargando: permisoCargando } = usePermiso();
 
-    ...(rol === 'administrador' ? [{ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' }] : []),
-  ];
+  console.log('DEBUG MenuLateral - Permisos del usuario:', permisos.map(p => p.codigo));
+
+  const puedeRegistrar    = tienePermiso('inspeccion_crear');
+  const puedeRevisar      = tienePermiso('revision_ver');
+  const puedeReportes     = tienePermiso('reportes_ver'); // ✅ permiso real (verificado en BD)
+  const puedeVisitar      = tienePermiso('visita_ver');
+  const puedePostventa    = tienePermiso('postventa_ver');
+  const puedePreEntrega   = tienePermiso('preentrega_ver');
+  const puedeOG           = tienePermiso('og_ver');
+  const puedeGenerarVale  = tienePermiso('bodega_ver');
+  const puedeAprobarBodega = tienePermiso('bodega_aprobar');
+  const puedeVerStock     = tienePermiso('bodega_ver');
+  const puedeCeramicos    = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
+  const puedeAdmin        = tienePermiso('admin_permisos');
+
+  console.log('DEBUG MenuLateral - puedeOG:', puedeOG, 'puedeRevisar:', puedeRevisar, 'puedePreEntrega:', puedePreEntrega, 'puedeReportes:', puedeReportes);
+
+  // Si está cargando permisos, mostrar spinner
+  if (permisoCargando) {
+    return (
+      <IonMenu menuId="menu-lateral" contentId="main-content" swipeGesture={true} style={{ '--width': '75%', '--background': bgMenu }}>
+        <IonContent style={{ '--background': bgMenu, textAlign: 'center', paddingTop: '2rem', color: '#666' }}>
+          Cargando permisos...
+        </IonContent>
+      </IonMenu>
+    );
+  }
+
+  // Construir menú SOLO con permisos que el usuario TIENE
+  const buildMenu = () => {
+    const items: any[] = [
+      { icon: '🏠', label: 'Inicio', ruta: '/dashboard', seccion: 'principal' },
+    ];
+
+    // Proyectos (torres + deptos). No es permiso: se controla por rol,
+    // igual que la ruta /proyectos en ProtectedRoutes (!esRolBodega).
+    if (!esRolBodega) items.push({ icon: '🏢', label: 'Proyectos', ruta: '/proyectos', seccion: 'principal' });
+
+    // Agregar SOLO si tiene permiso específico
+    if (puedeRegistrar) items.push({ icon: '📋', label: 'Registrar Observaciones', ruta: '/inspeccion', seccion: 'principal' });
+    if (puedeRevisar) items.push({ icon: '✅', label: 'Revisión de Observaciones', ruta: '/revision', seccion: 'principal' });
+    if (puedeReportes) items.push({ icon: '📈', label: 'Reportes Terminaciones', ruta: '/reportes', seccion: 'principal' });
+    
+    if (puedePreEntrega) items.push({ icon: '🏠', label: 'Pre-Entrega Y Post Venta', ruta: '/pre-entrega', seccion: 'principal' });
+    if (puedeVisitar) items.push({ icon: '🔍', label: 'Visita de obra', ruta: '/visita-obra', seccion: 'principal' });
+    if (puedeOG) items.push({ icon: '📐', label: 'Revisión OG', ruta: '/revision-og', seccion: 'principal' });
+    if (puedeOG) items.push({ icon: '📊', label: 'Reporte OG', ruta: '/reporte-og', seccion: 'principal' });
+    if (puedeGenerarVale) items.push({ icon: '📦', label: 'Generar Vale', ruta: '/bodega/generar-vale', seccion: 'principal' });
+    if (puedeAprobarBodega) items.push({ icon: '🗃️', label: 'Vales de bodega', ruta: '/bodega/aprobacion', seccion: 'principal' });
+    if (puedeVerStock) items.push({ icon: '📊', label: 'Stock de bodega', ruta: '/bodega/stock', seccion: 'principal' });
+    if (puedeCeramicos) items.push({ icon: '🧱', label: 'Levantamiento Cerámicos', ruta: '/levantamiento-ceramicos', seccion: 'principal' });
+
+    if (puedeAdmin) {
+      items.push({ type: 'divider', seccion: 'divider' });
+      items.push({ icon: '👥', label: 'Administración', ruta: '/admin', seccion: 'admin' });
+    }
+
+    return items;
+  };
+
+  const menuItems = buildMenu();
 
   return (
     <IonMenu menuId="menu-lateral" contentId="main-content" swipeGesture={true} style={{ '--width': '75%', '--background': bgMenu }}>
@@ -126,26 +158,39 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
 
           {/* Items */}
           <div style={{ flex: 1, paddingTop: 8 }}>
-            <div style={{ fontSize: 9, color: esJcaballero ? '#3d0030' : '#333', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, padding: '8px 20px 4px' }}>
-              principal
-            </div>
+            {/* Si no tiene permisos, mostrar mensaje */}
+            {menuItems.filter(i => i.seccion === 'principal').length === 1 && !puedeAdmin && (
+              <div style={{ padding: '20px', color: esJcaballero ? '#6d0040' : '#666', fontSize: 13, textAlign: 'center' }}>
+                Sin permisos asignados
+              </div>
+            )}
 
-            {menuItems.filter(i => i.seccion === 'principal').map(item => {
-              const activo = history.location.pathname === item.ruta;
-              return (
-                <div key={item.ruta} onClick={() => navegar(item.ruta)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 20px', fontSize: 14, cursor: 'pointer', borderLeft: activo ? `2px solid ${accentColor}` : '2px solid transparent', background: activo ? accentBg : 'transparent', color: activo ? accentText : (esJcaballero ? '#6d0040' : '#555') }}>
-                  <span style={{ fontSize: 18 }}>{item.icon}</span>
-                  {item.label}
-                  {item.label === 'Registrar Observaciones' && pendientes > 0 && (
-                    <span style={{ marginLeft: 'auto', background: 'rgba(251,191,36,0.1)', color: '#fbbf24', fontSize: 10, padding: '2px 7px', borderRadius: 20, border: '0.5px solid rgba(251,191,36,0.2)' }}>
-                      {pendientes} en cola
-                    </span>
-                  )}
+            {/* Sección Principal */}
+            {menuItems.filter(i => i.seccion === 'principal' && i.type !== 'divider').length > 0 && (
+              <>
+                <div style={{ fontSize: 9, color: esJcaballero ? '#3d0030' : '#333', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, padding: '8px 20px 4px' }}>
+                  principal
                 </div>
-              );
-            })}
 
-            {rol === 'administrador' && (
+                {menuItems.filter(i => i.seccion === 'principal' && i.type !== 'divider').map(item => {
+                  const activo = history.location.pathname === item.ruta;
+                  return (
+                    <div key={item.ruta} onClick={() => navegar(item.ruta)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 20px', fontSize: 14, cursor: 'pointer', borderLeft: activo ? `2px solid ${accentColor}` : '2px solid transparent', background: activo ? accentBg : 'transparent', color: activo ? accentText : (esJcaballero ? '#6d0040' : '#555') }}>
+                      <span style={{ fontSize: 18 }}>{item.icon}</span>
+                      {item.label}
+                      {item.label === 'Registrar Observaciones' && pendientes > 0 && (
+                        <span style={{ marginLeft: 'auto', background: 'rgba(251,191,36,0.1)', color: '#fbbf24', fontSize: 10, padding: '2px 7px', borderRadius: 20, border: '0.5px solid rgba(251,191,36,0.2)' }}>
+                          {pendientes} en cola
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Sección Admin */}
+            {puedeAdmin && (
               <>
                 <div style={{ height: '0.5px', background: borderColor, margin: '8px 20px' }} />
                 <div style={{ fontSize: 9, color: esJcaballero ? '#3d0030' : '#333', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, padding: '8px 20px 4px' }}>
