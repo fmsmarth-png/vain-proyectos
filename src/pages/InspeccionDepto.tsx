@@ -1,6 +1,6 @@
 import {
   IonContent, IonPage, IonHeader, IonToolbar,
-  IonTitle, IonButton, IonSpinner, IonModal
+  IonTitle, IonButton, IonSpinner
 } from '@ionic/react';
 import { useEffect, useState, useRef } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
@@ -12,11 +12,14 @@ import { cache } from '../Context/CacheContext';
 import { comprimirImagen } from '../utils/comprimirImagen';
 import FotoAnnotator from '../components/FotoAnnotator';
 
-const etapaLabel: Record<string, string> = {
-  obra:        '🏗️ Obra',
-  pre_entrega: '🏠 Pre-entrega',
-  postventa:   '🔧 Postventa',
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// InspeccionDepto registra SIEMPRE en etapa 'obra'.
+//
+// Las observaciones se levantan ANTES de que exista propietario, para llegar
+// a la pre entrega con menos hallazgos. El flujo con firma de propietario
+// vive en PreEntregaDepto.tsx, no acá.
+// ─────────────────────────────────────────────────────────────────────────────
+const ETAPA_REGISTRO = 'obra';
 
 // ─── FotoUploader FUERA del componente padre ─────────────────────────────────
 interface FotoUploaderProps {
@@ -25,7 +28,6 @@ interface FotoUploaderProps {
   onClear: () => void;
   onAnnotate?: () => void;
   label: string;
-  obligatorio?: boolean;
   inputRef: React.MutableRefObject<HTMLInputElement | null>;
   labelStyle: React.CSSProperties;
   border: string;
@@ -34,13 +36,11 @@ interface FotoUploaderProps {
 }
 
 const FotoUploader: React.FC<FotoUploaderProps> = ({
-  preview, onSelect, onClear, onAnnotate, label, obligatorio = false,
+  preview, onSelect, onClear, onAnnotate, label,
   inputRef, labelStyle, border, dark, textMuted,
 }) => (
   <>
-    <label style={{ ...labelStyle, color: obligatorio && !preview ? '#f97316' : textMuted }}>
-      {label}{obligatorio ? ' *' : ''}
-    </label>
+    <label style={{ ...labelStyle, color: textMuted }}>{label}</label>
     {preview ? (
       <div style={{ position: 'relative', marginBottom: 16 }}>
         <img src={preview} style={{ width: '100%', borderRadius: 12, maxHeight: 200, objectFit: 'cover' }} />
@@ -56,7 +56,7 @@ const FotoUploader: React.FC<FotoUploaderProps> = ({
         >×</button>
       </div>
     ) : (
-      <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 80, borderRadius: 12, border: `0.5px dashed ${obligatorio ? 'rgba(249,115,22,0.5)' : border}`, marginBottom: 16, cursor: 'pointer', color: textMuted, gap: 6, background: dark ? 'transparent' : '#f8fafc' }}>
+      <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 80, borderRadius: 12, border: `0.5px dashed ${border}`, marginBottom: 16, cursor: 'pointer', color: textMuted, gap: 6, background: dark ? 'transparent' : '#f8fafc' }}>
         <span style={{ fontSize: 22 }}>📷</span>
         <span style={{ fontSize: 12 }}>Tomar o adjuntar foto</span>
         <input
@@ -81,13 +81,10 @@ const InspeccionDepto: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const { online, pendientes, agregarPendiente } = useOffline();
-  const userIdRef      = useRef<string>('');
-  const firmaCanvasRef = useRef<HTMLCanvasElement>(null);
-  const dibujandoRef   = useRef(false);
-  const mountedRef     = useRef(false);
+  const userIdRef  = useRef<string>('');
+  const mountedRef = useRef(false);
 
-  const inputFotoRef      = useRef<HTMLInputElement | null>(null);
-  const inputFotoAntesRef = useRef<HTMLInputElement | null>(null);
+  const inputFotoRef = useRef<HTMLInputElement | null>(null);
 
   const resolveNavState = () => {
     if (location.state?.depto) return location.state;
@@ -102,14 +99,7 @@ const InspeccionDepto: React.FC = () => {
   const torre    = navState?.torre    ?? null;
   const proyecto = navState?.proyecto ?? null;
 
-  const etapaActual: string = proyecto?.etapa === 'pre_entrega_postventa'
-    ? (depto?.estado_entrega === 'postventa' ? 'postventa' : 'pre_entrega')
-    : 'obra';
-  const esPostventa  = etapaActual === 'postventa';
-  const esPreEntrega = etapaActual === 'pre_entrega';
-
   const bg            = dark ? '#000000' : '#f0f4f8';
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
   const border        = dark ? '#1e1e1e'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
@@ -130,30 +120,15 @@ const InspeccionDepto: React.FC = () => {
   const [terceroSeleccionado, setTerceroSeleccionado] = useState('');
   const [foto, setFoto]                               = useState<File | Blob | null>(null);
   const [fotoPreview, setFotoPreview]                 = useState<string | null>(null);
-  const [fotoAntes, setFotoAntes]                     = useState<File | Blob | null>(null);
-  const [fotoAntesPreview, setFotoAntesPreview]       = useState<string | null>(null);
   const [guardando, setGuardando]                     = useState(false);
   const [error, setError]                             = useState('');
   const [loading, setLoading]                         = useState(true);
   const [registrosDepto, setRegistrosDepto]           = useState<number>(0);
   const [guardadoOk, setGuardadoOk]                   = useState(false);
 
-  const [modalTerminar, setModalTerminar]   = useState(false);
-  const [propNombre, setPropNombre]         = useState('');
-  const [propRut, setPropRut]               = useState('');
-  const [propTelefono, setPropTelefono]     = useState('');
-  const [firmaDataUrl, setFirmaDataUrl]     = useState<string | null>(null);
-  const [guardandoFirma, setGuardandoFirma] = useState(false);
-  const [errorFirma, setErrorFirma]         = useState('');
-  const [firmaGuardada, setFirmaGuardada]   = useState(false);
-
   // ── Estado anotador: null = oculto, objeto = visible ─────────────────────
-  // Ya NO usa IonModal → no contamina el historial de Ionic.
-  // FotoAnnotator se renderiza condicionalmente como div position:fixed.
-  const [fotoParaAnotar, setFotoParaAnotar] = useState<{
-    url: string;
-    tipo: 'antes' | 'despues';
-  } | null>(null);
+  // NO usa IonModal → no contamina el historial de Ionic.
+  const [fotoParaAnotar, setFotoParaAnotar] = useState<string | null>(null);
 
   const esCausaTercero = causasTerceros.includes(causaSeleccionada);
   const causaFinal = esCausaTercero && terceroSeleccionado
@@ -193,82 +168,6 @@ const InspeccionDepto: React.FC = () => {
     setAmbienteId(''); setPartidaId(''); setObservacion('');
     setCausaSeleccionada(''); setTerceroSeleccionado('');
     setFoto(null); setFotoPreview(null);
-    setFotoAntes(null); setFotoAntesPreview(null);
-  };
-
-  useEffect(() => {
-    if (!modalTerminar) return;
-    const timer = setTimeout(() => {
-      const canvas = firmaCanvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = '#1e3a5f';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      const preventScroll = (e: TouchEvent) => e.preventDefault();
-      canvas.addEventListener('touchstart', preventScroll, { passive: false });
-      canvas.addEventListener('touchmove', preventScroll, { passive: false });
-      return () => { canvas.removeEventListener('touchstart', preventScroll); canvas.removeEventListener('touchmove', preventScroll); };
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [modalTerminar]);
-
-  const iniciarDibujo = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
-    e.preventDefault(); dibujandoRef.current = true;
-    const canvas = firmaCanvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
-    const y = 'touches' in e ? e.touches[0].clientY - rect.top  : e.clientY - rect.top;
-    ctx.beginPath(); ctx.moveTo(x, y);
-  };
-
-  const dibujar = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dibujandoRef.current) return; e.preventDefault();
-    const canvas = firmaCanvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
-    const y = 'touches' in e ? e.touches[0].clientY - rect.top  : e.clientY - rect.top;
-    ctx.lineTo(x, y); ctx.stroke();
-  };
-
-  const terminarDibujo = () => {
-    dibujandoRef.current = false;
-    const canvas = firmaCanvasRef.current;
-    if (canvas) setFirmaDataUrl(canvas.toDataURL('image/png'));
-  };
-
-  const limpiarFirma = () => {
-    const canvas = firmaCanvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    setFirmaDataUrl(null);
-  };
-
-  const guardarDatosPreEntrega = async () => {
-    if (!propNombre.trim()) { setErrorFirma('El nombre del propietario es obligatorio'); return; }
-    if (!firmaDataUrl) { setErrorFirma('La firma del propietario es obligatoria'); return; }
-    setGuardandoFirma(true); setErrorFirma('');
-    try {
-      let firma_url = null;
-      const blob = await fetch(firmaDataUrl).then(r => r.blob());
-      const fileName = `firmas/${depto.id}_${Date.now()}.png`;
-      const { error: uploadError } = await supabase.storage.from('fotos-registros').upload(fileName, blob, { contentType: 'image/png' });
-      if (!uploadError) { const { data: urlData } = supabase.storage.from('fotos-registros').getPublicUrl(fileName); firma_url = urlData.publicUrl; }
-      const { error } = await supabase.from('departamentos').update({ propietario_nombre: propNombre.trim(), propietario_contacto: `${propRut.trim()} | ${propTelefono.trim()}`, firma_propietario_url: firma_url, fecha_firma: new Date().toISOString() }).eq('id', depto.id);
-      if (error) { setErrorFirma('Error al guardar: ' + error.message); setGuardandoFirma(false); return; }
-      setFirmaGuardada(true);
-      setTimeout(() => {
-        setModalTerminar(false); setFirmaGuardada(false);
-        setPropNombre(''); setPropRut(''); setPropTelefono(''); setFirmaDataUrl(null);
-        salirAInspeccion();
-      }, 1500);
-    } catch (e: any) { setErrorFirma('Error inesperado: ' + e.message); }
-    setGuardandoFirma(false);
   };
 
   const cargar = async (deptoData?: any) => {
@@ -302,36 +201,39 @@ const InspeccionDepto: React.FC = () => {
     setLoading(false);
   };
 
-  const seleccionarFoto = async (e: React.ChangeEvent<HTMLInputElement>, tipo: 'antes' | 'despues') => {
+  const seleccionarFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (tipo === 'antes' && fotoAntesPreview) URL.revokeObjectURL(fotoAntesPreview);
-    if (tipo === 'despues' && fotoPreview) URL.revokeObjectURL(fotoPreview);
+    if (fotoPreview) URL.revokeObjectURL(fotoPreview);
     const preview = URL.createObjectURL(file);
-    if (tipo === 'antes') { setFotoAntes(file); setFotoAntesPreview(preview); }
-    else                  { setFoto(file);      setFotoPreview(preview); }
+    setFoto(file);
+    setFotoPreview(preview);
     if (inputFotoRef.current) inputFotoRef.current.value = '';
-    if (inputFotoAntesRef.current) inputFotoAntesRef.current.value = '';
     try {
       const blob = await comprimirImagen(file);
-      if (tipo === 'antes') setFotoAntes(blob);
-      else                  setFoto(blob);
+      setFoto(blob);
     } catch {}
+  };
+
+  const limpiarFoto = () => {
+    if (fotoPreview) URL.revokeObjectURL(fotoPreview);
+    setFoto(null);
+    setFotoPreview(null);
+    if (inputFotoRef.current) inputFotoRef.current.value = '';
   };
 
   const handleAnnotationConfirm = async (blob: Blob) => {
     if (!fotoParaAnotar) return;
-    const { tipo, url: urlOriginal } = fotoParaAnotar;
+    const urlOriginal = fotoParaAnotar;
     setFotoParaAnotar(null);
     const previewUrl = URL.createObjectURL(blob);
-    if (tipo === 'antes') { setFotoAntesPreview(previewUrl); setFotoAntes(blob); }
-    else                  { setFotoPreview(previewUrl);      setFoto(blob); }
+    setFotoPreview(previewUrl);
+    setFoto(blob);
     URL.revokeObjectURL(urlOriginal);
     try {
       const fileAnotado = new File([blob], 'foto.jpg', { type: 'image/jpeg' });
       const comprimido  = await comprimirImagen(fileAnotado);
-      if (tipo === 'antes') setFotoAntes(comprimido);
-      else                  setFoto(comprimido);
+      setFoto(comprimido);
     } catch {}
   };
 
@@ -348,7 +250,6 @@ const InspeccionDepto: React.FC = () => {
   const guardar = async () => {
     if (!ambienteId || !partidaId || !observacion.trim()) { setError('Ambiente, partida y observación son obligatorios'); return; }
     if (esCausaTercero && !terceroSeleccionado) { setError('Selecciona el tercero responsable'); return; }
-    if (esPostventa && !fotoAntes) { setError('La foto de antes es obligatoria en Postventa'); return; }
     setGuardando(true); setError(''); setGuardadoOk(false);
     try {
       let userId = userIdRef.current || localStorage.getItem('detalles_user_id') || '';
@@ -356,22 +257,32 @@ const InspeccionDepto: React.FC = () => {
         try { const { data: { user } } = await Promise.race([supabase.auth.getUser(), new Promise<any>((_, reject) => setTimeout(() => reject('timeout'), 3000))]); if (user?.id) { userId = user.id; userIdRef.current = user.id; localStorage.setItem('detalles_user_id', user.id); } } catch {}
       }
       if (!userId) { setError('No se pudo identificar el usuario'); setGuardando(false); return; }
-      const datos = { proyecto_id: proyecto.id, torre_id: torre.id, departamento_id: depto.id, ambiente_id: ambienteId, partida_id: partidaId, observacion: observacion.trim(), causa: causaFinal || null, creado_por: userId, etapa: etapaActual };
+
+      const datos = {
+        proyecto_id: proyecto.id,
+        torre_id: torre.id,
+        departamento_id: depto.id,
+        ambiente_id: ambienteId,
+        partida_id: partidaId,
+        observacion: observacion.trim(),
+        causa: causaFinal || null,
+        creado_por: userId,
+        etapa: ETAPA_REGISTRO,
+      };
+
       if (online) {
         try {
-          let foto_url = null, foto_antes_url = null;
-          if (esPostventa) { if (fotoAntes) foto_antes_url = await subirFoto(fotoAntes, userId); if (foto) foto_url = await subirFoto(foto, userId); }
-          else { if (foto) foto_url = await subirFoto(foto, userId); }
-          const { error } = await supabase.from('registros').insert({ ...datos, foto_url, foto_antes_url });
+          let foto_url = null;
+          if (foto) foto_url = await subirFoto(foto, userId);
+          const { error } = await supabase.from('registros').insert({ ...datos, foto_url });
           if (error) throw new Error(error.message);
         } catch { await agregarPendiente(datos, foto as File ?? undefined); }
-      } else { await agregarPendiente(datos, esPostventa ? (fotoAntes as File ?? undefined) : (foto as File ?? undefined)); }
+      } else {
+        await agregarPendiente(datos, foto as File ?? undefined);
+      }
+
       setObservacion(''); setCausaSeleccionada(''); setTerceroSeleccionado('');
-      if (fotoPreview) URL.revokeObjectURL(fotoPreview);
-      if (fotoAntesPreview) URL.revokeObjectURL(fotoAntesPreview);
-      setFoto(null); setFotoPreview(null); setFotoAntes(null); setFotoAntesPreview(null);
-      if (inputFotoRef.current) inputFotoRef.current.value = '';
-      if (inputFotoAntesRef.current) inputFotoAntesRef.current.value = '';
+      limpiarFoto();
       setRegistrosDepto(prev => prev + 1);
       setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500);
     } catch (e: any) { setError('Error inesperado: ' + e.message); }
@@ -381,13 +292,12 @@ const InspeccionDepto: React.FC = () => {
   const labelStyle  = { fontSize: 9, color: textMuted, display: 'block', marginBottom: 6, textTransform: 'uppercase' as any, letterSpacing: '1.5px', fontWeight: 600 };
   const selectStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
   const taStyle     = { width: '100%', height: 80, borderRadius: 10, padding: '10px 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, resize: 'none' as any, marginBottom: 12 };
-  const inputStyle  = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
 
   const sepLine    = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
-  const etapaBg    = esPostventa ? (dark ? 'rgba(251,191,36,0.06)' : '#fffbeb') : esPreEntrega ? (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4') : (dark ? 'rgba(96,165,250,0.06)' : '#eff6ff');
-  const etapaBord  = esPostventa ? (dark ? 'rgba(251,191,36,0.2)' : '#fde68a') : esPreEntrega ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(96,165,250,0.2)' : '#bfdbfe');
-  const etapaDot   = esPostventa ? '#fbbf24' : esPreEntrega ? (dark ? '#4ade80' : '#22c55e') : (dark ? '#60a5fa' : '#3b82f6');
-  const etapaColor = esPostventa ? (dark ? '#fbbf24' : '#a16207') : esPreEntrega ? (dark ? '#4ade80' : '#15803d') : (dark ? '#60a5fa' : '#1d4ed8');
+  const etapaBg    = dark ? 'rgba(96,165,250,0.06)' : '#eff6ff';
+  const etapaBord  = dark ? 'rgba(96,165,250,0.2)'  : '#bfdbfe';
+  const etapaDot   = dark ? '#60a5fa' : '#3b82f6';
+  const etapaColor = dark ? '#60a5fa' : '#1d4ed8';
 
   const fotoUploaderCommons = { labelStyle, border, dark, textMuted };
 
@@ -438,11 +348,11 @@ const InspeccionDepto: React.FC = () => {
             </div>
           </div>
 
-          {/* Etapa badge */}
+          {/* Etapa badge — siempre obra */}
           <div style={{ background: etapaBg, border: `0.5px solid ${etapaBord}`, borderRadius: 12, padding: '8px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: etapaDot, flexShrink: 0 }} />
             <span style={{ fontSize: 12, color: etapaColor, fontWeight: 500 }}>
-              {etapaLabel[etapaActual]} — obs registradas bajo esta etapa
+              🏗️ Obra — obs registradas bajo esta etapa
             </span>
           </div>
 
@@ -514,51 +424,15 @@ const InspeccionDepto: React.FC = () => {
               </div>
             )}
 
-            {esPostventa ? (
-              <>
-                <FotoUploader
-                  {...fotoUploaderCommons}
-                  preview={fotoAntesPreview}
-                  onSelect={e => seleccionarFoto(e, 'antes')}
-                  onClear={() => {
-                    if (fotoAntesPreview) URL.revokeObjectURL(fotoAntesPreview);
-                    setFotoAntes(null); setFotoAntesPreview(null);
-                    if (inputFotoAntesRef.current) inputFotoAntesRef.current.value = '';
-                  }}
-                  onAnnotate={fotoAntesPreview ? () => setFotoParaAnotar({ url: fotoAntesPreview, tipo: 'antes' }) : undefined}
-                  label="foto antes"
-                  obligatorio={true}
-                  inputRef={inputFotoAntesRef}
-                />
-                <FotoUploader
-                  {...fotoUploaderCommons}
-                  preview={fotoPreview}
-                  onSelect={e => seleccionarFoto(e, 'despues')}
-                  onClear={() => {
-                    if (fotoPreview) URL.revokeObjectURL(fotoPreview);
-                    setFoto(null); setFotoPreview(null);
-                    if (inputFotoRef.current) inputFotoRef.current.value = '';
-                  }}
-                  onAnnotate={fotoPreview ? () => setFotoParaAnotar({ url: fotoPreview, tipo: 'despues' }) : undefined}
-                  label="foto después"
-                  inputRef={inputFotoRef}
-                />
-              </>
-            ) : (
-              <FotoUploader
-                {...fotoUploaderCommons}
-                preview={fotoPreview}
-                onSelect={e => seleccionarFoto(e, 'despues')}
-                onClear={() => {
-                  if (fotoPreview) URL.revokeObjectURL(fotoPreview);
-                  setFoto(null); setFotoPreview(null);
-                  if (inputFotoRef.current) inputFotoRef.current.value = '';
-                }}
-                onAnnotate={fotoPreview ? () => setFotoParaAnotar({ url: fotoPreview, tipo: 'despues' }) : undefined}
-                label="foto"
-                inputRef={inputFotoRef}
-              />
-            )}
+            <FotoUploader
+              {...fotoUploaderCommons}
+              preview={fotoPreview}
+              onSelect={seleccionarFoto}
+              onClear={limpiarFoto}
+              onAnnotate={fotoPreview ? () => setFotoParaAnotar(fotoPreview) : undefined}
+              label="foto"
+              inputRef={inputFotoRef}
+            />
 
             {error && (
               <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px', borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca' }}>{error}</div>
@@ -575,80 +449,27 @@ const InspeccionDepto: React.FC = () => {
             </button>
           </div>
 
-          <button onClick={() => esPreEntrega ? setModalTerminar(true) : salirAInspeccion()} style={{
+          <button onClick={salirAInspeccion} style={{
             width: '100%', height: 46, borderRadius: 12, background: 'transparent',
-            border: `0.5px solid ${esPreEntrega ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0') : border}`,
-            color: esPreEntrega ? (dark ? '#4ade80' : '#15803d') : textMuted,
+            border: `0.5px solid ${border}`,
+            color: textMuted,
             fontSize: 14, fontWeight: 500, cursor: 'pointer', marginBottom: 40
           }}>
-            {esPreEntrega ? '✅ Terminar y registrar propietario' : 'Terminar inspección'}
+            Terminar inspección
           </button>
 
         </div>
-
-        {/* Modal propietario — IonModal se mantiene, no tiene problema de historial */}
-        <IonModal isOpen={modalTerminar} onDidDismiss={() => setModalTerminar(false)} initialBreakpoint={0.95} breakpoints={[0, 0.95, 1]}>
-          <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
-            {firmaGuardada ? (
-              <div style={{ textAlign: 'center', paddingTop: 60 }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-                <div style={{ fontSize: 16, fontWeight: 500, color: dark ? '#4ade80' : '#15803d' }}>Datos guardados correctamente</div>
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>Datos del propietario</div>
-                <div style={{ fontSize: 12, color: textSecondary, marginBottom: 20 }}>Torre {torre?.nombre} · Depto {depto?.numero} · {depto?.id_obra}</div>
-                <label style={labelStyle}>nombre completo *</label>
-                <input value={propNombre} onChange={e => setPropNombre(e.target.value)} placeholder="Ej: Juan Pérez González" style={inputStyle} />
-                <label style={labelStyle}>RUT</label>
-                <input value={propRut} onChange={e => setPropRut(e.target.value)} placeholder="Ej: 12.345.678-9" style={inputStyle} />
-                <label style={labelStyle}>teléfono</label>
-                <input value={propTelefono} onChange={e => setPropTelefono(e.target.value)} placeholder="Ej: +56 9 1234 5678" type="tel" style={inputStyle} />
-                <label style={{ ...labelStyle, marginBottom: 8 }}>firma del propietario *</label>
-                <div style={{ border: `0.5px solid ${border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 8, background: '#ffffff' }}>
-                  <canvas
-                    ref={firmaCanvasRef} width={340} height={160}
-                    style={{ display: 'block', width: '100%', height: 160, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
-                    onMouseDown={iniciarDibujo} onMouseMove={dibujar} onMouseUp={terminarDibujo} onMouseLeave={terminarDibujo}
-                    onTouchStart={e => { e.preventDefault(); iniciarDibujo(e); }}
-                    onTouchMove={e => { e.preventDefault(); dibujar(e); }}
-                    onTouchEnd={e => { e.preventDefault(); terminarDibujo(); }}
-                  />
-                </div>
-                <button onClick={limpiarFirma} style={{ background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, borderRadius: 8, padding: '4px 12px', cursor: 'pointer', marginBottom: 20 }}>
-                  🗑️ Limpiar firma
-                </button>
-                {errorFirma && (
-                  <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px', borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca' }}>{errorFirma}</div>
-                )}
-                <button onClick={guardarDatosPreEntrega} disabled={guardandoFirma} style={{
-                  width: '100%', height: 48, borderRadius: 12,
-                  background: guardandoFirma ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
-                  border: 'none', color: guardandoFirma ? textMuted : '#fff',
-                  fontSize: 14, fontWeight: 700, cursor: guardandoFirma ? 'not-allowed' : 'pointer'
-                }}>
-                  {guardandoFirma ? 'Guardando...' : '✓ Guardar y terminar'}
-                </button>
-                <button onClick={() => setModalTerminar(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>
-                  Cancelar
-                </button>
-              </>
-            )}
-          </div>
-        </IonModal>
-
       </IonContent>
 
       {/* ── Anotador: div position:fixed, fuera del IonContent ──────────────
           Renderizado condicionalmente SIN IonModal para no contaminar el
-          historial de navegación de Ionic. Al tocar ← Volver desde
-          InspeccionDepto, salirAInspeccion() se ejecuta limpio.           */}
+          historial de navegación de Ionic.                                */}
       {fotoParaAnotar && (
         <FotoAnnotator
-          imageSrc={fotoParaAnotar.url}
+          imageSrc={fotoParaAnotar}
           onConfirm={handleAnnotationConfirm}
           onCancel={() => {
-            URL.revokeObjectURL(fotoParaAnotar.url);
+            URL.revokeObjectURL(fotoParaAnotar);
             setFotoParaAnotar(null);
           }}
         />

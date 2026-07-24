@@ -1,581 +1,833 @@
-import React, { useState, useMemo, useEffect } from 'react';
 import {
-  IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
-  IonSpinner, IonMenuButton, IonIcon
+  IonContent, IonPage, IonHeader, IonToolbar,
+  IonTitle, IonButton, IonSpinner, IonModal
 } from '@ionic/react';
-import { useTheme } from '../Context/ThemeContext';
+import { useEffect, useState, useRef } from 'react';
+import { useHistory, useLocation } from 'react-router-dom';
+import { useIonViewDidEnter } from '@ionic/react';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { supabase } from '../supabase';
-import { barChart } from 'ionicons/icons';
-import { calcularIndicador, IndicadorCalculos } from '../helpers/informeCalculos';
+import { useTheme } from '../Context/ThemeContext';
+import { useOffline } from '../Context/OfflineContext';
+import { cache } from '../Context/CacheContext';
+import { comprimirImagen } from '../utils/comprimirImagen';
+import FotoAnnotator from '../components/FotoAnnotator';
+import { generarActaPreEntrega, ObsActa } from '../utils/pdfActaPreEntrega';
+import { nombreSemanaActual } from '../utils/semanasVain';
 
-interface InputsIndicador {
-  preE_maestros: number;
-  preE_diasTrab: number;
-  preE_obsSubsanadas: number;
-  preE_obsOptimas: number;
-
-  pv_maestros: number;
-  pv_diasTrab: number;
-  pv_obsSubsanadas: number;
-  pv_obsOptimas: number;
+interface FotoUploaderProps {
+  preview: string | null;
+  onSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onClear: () => void;
+  onAnnotate?: () => void;
+  label: string;
+  inputRef: React.MutableRefObject<HTMLInputElement | null>;
+  labelStyle: React.CSSProperties;
+  border: string;
+  dark: boolean;
+  textMuted: string;
 }
 
-interface Semana {
-  num: number;
-  mes: string;
-  semana: number | null;
-  lunes: string;
-  viernes: string;
-}
+const FotoUploader: React.FC<FotoUploaderProps> = ({
+  preview, onSelect, onClear, onAnnotate, label,
+  inputRef, labelStyle, border, dark, textMuted,
+}) => (
+  <>
+    <label style={{ ...labelStyle, color: textMuted }}>{label}</label>
+    {preview ? (
+      <div style={{ position: 'relative', marginBottom: 16 }}>
+        <img src={preview} style={{ width: '100%', borderRadius: 12, maxHeight: 200, objectFit: 'cover' }} />
+        {onAnnotate && (
+          <button onClick={onAnnotate} style={{ position: 'absolute', top: 8, right: 44, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 28, height: 28, color: '#fff', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✏️</button>
+        )}
+        <button onClick={onClear} style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 28, height: 28, color: '#fff', fontSize: 16, cursor: 'pointer' }}>×</button>
+      </div>
+    ) : (
+      <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 80, borderRadius: 12, border: `0.5px dashed ${border}`, marginBottom: 16, cursor: 'pointer', color: textMuted, gap: 6, background: dark ? 'transparent' : '#f8fafc' }}>
+        <span style={{ fontSize: 22 }}>📷</span>
+        <span style={{ fontSize: 12 }}>Tomar o adjuntar foto</span>
+        <input ref={inputRef} type="file" accept="image/*" capture="environment" onChange={onSelect} style={{ display: 'none' }} />
+      </label>
+    )}
+  </>
+);
 
-const tablaSemanas: Semana[] = [
-  { num: 1, mes: 'ENERO', semana: 1, lunes: '2025-12-15', viernes: '2025-12-19' },
-  { num: 2, mes: 'VACACIONES', semana: null, lunes: '2025-12-22', viernes: '2025-12-26' },
-  { num: 3, mes: 'VACACIONES', semana: null, lunes: '2025-12-29', viernes: '2026-01-02' },
-  { num: 4, mes: 'ENERO', semana: 2, lunes: '2026-01-05', viernes: '2026-01-09' },
-  { num: 5, mes: 'ENERO', semana: 3, lunes: '2026-01-12', viernes: '2026-01-16' },
-  { num: 6, mes: 'ENERO', semana: 4, lunes: '2026-01-19', viernes: '2026-01-23' },
-  { num: 7, mes: 'FEBRERO', semana: 1, lunes: '2026-01-26', viernes: '2026-01-30' },
-  { num: 8, mes: 'FEBRERO', semana: 2, lunes: '2026-02-02', viernes: '2026-02-06' },
-  { num: 9, mes: 'FEBRERO', semana: 3, lunes: '2026-02-09', viernes: '2026-02-13' },
-  { num: 10, mes: 'FEBRERO', semana: 4, lunes: '2026-02-16', viernes: '2026-02-20' },
-  { num: 28, mes: 'JULIO', semana: 1, lunes: '2026-06-22', viernes: '2026-06-26' },
-  { num: 29, mes: 'JULIO', semana: 2, lunes: '2026-06-29', viernes: '2026-07-03' },
-  { num: 30, mes: 'JULIO', semana: 3, lunes: '2026-07-06', viernes: '2026-07-10' },
-  { num: 31, mes: 'JULIO', semana: 4, lunes: '2026-07-13', viernes: '2026-07-17' },
-  { num: 32, mes: 'AGOSTO', semana: 1, lunes: '2026-07-20', viernes: '2026-07-24' },
-  { num: 33, mes: 'AGOSTO', semana: 2, lunes: '2026-07-27', viernes: '2026-07-31' },
-];
+const SESSION_KEY = 'pre_entrega_depto_state';
+const datosKey = (id: string) => `pre_entrega_datos_${id}`;
 
-const identificarSemanaActual = (): Semana => {
-  const hoy = new Date();
-  const año = hoy.getFullYear();
-  const mes = String(hoy.getMonth() + 1).padStart(2, '0');
-  const dia = String(hoy.getDate()).padStart(2, '0');
-  const fechaHoy = `${año}-${mes}-${dia}`;
-
-  const semanaEncontrada = tablaSemanas.find(s => {
-    const fechaLunes = new Date(s.lunes + 'T00:00:00');
-    const fechaViernes = new Date(s.viernes + 'T23:59:59');
-    const fechaHoyObj = new Date(fechaHoy + 'T00:00:00');
-    return fechaHoyObj >= fechaLunes && fechaHoyObj <= fechaViernes;
-  });
-
-  return semanaEncontrada || tablaSemanas[14];
+const urlToBase64 = async (url: string): Promise<string | undefined> => {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+  } catch { return undefined; }
 };
 
-export const InformePV: React.FC = () => {
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
-
-  const bg = dark ? '#000000' : '#f5f5f5';
-  const card = dark ? '#0e0e0e' : '#ffffff';
-  const border = dark ? '#1e1e1e' : '#f0f0f0';
-  const textPrimary = dark ? '#f9fafb' : '#000000';
-  const textSecondary = dark ? '#6b7280' : '#666666';
-  const textMuted = dark ? '#444444' : '#999999';
-  const toolbar = dark ? '#1e3a5f' : '#1e3a5f';
-
-  const [proyectos, setProyectos] = useState<any[]>([]);
-  const [proyectoId, setProyectoId] = useState('');
-  const [proyectoSel, setProyectoSel] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingObs, setLoadingObs] = useState(false);
-
-  const [semanaSeleccionada, setSemanaSeleccionada] = useState<Semana>(identificarSemanaActual());
-  const [obsData, setObsData] = useState<any[]>([]);
-
-  const [inputs, setInputs] = useState<InputsIndicador>({
-    preE_maestros: 2,
-    preE_diasTrab: 5,
-    preE_obsSubsanadas: 0,
-    preE_obsOptimas: 10,
-    pv_maestros: 1,
-    pv_diasTrab: 1,
-    pv_obsSubsanadas: 0,
-    pv_obsOptimas: 4,
+const blobToBase64 = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const res = reader.result as string;
+      resolve(res.substring(res.indexOf(',') + 1));
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
 
-  // Cargar proyectos
-  useEffect(() => {
-    const cargarProyectos = async () => {
-      try {
-        const { data } = await supabase
-          .from('proyectos')
-          .select('id, nombre, codigo, etapa')
-          .eq('etapa', 'pre_entrega_postventa')
-          .order('nombre');
+const formatRut = (value: string): string => {
+  const clean = value.replace(/[^0-9kK]/g, '').toUpperCase();
+  if (clean.length === 0) return '';
+  if (clean.length === 1) return clean;
+  const dv = clean.slice(-1);
+  const cuerpo = clean.slice(0, -1).replace(/[^0-9]/g, '').slice(0, 8);
+  const cuerpoFmt = cuerpo.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${cuerpoFmt}-${dv}`;
+};
 
-        setProyectos(data || []);
-
-        const proyectoGuardado = sessionStorage.getItem('informe_pv_proyecto_id');
-        if (proyectoGuardado && data?.some(p => p.id === proyectoGuardado)) {
-          setProyectoId(proyectoGuardado);
-        } else if (data && data.length > 0) {
-          setProyectoId(data[0].id);
-          sessionStorage.setItem('informe_pv_proyecto_id', data[0].id);
-        }
-      } catch (err) {
-        console.error('Error cargando proyectos:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    cargarProyectos();
-  }, []);
-
-  // Cargar detalles del proyecto
-  useEffect(() => {
-    if (!proyectoId) return;
-    const cargarProyecto = async () => {
-      try {
-        const { data } = await supabase
-          .from('proyectos')
-          .select('*')
-          .eq('id', proyectoId)
-          .maybeSingle();
-        setProyectoSel(data);
-        sessionStorage.setItem('informe_pv_proyecto_id', proyectoId);
-      } catch (err) {
-        console.error('Error cargando proyecto:', err);
-      }
-    };
-    cargarProyecto();
-  }, [proyectoId]);
-
-  // Cargar observaciones subsanadas de la semana
-  useEffect(() => {
-    if (!proyectoId) return;
-    cargarObsSubsanadas();
-  }, [proyectoId, semanaSeleccionada]);
-
-  const cargarObsSubsanadas = async () => {
-    if (!proyectoId) return;
-    setLoadingObs(true);
+const guardarPdf = async (pdf: any, fileName: string, deptoNumero: any) => {
+  if (Capacitor.isNativePlatform()) {
+    const blob = pdf.output('blob');
+    const base64 = await blobToBase64(blob);
+    await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
+    const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
     try {
-      const semanaLabel = semanaSeleccionada.semana 
-        ? `${semanaSeleccionada.mes} ${semanaSeleccionada.semana}` 
-        : 'VACACIONES';
+      await Share.share({
+        title: fileName,
+        text: `Acta de pre-entrega · Depto ${deptoNumero}`,
+        url: uri,
+        dialogTitle: 'Guardar / compartir acta',
+      });
+    } catch {
+      // El usuario cerró el diálogo
+    }
+  } else {
+    pdf.save(fileName);
+  }
+};
 
-      const { data } = await supabase
-        .from('observacionesinformepv')
-        .select('*')
-        .eq('proyecto_id', proyectoId)
-        .eq('tipo', 'PRE-E')
-        .eq('estado', 'SOLUCIONADO')
-        .eq('semana_creacion', semanaLabel);
+const PreEntregaDepto: React.FC = () => {
+  const history  = useHistory();
+  const location = useLocation<any>();
+  const { theme } = useTheme();
+  const dark = theme === 'dark';
+  const { online, pendientes, agregarPendiente } = useOffline();
+  const userIdRef      = useRef<string>('');
+  // Nombre tal cual está en `usuarios`. El state inspectorNombre va en
+  // mayúsculas para el acta; en la BD se guarda sin transformar.
+  const userNombreRef  = useRef<string>(localStorage.getItem('detalles_user_nombre') ?? '');
+  const firmaCanvasRef = useRef<HTMLCanvasElement>(null);
+  const dibujandoRef   = useRef(false);
+  const mountedRef     = useRef(false);
+  const inputFotoRef   = useRef<HTMLInputElement | null>(null);
 
-      setObsData(data || []);
+  const resolveNavState = () => {
+    if (location.state?.depto) return location.state;
+    try { const raw = sessionStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+  };
 
-      // Actualizar inputs con datos reales
-      const obsCount = (data || []).length;
-      setInputs(prev => ({
-        ...prev,
-        preE_obsSubsanadas: obsCount,
+  const navState = resolveNavState();
+  const depto    = navState?.depto    ?? null;
+  const torre    = navState?.torre    ?? null;
+  const proyecto = navState?.proyecto ?? null;
+
+  const bg            = dark ? '#000000' : '#f0f4f8';
+  const card          = dark ? '#0e0e0e'  : '#ffffff';
+  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const textPrimary   = dark ? '#f9fafb' : '#0f172a';
+  const textSecondary = dark ? '#6b7280' : '#64748b';
+  const textMuted     = dark ? '#444444' : '#94a3b8';
+  const toolbar       = dark ? '#000000' : '#1e3a5f';
+  const inputBg       = dark ? '#111111' : '#ffffff';
+  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
+
+  const [ambientes, setAmbientes] = useState<any[]>([]);
+  const [partidas, setPartidas]   = useState<any[]>([]);
+  const [bancos, setBancos]       = useState<any[]>([]);
+
+  const [ambienteId, setAmbienteId]   = useState('');
+  const [partidaId, setPartidaId]     = useState('');
+  const [observacion, setObservacion] = useState('');
+  const [foto, setFoto]               = useState<File | Blob | null>(null);
+  const [fotoPreview, setFotoPreview] = useState<string | null>(null);
+
+  const [guardando, setGuardando]         = useState(false);
+  const [error, setError]                 = useState('');
+  const [loading, setLoading]             = useState(true);
+  const [registrosDepto, setRegistrosDepto] = useState<number>(0);
+  const [guardadoOk, setGuardadoOk]       = useState(false);
+
+  const [modalTerminar, setModalTerminar] = useState(false);
+  const [propNombre, setPropNombre]       = useState('');
+  const [propRut, setPropRut]             = useState('');
+  const [fechaPromesa, setFechaPromesa]   = useState('');
+  const [bancoSel, setBancoSel]           = useState('');
+  const [procesoVenta, setProcesoVenta]   = useState('');
+  const [inspectorRut, setInspectorRut]   = useState('');
+  const [inspectorNombre, setInspectorNombre] = useState('');
+  const [firmaDataUrl, setFirmaDataUrl]   = useState<string | null>(null);
+  const [generando, setGenerando]         = useState(false);
+  const [errorActa, setErrorActa]         = useState('');
+  const [actaGenerada, setActaGenerada]   = useState(false);
+
+  const [guardandoDatos, setGuardandoDatos] = useState(false);
+  const [datosOk, setDatosOk]               = useState(false);
+
+  const [fotoParaAnotar, setFotoParaAnotar] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (location.state?.depto) {
+      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(location.state)); } catch {}
+    }
+  }, [location.state]);
+
+  useIonViewDidEnter(() => {
+    const currentState = (() => {
+      if (location.state?.depto) return location.state;
+      try { const raw = sessionStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+    })();
+    if (!currentState?.depto) { history.replace('/pre-entrega'); return; }
+    mountedRef.current = false;
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      resetFormulario();
+      cargar(currentState.depto);
+    }
+  });
+
+  const salir = () => {
+    sessionStorage.removeItem(SESSION_KEY);
+    history.push('/pre-entrega');
+  };
+
+  const resetFormulario = () => {
+    setRegistrosDepto(0);
+    setAmbienteId(''); setPartidaId(''); setObservacion('');
+    setFoto(null); setFotoPreview(null);
+  };
+
+  useEffect(() => {
+    if (!modalTerminar) return;
+    const timer = setTimeout(() => {
+      const canvas = firmaCanvasRef.current; if (!canvas) return;
+      const ctx = canvas.getContext('2d'); if (!ctx) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      if (rect.width > 0 && rect.height > 0) {
+        canvas.width  = Math.round(rect.width  * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+      }
+
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#1e3a5f';
+      ctx.lineWidth = 2 * dpr;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      setFirmaDataUrl(null);
+
+      const prevent = (e: TouchEvent) => e.preventDefault();
+      canvas.addEventListener('touchstart', prevent, { passive: false });
+      canvas.addEventListener('touchmove', prevent, { passive: false });
+      return () => { canvas.removeEventListener('touchstart', prevent); canvas.removeEventListener('touchmove', prevent); };
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [modalTerminar]);
+
+  const getPos = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = firmaCanvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const scaleX = rect.width  > 0 ? canvas.width  / rect.width  : 1;
+    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top)  * scaleY,
+    };
+  };
+
+  const iniciarDibujo = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault(); dibujandoRef.current = true;
+    const canvas = firmaCanvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    const { x, y } = getPos(e);
+    ctx.beginPath(); ctx.moveTo(x, y);
+  };
+  const dibujar = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
+    if (!dibujandoRef.current) return; e.preventDefault();
+    const canvas = firmaCanvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    const { x, y } = getPos(e);
+    ctx.lineTo(x, y); ctx.stroke();
+  };
+  const terminarDibujo = () => {
+    dibujandoRef.current = false;
+    const canvas = firmaCanvasRef.current;
+    if (canvas) setFirmaDataUrl(canvas.toDataURL('image/png'));
+  };
+  const limpiarFirma = () => {
+    const canvas = firmaCanvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    setFirmaDataUrl(null);
+  };
+
+  const cargar = async (deptoData?: any) => {
+    const deptoActual = deptoData ?? depto;
+    if (!deptoActual) return;
+    setLoading(true);
+    const ambCache = cache.getAmbientes(), partCache = cache.getPartidas();
+    if (ambCache.length > 0) setAmbientes(ambCache);
+    if (partCache.length > 0) setPartidas(partCache);
+    const idGuardado = localStorage.getItem('detalles_user_id') ?? '';
+    if (idGuardado) userIdRef.current = idGuardado;
+
+    try {
+      const raw = localStorage.getItem(datosKey(deptoActual.id));
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d.propNombre)   setPropNombre(d.propNombre);
+        if (d.propRut)      setPropRut(d.propRut);
+        if (d.fechaPromesa) setFechaPromesa(d.fechaPromesa);
+        if (d.bancoSel)     setBancoSel(d.bancoSel);
+        if (d.procesoVenta) setProcesoVenta(d.procesoVenta);
+      }
+    } catch {}
+
+    if (online) {
+      try {
+        const [amb, part, bnc] = await Promise.all([
+          supabase.from('ambientes').select('*').order('nombre'),
+          supabase.from('partidas').select('*').order('nombre'),
+          supabase.from('bancos').select('*').eq('activo', true).order('orden'),
+        ]);
+        if (amb.data)  { setAmbientes(amb.data); cache.setAmbientes(amb.data); }
+        if (part.data) { setPartidas(part.data); cache.setPartidas(part.data); }
+        if (bnc.data)  setBancos(bnc.data);
+      } catch {}
+
+      try {
+        // Se filtra por departamento_id: es la clave real. Filtrar por
+        // depto_numero + proyecto_id mezclaría torres distintas del mismo
+        // proyecto si algún día se repite un número de departamento.
+        const { count } = await supabase.from('observacionesinformepv').select('id', { count: 'exact' })
+          .eq('departamento_id', deptoActual.id)
+          .eq('tipo', 'PRE-E');
+        if (count !== null) setRegistrosDepto(count);
+      } catch {}
+
+      try {
+        const { data: d } = await supabase.from('departamentos')
+          .select('propietario_nombre, acta_propietario_rut, acta_fecha_promesa, acta_banco, acta_proceso_venta')
+          .eq('id', deptoActual.id).maybeSingle();
+        if (d) {
+          if (d.propietario_nombre)   setPropNombre(String(d.propietario_nombre).toUpperCase());
+          if (d.acta_propietario_rut) setPropRut(formatRut(String(d.acta_propietario_rut)));
+          if (d.acta_fecha_promesa)   setFechaPromesa(String(d.acta_fecha_promesa));
+          if (d.acta_banco)           setBancoSel(String(d.acta_banco));
+          if (d.acta_proceso_venta)   setProcesoVenta(String(d.acta_proceso_venta).toUpperCase());
+        }
+      } catch {}
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) {
+          userIdRef.current = user.id;
+          localStorage.setItem('detalles_user_id', user.id);
+          const { data: u } = await supabase.from('usuarios').select('nombre, rut').eq('id', user.id).single();
+          if (u) {
+            const nom = String(u.nombre ?? '').trim();
+            setInspectorNombre(nom.toUpperCase());
+            userNombreRef.current = nom;
+            try { localStorage.setItem('detalles_user_nombre', nom); } catch {}
+            if (u.rut) setInspectorRut(formatRut(u.rut));
+          }
+        }
+      } catch {}
+    }
+    setLoading(false);
+  };
+
+  const seleccionarFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (fotoPreview) URL.revokeObjectURL(fotoPreview);
+    setFoto(file); setFotoPreview(URL.createObjectURL(file));
+    if (inputFotoRef.current) inputFotoRef.current.value = '';
+    try { const blob = await comprimirImagen(file); setFoto(blob); } catch {}
+  };
+
+  const handleAnnotationConfirm = async (blob: Blob) => {
+    if (!fotoParaAnotar) return;
+    const urlOriginal = fotoParaAnotar;
+    setFotoParaAnotar(null);
+    setFotoPreview(URL.createObjectURL(blob)); setFoto(blob);
+    URL.revokeObjectURL(urlOriginal);
+    try {
+      const f = new File([blob], 'foto.jpg', { type: 'image/jpeg' });
+      const comprimido = await comprimirImagen(f); setFoto(comprimido);
+    } catch {}
+  };
+
+  const guardar = async () => {
+    if (!ambienteId || !partidaId || !observacion.trim()) { setError('Ambiente, partida y observación son obligatorios'); return; }
+    setGuardando(true); setError(''); setGuardadoOk(false);
+    try {
+      let userId = userIdRef.current || localStorage.getItem('detalles_user_id') || '';
+      let userEmail = '';
+      
+      if (online) {
+        try { 
+          const { data: { user } } = await Promise.race([
+            supabase.auth.getUser(), 
+            new Promise<any>((_, r) => setTimeout(() => r('timeout'), 3000))
+          ]); 
+          if (user?.id) { 
+            userId = user.id; 
+            userEmail = user.email || ''; 
+            userIdRef.current = user.id; 
+            localStorage.setItem('detalles_user_id', user.id); 
+            localStorage.setItem('detalles_user_email', userEmail); 
+          } 
+        } catch {}
+      }
+      
+      if (!userEmail) {
+        userEmail = localStorage.getItem('detalles_user_email') || '';
+      }
+      
+      if (!userId) { setError('No se pudo identificar el usuario'); setGuardando(false); return; }
+
+      const { data: ambienteData } = await supabase.from('ambientes').select('nombre').eq('id', ambienteId).maybeSingle();
+      const { data: partidaData } = await supabase.from('partidas').select('nombre').eq('id', partidaId).maybeSingle();
+      const ambienteName = ambienteData?.nombre || '';
+      const partidaName = partidaData?.nombre || '';
+
+      const semanaCreacion = nombreSemanaActual();
+      if (!semanaCreacion) {
+        console.warn('Hoy quedó fuera del calendario de semanas VAIN: hay que extender la tabla');
+      }
+
+      const datosObservacion = {
+        proyecto_id: proyecto.id,
+        proyecto_codigo: proyecto.codigo || '',
+        torre_codigo: torre.nombre || torre.codigo || '',
+        depto_numero: depto.numero,
+        departamento_id: depto.id,
+        tipo: 'PRE-E',
+        estado: 'PENDIENTE',
+        observacion: observacion.trim(),
+        ambiente: ambienteName,
+        partida_afectada: partidaName,
+        causa: null,
+        usuario_id: userId,
+        usuario_email: userEmail.toLowerCase(),
+        usuario_nombre: userNombreRef.current || null,
+        fecha_creacion: new Date().toISOString(),
+        semana_creacion: semanaCreacion,
+      };
+
+      if (online) {
+        try {
+          const { error } = await supabase.from('observacionesinformepv').insert(datosObservacion);
+          if (error) throw new Error(error.message);
+        } catch (e: any) {
+          console.error('Error al guardar:', e);
+          setError('Error: ' + e.message);
+          setGuardando(false);
+          return;
+        }
+      } else {
+        await agregarPendiente(datosObservacion, undefined);
+      }
+
+      setObservacion(''); setAmbienteId(''); setPartidaId('');
+      if (fotoPreview) URL.revokeObjectURL(fotoPreview);
+      setFoto(null); setFotoPreview(null);
+      if (inputFotoRef.current) inputFotoRef.current.value = '';
+      setRegistrosDepto(prev => prev + 1);
+      setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500);
+    } catch (e: any) { setError('Error inesperado: ' + e.message); }
+    setGuardando(false);
+  };
+
+  const guardarDatosPropietario = async () => {
+    if (!depto?.id) return;
+    if (!propNombre.trim() && !propRut.trim() && !fechaPromesa && !bancoSel && !procesoVenta.trim()) {
+      setErrorActa('Ingresa al menos un dato del propietario para guardar');
+      return;
+    }
+    setGuardandoDatos(true);
+    setErrorActa('');
+    setDatosOk(false);
+
+    let guardoEnBd = false;
+    if (online) {
+      try {
+        const { error } = await supabase.from('departamentos').update({
+          propietario_nombre:   propNombre.trim(),
+          acta_propietario_rut: propRut.trim(),
+          acta_fecha_promesa:   fechaPromesa || null,
+          acta_banco:           bancoSel,
+          acta_proceso_venta:   procesoVenta.trim() || null,
+        }).eq('id', depto.id);
+
+        if (error) throw new Error(error.message);
+        guardoEnBd = true;
+      } catch (e: any) {
+        setErrorActa(`Error: ${e.message}`);
+        setGuardandoDatos(false);
+      }
+    }
+
+    try {
+      localStorage.setItem(datosKey(depto.id), JSON.stringify({
+        propNombre,
+        propRut,
+        fechaPromesa,
+        bancoSel,
+        procesoVenta,
       }));
-    } catch (err) {
-      console.error('Error cargando obs:', err);
-    } finally {
-      setLoadingObs(false);
+    } catch {}
+
+    setGuardandoDatos(false);
+    if (guardoEnBd || !online) {
+      setErrorActa('');
+      setDatosOk(true);
+      setTimeout(() => setDatosOk(false), 3000);
     }
   };
 
-  const indicador = useMemo(
-    () => calcularIndicador(inputs),
-    [inputs]
-  );
+  const generarActa = async () => {
+    if (!propNombre.trim()) { setErrorActa('El nombre del propietario es obligatorio'); return; }
+    if (!propRut.trim())    { setErrorActa('El RUT del propietario es obligatorio'); return; }
+    if (!fechaPromesa)      { setErrorActa('La fecha de la promesa es obligatoria'); return; }
+    if (!inspectorRut.trim()) { setErrorActa('El RUT del inspector es obligatorio'); return; }
+    if (!firmaDataUrl)      { setErrorActa('La firma del propietario es obligatoria'); return; }
 
-  const handleSemanaChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const numSemana = parseInt(e.target.value, 10);
-    const semana = tablaSemanas.find(s => s.num === numSemana);
-    if (semana) setSemanaSeleccionada(semana);
+    setGenerando(true); setErrorActa('');
+    try {
+      const { data: regs, error: regErr } = await supabase
+        .from('observacionesinformepv')
+        .select('observacion, ambiente')
+        .eq('departamento_id', depto.id)
+        .eq('tipo', 'PRE-E');
+      if (regErr) throw new Error(regErr.message);
+
+      const observaciones: ObsActa[] = (regs ?? []).map((r: any) => ({
+        ambiente: r.ambiente ?? '',
+        descripcion: r.observacion ?? '',
+      }));
+
+      let logoBase64: string | undefined;
+      if (proyecto.acta_logo_url) logoBase64 = await urlToBase64(proyecto.acta_logo_url);
+
+      const pdf = generarActaPreEntrega({
+        nombreInmobiliaria: proyecto.acta_nombre_inmobiliaria ?? proyecto.nombre ?? '',
+        direccion:          proyecto.acta_direccion ?? proyecto.direccion ?? '',
+        ciudad:             proyecto.acta_ciudad ?? '',
+        telefono:           proyecto.acta_telefono ?? '',
+        email:              proyecto.acta_email ?? '',
+        nombreLegal:        proyecto.acta_nombre_legal ?? '',
+        logoBase64,
+        deptoNumero:        depto.numero,
+        edificio:           torre?.nombre,
+        propietarioNombre:  propNombre.trim(),
+        propietarioRut:     propRut.trim(),
+        fechaPromesa,
+        banco:              bancoSel,
+        procesoVenta:       procesoVenta.trim(),
+        inspectorNombre,
+        inspectorRut:       inspectorRut.trim(),
+        observaciones,
+        firmaPropietarioBase64: firmaDataUrl,
+        fechaGeneracion:    new Date(),
+      });
+
+      const fileName = `Acta_PreEntrega_Depto_${depto.numero}_${Date.now()}.pdf`;
+      await guardarPdf(pdf, fileName, depto.numero);
+
+      let firmaUrl: string | null = null;
+      try {
+        const firmaBlob = await fetch(firmaDataUrl).then(r => r.blob());
+        if (firmaBlob.size > 0) {
+          const firmaFileName = `firma_depto_${depto.id}_${Date.now()}.png`;
+          const firmaFile = new File([firmaBlob], firmaFileName, { type: 'image/png' });
+          
+          const { error: fErr } = await supabase.storage
+            .from('fotos-registros')
+            .upload(`firmas/${firmaFileName}`, firmaFile, { upsert: true });
+          
+          if (!fErr) {
+            const { data } = supabase.storage
+              .from('fotos-registros')
+              .getPublicUrl(`firmas/${firmaFileName}`);
+            firmaUrl = data.publicUrl;
+          }
+        }
+      } catch {}
+
+      // El RUT va solo a acta_propietario_rut. Antes también se escribía en
+      // propietario_contacto, que es donde vive el teléfono, y lo destruía.
+      const { error: updErr } = await supabase.from('departamentos').update({
+        propietario_nombre:     propNombre.trim(),
+        acta_propietario_rut:   propRut.trim(),
+        acta_fecha_promesa:     fechaPromesa,
+        acta_banco:             bancoSel,
+        acta_proceso_venta:     procesoVenta.trim() || null,
+        acta_generada_en:       new Date().toISOString(),
+        firma_propietario_url:  firmaUrl,
+        fecha_firma:            new Date().toISOString(),
+      }).eq('id', depto.id);
+
+      if (updErr) throw new Error(updErr.message);
+
+      try { localStorage.removeItem(datosKey(depto.id)); } catch {}
+
+      setActaGenerada(true);
+      setTimeout(() => { 
+        setModalTerminar(false); 
+        setActaGenerada(false); 
+        salir(); 
+      }, 1800);
+
+    } catch (e: any) {
+      setErrorActa('Error: ' + e.message);
+    }
+    setGenerando(false);
   };
 
-  const semanaActualLabel = semanaSeleccionada.semana
-    ? `${semanaSeleccionada.mes} ${semanaSeleccionada.semana}`
-    : 'VACACIONES';
+  const labelStyle  = { fontSize: 9, color: textMuted, display: 'block', marginBottom: 6, textTransform: 'uppercase' as any, letterSpacing: '1.5px', fontWeight: 600 };
+  const selectStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
+  const taStyle     = { width: '100%', height: 80, borderRadius: 10, padding: '10px 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, resize: 'none' as any, marginBottom: 12 };
+  const inputStyle  = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
+  const sepLine     = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
-  if (loading) {
-    return (
-      <IonPage style={{ '--background': bg } as any}>
-        <IonHeader>
-          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb' }}>
-            <IonMenuButton slot="start" />
-            <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Informes</IonTitle>
-          </IonToolbar>
-        </IonHeader>
-        <IonContent style={{ '--background': bg }}>
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <IonSpinner />
-          </div>
-        </IonContent>
-      </IonPage>
-    );
-  }
-
-  return (
-    <IonPage style={{ '--background': bg } as any}>
+  if (loading && ambientes.length === 0) return (
+    <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonMenuButton slot="start" />
-          <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>Informes · Indicador PV</IonTitle>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
+          <IonTitle style={{ fontSize: 15 }}>Cargando...</IonTitle>
+        </IonToolbar>
+      </IonHeader>
+      <IonContent style={{ '--background': bg }}>
+        <div style={{ textAlign: 'center', marginTop: 100 }}><IonSpinner name="crescent" /></div>
+      </IonContent>
+    </IonPage>
+  );
+
+  return (
+    <IonPage id="main-content">
+      <IonHeader>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
+          <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>ACTA · TORRE {torre?.nombre} · {depto?.numero}</IonTitle>
+          <div slot="end" style={{ paddingRight: 14 }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
+          </div>
         </IonToolbar>
       </IonHeader>
 
-      <IonContent style={{ '--background': bg, paddingBottom: '20px' }}>
-        <div style={{ padding: '14px' }}>
-          
-          {/* SELECTOR DE PROYECTO */}
-          <div style={{ marginBottom: '16px' }}>
-            <select
-              value={proyectoId}
-              onChange={(e) => setProyectoId(e.target.value)}
-              style={{
-                width: '100%',
-                height: 40,
-                padding: '8px 12px',
-                background: card,
-                border: `1px solid ${border}`,
-                borderRadius: 8,
-                color: textPrimary,
-                fontSize: 13,
-                fontWeight: 500,
-                appearance: 'none',
-                backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${textPrimary}' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'right 8px center',
-                backgroundSize: '20px',
-                paddingRight: '36px',
-              }}
-            >
-              {proyectos.map(p => (
-                <option key={p.id} value={p.id}>{p.nombre}</option>
-              ))}
-            </select>
+      <IonContent style={{ '--background': bg }}>
+        <div style={{ padding: 16 }}>
+
+          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
+              {depto?.numero}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 9, color: dark ? '#60a5fa' : '#2563eb', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>{proyecto?.nombre}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>
+                Torre {torre?.nombre}{torre?.frente ? ` (${torre.frente})` : ''} · Depto {depto?.numero}
+              </div>
+              <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{depto?.id_obra}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: registrosDepto > 0 ? (dark ? '#f87171' : '#b91c1c') : textMuted, lineHeight: 1 }}>{registrosDepto}</div>
+              <div style={{ fontSize: 9, color: textMuted, marginTop: 2, textTransform: 'uppercase', letterSpacing: '1px' }}>obs</div>
+            </div>
           </div>
 
-          {/* TARJETA DEL PROYECTO */}
-          {proyectoSel && (
-            <div
-              style={{
-                background: dark 
-                  ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' 
-                  : 'linear-gradient(135deg, #f0f4f8, #ffffff)',
-                border: `0.5px solid ${border}`,
-                borderRadius: 14,
-                padding: 16,
-                marginBottom: 20,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 14,
-              }}
-            >
-              <div
-                style={{
-                  width: 50,
-                  height: 50,
-                  borderRadius: 12,
-                  background: 'linear-gradient(135deg, #1e3a5f, #2563eb)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 24,
-                  flexShrink: 0,
-                }}
-              >
-                <IonIcon icon={barChart} style={{ color: '#fff' }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 9, color: '#2563eb', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>
-                  Proyecto
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: textPrimary, marginBottom: 2 }}>
-                  {proyectoSel.nombre}
-                </div>
-                <div style={{ fontSize: 11, color: textMuted }}>
-                  Código: {proyectoSel.codigo || '—'}
-                </div>
-              </div>
+          <div style={{ background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', borderRadius: 12, padding: '8px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 5, height: 5, borderRadius: '50%', background: dark ? '#4ade80' : '#22c55e', flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: dark ? '#4ade80' : '#15803d', fontWeight: 500 }}>🏠 Pre-entrega — obs para el acta</span>
+          </div>
+
+          {!online && (
+            <div style={{ background: 'rgba(251,191,36,0.06)', border: '0.5px solid rgba(251,191,36,0.2)', borderRadius: 12, padding: '8px 14px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: '#fbbf24' }}>Sin conexión — obs en cola{pendientes > 0 ? ` · ${pendientes}` : ''}</span>
+            </div>
+          )}
+          {guardadoOk && (
+            <div style={{ background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', borderRadius: 12, padding: '8px 14px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: dark ? '#4ade80' : '#22c55e', flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: dark ? '#4ade80' : '#15803d' }}>✓ Observación registrada</span>
             </div>
           )}
 
-          {/* SELECTOR DE SEMANA */}
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 11, color: textMuted, display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>
-              Selecciona semana
-            </label>
-            <select
-              value={semanaSeleccionada.num}
-              onChange={handleSemanaChange}
-              style={{
-                width: '100%',
-                height: 42,
-                padding: '8px 12px',
-                background: card,
-                border: `1px solid ${border}`,
-                borderRadius: 10,
-                color: textPrimary,
-                fontSize: 13,
-                fontWeight: 600,
-                appearance: 'none',
-                backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${textPrimary}' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'right 8px center',
-                backgroundSize: '20px',
-                paddingRight: '36px',
-              }}
-            >
-              {tablaSemanas.map(s => (
-                <option key={s.num} value={s.num}>
-                  {s.semana ? `${s.mes} ${s.semana}` : s.mes} ({s.lunes} a {s.viernes})
-                </option>
-              ))}
+          <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Nueva observación</div>
+          <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
+
+          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
+            <label style={labelStyle}>ambiente *</label>
+            <select value={ambienteId} onChange={e => setAmbienteId(e.target.value)} style={selectStyle}>
+              <option value="">Seleccionar ambiente...</option>
+              {ambientes.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
+
+            <label style={labelStyle}>partida afectada *</label>
+            <select value={partidaId} onChange={e => setPartidaId(e.target.value)} style={selectStyle}>
+              <option value="">Seleccionar partida...</option>
+              {partidas.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+
+            <label style={labelStyle}>observación *</label>
+            <textarea value={observacion} onChange={e => setObservacion(e.target.value)} placeholder="Describe la observación..." style={taStyle} />
+
+            <FotoUploader
+              labelStyle={labelStyle} border={border} dark={dark} textMuted={textMuted}
+              preview={fotoPreview}
+              onSelect={seleccionarFoto}
+              onClear={() => { if (fotoPreview) URL.revokeObjectURL(fotoPreview); setFoto(null); setFotoPreview(null); if (inputFotoRef.current) inputFotoRef.current.value = ''; }}
+              onAnnotate={fotoPreview ? () => setFotoParaAnotar(fotoPreview) : undefined}
+              label="foto"
+              inputRef={inputFotoRef}
+            />
+
+            {error && (
+              <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px', borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca' }}>{error}</div>
+            )}
+
+            <button onClick={guardar} disabled={guardando} style={{
+              width: '100%', height: 48, borderRadius: 12,
+              background: guardando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+              border: guardando ? `0.5px solid ${border}` : 'none',
+              color: guardando ? textMuted : '#fff',
+              fontSize: 15, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer'
+            }}>
+              {guardando ? 'Guardando...' : '✓ Registrar observación'}
+            </button>
           </div>
 
-          {/* INFO DE SEMANA SELECCIONADA */}
-          <div
-            style={{
-              background: card,
-              border: `1px solid ${border}`,
-              borderRadius: 12,
-              padding: 12,
-              marginBottom: 20,
-              textAlign: 'center',
-            }}
-          >
-            <div style={{ fontSize: 10, color: textMuted, marginBottom: 4 }}>Semana Seleccionada</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>
-              {semanaActualLabel}
-            </div>
-            <div style={{ fontSize: 11, color: textSecondary }}>
-              {semanaSeleccionada.lunes} a {semanaSeleccionada.viernes}
-            </div>
-            <div style={{ fontSize: 10, color: textMuted, marginTop: 8 }}>
-              {loadingObs ? 'Cargando...' : `${obsData.length} observaciones subsanadas`}
-            </div>
-          </div>
-
-          {/* TABLA DE INDICADOR */}
-          <div style={{ overflow: 'auto', marginBottom: 20 }}>
-            <h3 style={{ fontSize: 11, fontWeight: 700, color: textPrimary, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '1.5px' }}>
-              📊 Indicador de Producción
-            </h3>
-
-            <table
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                background: card,
-                border: `1px solid ${border}`,
-                borderRadius: 8,
-                overflow: 'hidden',
-                fontSize: '0.9rem',
-              }}
-            >
-              <thead>
-                <tr style={{ background: 'linear-gradient(135deg, #3880ff 0%, #2e63d4 100%)', color: 'white' }}>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    TRABAJOS
-                  </th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    MAESTROS
-                  </th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    DÍAS TRAB
-                  </th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    DÍA × MAESTRO
-                  </th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    OBS SUBSANADAS
-                  </th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    OBS/DÍA
-                  </th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    PRODUCTIVIDAD
-                  </th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    PONDERACIÓN
-                  </th>
-                  <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    PROMEDIO
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {/* PRE-E */}
-                <tr style={{ borderBottom: `1px solid ${border}` }}>
-                  <td style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#3880ff' }}>PRE-E</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.preE.maestros}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.preE.diasTrab}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.preE.diaXMaestro}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.preE.obsSubsanadas}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.preE.obsDiaXMaestro.toFixed(2)}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: '#0066cc', fontWeight: 500 }}>{indicador.preE.productividad}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: '#0066cc', fontWeight: 500 }}>{indicador.preE.ponderacion}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: '#0066cc', fontWeight: 500 }}>{indicador.preE.promedioPonderado}</td>
-                </tr>
-
-                {/* PV */}
-                <tr style={{ borderBottom: `1px solid ${border}` }}>
-                  <td style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#3880ff' }}>PV</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.pv.maestros}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.pv.diasTrab}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.pv.diaXMaestro}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.pv.obsSubsanadas}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: textPrimary }}>{indicador.pv.obsDiaXMaestro.toFixed(2)}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: '#0066cc', fontWeight: 500 }}>{indicador.pv.productividad}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: '#0066cc', fontWeight: 500 }}>{indicador.pv.ponderacion}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: '#0066cc', fontWeight: 500 }}>{indicador.pv.promedioPonderado}</td>
-                </tr>
-
-                {/* ÓPTIMO */}
-                <tr style={{ background: dark ? '#1a3a52' : '#e7f3ff', fontWeight: 600 }}>
-                  <td style={{ padding: '10px 8px', textAlign: 'left', color: dark ? '#90caf9' : '#1565c0' }}>ÓPTIMO</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: dark ? '#90caf9' : '#1565c0' }}>{indicador.optimo.maestros}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: dark ? '#90caf9' : '#1565c0' }}>{indicador.optimo.diasTrab}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: dark ? '#90caf9' : '#1565c0' }}>{indicador.optimo.diaXMaestro}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: dark ? '#90caf9' : '#1565c0' }}>{indicador.optimo.obsSubsanadas.toFixed(1)}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: dark ? '#90caf9' : '#1565c0' }}>{indicador.optimo.obsDiaXMaestro.toFixed(2)}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: dark ? '#90caf9' : '#1565c0' }}>{indicador.optimo.productividad}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: dark ? '#90caf9' : '#1565c0' }}>{indicador.optimo.ponderacion}</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'center', color: dark ? '#90caf9' : '#1565c0' }}>{indicador.optimo.promedioPonderado}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* MÉTRICA DE PRODUCTIVIDAD PROMEDIO DIARIA */}
-          <div
-            style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: 'white',
-              padding: 20,
-              borderRadius: 14,
-              textAlign: 'center',
-              marginBottom: 20,
-              boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 500, opacity: 0.95, marginBottom: 8 }}>
-              Productividad Promedio Diaria
-            </div>
-            <div style={{ fontSize: 32, fontWeight: 700, fontFamily: "'Courier New', monospace", letterSpacing: '1px' }}>
-              {indicador.productividadPromedioDiaria}
-            </div>
-          </div>
-
-          {/* INPUTS PARA TESTING */}
-          <div
-            style={{
-              background: card,
-              border: `1px solid ${border}`,
-              borderRadius: 12,
-              padding: 16,
-              marginBottom: 20,
-            }}
-          >
-            <h4 style={{ fontSize: 11, fontWeight: 700, color: textPrimary, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '1.5px' }}>
-              ⚙️ Parámetros (Testing)
-            </h4>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 10, color: textMuted, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  PRE-E Maestros
-                </label>
-                <input
-                  type="number"
-                  value={inputs.preE_maestros}
-                  onChange={(e) => setInputs(prev => ({ ...prev, preE_maestros: Number(e.target.value) || 0 }))}
-                  style={{
-                    width: '100%',
-                    height: 36,
-                    borderRadius: 8,
-                    border: `0.5px solid ${border}`,
-                    padding: '0 8px',
-                    background: dark ? '#111111' : '#f9f9f9',
-                    color: textPrimary,
-                    fontSize: 13,
-                  }}
-                  min="0"
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 10, color: textMuted, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  PRE-E Días
-                </label>
-                <input
-                  type="number"
-                  value={inputs.preE_diasTrab}
-                  onChange={(e) => setInputs(prev => ({ ...prev, preE_diasTrab: Number(e.target.value) || 0 }))}
-                  style={{
-                    width: '100%',
-                    height: 36,
-                    borderRadius: 8,
-                    border: `0.5px solid ${border}`,
-                    padding: '0 8px',
-                    background: dark ? '#111111' : '#f9f9f9',
-                    color: textPrimary,
-                    fontSize: 13,
-                  }}
-                  min="0"
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label style={{ fontSize: 10, color: textMuted, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  PV Maestros
-                </label>
-                <input
-                  type="number"
-                  value={inputs.pv_maestros}
-                  onChange={(e) => setInputs(prev => ({ ...prev, pv_maestros: Number(e.target.value) || 0 }))}
-                  style={{
-                    width: '100%',
-                    height: 36,
-                    borderRadius: 8,
-                    border: `0.5px solid ${border}`,
-                    padding: '0 8px',
-                    background: dark ? '#111111' : '#f9f9f9',
-                    color: textPrimary,
-                    fontSize: 13,
-                  }}
-                  min="0"
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 10, color: textMuted, display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  PV Días
-                </label>
-                <input
-                  type="number"
-                  value={inputs.pv_diasTrab}
-                  onChange={(e) => setInputs(prev => ({ ...prev, pv_diasTrab: Number(e.target.value) || 0 }))}
-                  style={{
-                    width: '100%',
-                    height: 36,
-                    borderRadius: 8,
-                    border: `0.5px solid ${border}`,
-                    padding: '0 8px',
-                    background: dark ? '#111111' : '#f9f9f9',
-                    color: textPrimary,
-                    fontSize: 13,
-                  }}
-                  min="0"
-                />
-              </div>
-            </div>
-          </div>
+          <button onClick={() => setModalTerminar(true)} style={{
+            width: '100%', height: 46, borderRadius: 12, background: 'transparent',
+            border: `0.5px solid ${dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0'}`,
+            color: dark ? '#4ade80' : '#15803d',
+            fontSize: 14, fontWeight: 500, cursor: 'pointer', marginBottom: 40
+          }}>
+            📝 Datos del propietario / generar acta
+          </button>
 
         </div>
+
+        <IonModal isOpen={modalTerminar} onDidDismiss={() => setModalTerminar(false)}>
+          <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
+            {actaGenerada ? (
+              <div style={{ textAlign: 'center', paddingTop: 60 }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+                <div style={{ fontSize: 16, fontWeight: 500, color: dark ? '#4ade80' : '#15803d' }}>Acta generada correctamente</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>Datos del acta</div>
+                <div style={{ fontSize: 12, color: textSecondary, marginBottom: 20 }}>Torre {torre?.nombre} · Depto {depto?.numero} · {registrosDepto} obs registradas</div>
+
+                <label style={labelStyle}>nombre propietario *</label>
+                <input value={propNombre} onChange={e => setPropNombre(e.target.value.toUpperCase())} placeholder="EJ: JUAN PEDRO PEREZ PEREZ" style={inputStyle} />
+
+                <label style={labelStyle}>RUT propietario *</label>
+                <input value={propRut} onChange={e => setPropRut(formatRut(e.target.value))} inputMode="text" maxLength={12} placeholder="Ej: 12.345.678-9" style={inputStyle} />
+
+                <label style={labelStyle}>fecha promesa de compra venta *</label>
+                <input type="date" value={fechaPromesa} onChange={e => setFechaPromesa(e.target.value)} style={inputStyle} />
+
+                <label style={labelStyle}>banco (crédito hipotecario)</label>
+                <select value={bancoSel} onChange={e => setBancoSel(e.target.value)} style={selectStyle}>
+                  <option value="">Seleccionar banco...</option>
+                  {bancos.map(b => <option key={b.id} value={b.nombre}>{b.nombre}</option>)}
+                </select>
+
+                <label style={labelStyle}>n° proceso de venta</label>
+                <input value={procesoVenta} onChange={e => setProcesoVenta(e.target.value.toUpperCase())} placeholder="Ej: 12345" style={inputStyle} />
+
+                <button onClick={guardarDatosPropietario} disabled={guardandoDatos} style={{
+                  width: '100%', height: 46, borderRadius: 12, background: 'transparent',
+                  border: `0.5px solid ${dark ? '#2a2a2a' : '#cbd5e1'}`,
+                  color: guardandoDatos ? textMuted : (dark ? '#93c5fd' : '#1e3a5f'),
+                  fontSize: 14, fontWeight: 600, cursor: guardandoDatos ? 'not-allowed' : 'pointer', marginBottom: 8
+                }}>
+                  {guardandoDatos ? 'Guardando...' : '💾 Guardar datos del propietario'}
+                </button>
+                <div style={{ fontSize: 11, color: textMuted, marginBottom: 8, lineHeight: 1.4 }}>
+                  Puedes guardarlos ahora y volver luego para firmar y generar el acta. Quedan asociados a este departamento.
+                </div>
+                {datosOk && (
+                  <div style={{ background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', borderRadius: 10, padding: '8px 12px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: dark ? '#4ade80' : '#22c55e', flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: dark ? '#4ade80' : '#15803d' }}>✓ Datos del propietario guardados{!online ? ' (en el dispositivo)' : ''}</span>
+                  </div>
+                )}
+
+                <div style={{ height: '0.5px', background: sepLine, margin: '8px 0 20px' }} />
+
+                <label style={labelStyle}>RUT inspector (quien toma las obs) *</label>
+                <input value={inspectorRut} onChange={e => setInspectorRut(formatRut(e.target.value))} inputMode="text" maxLength={12} placeholder="Ej: 12.552.916-K" style={inputStyle} />
+                <div style={{ fontSize: 11, color: textMuted, marginTop: -6, marginBottom: 14 }}>Inspector: {inspectorNombre || '—'}</div>
+
+                <label style={{ ...labelStyle, marginBottom: 8 }}>firma del propietario *</label>
+                <div style={{ border: `0.5px solid ${border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 8, background: '#ffffff' }}>
+                  <canvas
+                    ref={firmaCanvasRef}
+                    style={{ display: 'block', width: '100%', height: 160, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
+                    onMouseDown={iniciarDibujo} onMouseMove={dibujar} onMouseUp={terminarDibujo} onMouseLeave={terminarDibujo}
+                    onTouchStart={e => { e.preventDefault(); iniciarDibujo(e); }}
+                    onTouchMove={e => { e.preventDefault(); dibujar(e); }}
+                    onTouchEnd={e => { e.preventDefault(); terminarDibujo(); }}
+                  />
+                </div>
+                <button onClick={limpiarFirma} style={{ background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, borderRadius: 8, padding: '4px 12px', cursor: 'pointer', marginBottom: 20 }}>
+                  🗑️ Limpiar firma
+                </button>
+
+                {errorActa && (
+                  <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px', borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca' }}>{errorActa}</div>
+                )}
+
+                <button onClick={generarActa} disabled={generando} style={{
+                  width: '100%', height: 48, borderRadius: 12,
+                  background: generando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+                  border: 'none', color: generando ? textMuted : '#fff',
+                  fontSize: 14, fontWeight: 700, cursor: generando ? 'not-allowed' : 'pointer'
+                }}>
+                  {generando ? 'Generando acta...' : '📄 Generar acta PDF'}
+                </button>
+                <button onClick={() => setModalTerminar(false)} style={{ width: '100%', height: 44, borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 14, marginTop: 8, cursor: 'pointer' }}>
+                  Cerrar
+                </button>
+              </>
+            )}
+          </div>
+        </IonModal>
+
       </IonContent>
+
+      {fotoParaAnotar && (
+        <FotoAnnotator
+          imageSrc={fotoParaAnotar}
+          onConfirm={handleAnnotationConfirm}
+          onCancel={() => { URL.revokeObjectURL(fotoParaAnotar); setFotoParaAnotar(null); }}
+        />
+      )}
+
     </IonPage>
   );
 };
 
-export default InformePV;
+export default PreEntregaDepto;

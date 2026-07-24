@@ -125,14 +125,15 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         bottom: 0,
         left: 0,
         right: 0,
-        height: 68,
+        boxSizing: 'border-box',
+        height: 'calc(68px + var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px)))',
+        paddingBottom: 'var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px))',
         background: card,
         borderTop: `0.5px solid ${border}`,
         display: 'flex',
         justifyContent: 'space-around',
         alignItems: 'center',
-        zIndex: 100,
-        paddingBottom: 'env(safe-area-inset-bottom)'
+        zIndex: 100
       }}>
         <NavButton
           icon={home}
