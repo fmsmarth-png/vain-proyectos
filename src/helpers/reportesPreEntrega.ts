@@ -32,19 +32,14 @@ interface ObservacionPE {
 
 /**
  * Genera reporte COMPLETO de observaciones Pre Entrega
- * Incluye: todos los campos de la observación
+ * Incluye: TODAS las columnas de la tabla observacionesinformepv
  */
 export const generarReporteCompleto = async (filtros: FiltrosReporte): Promise<void> => {
   try {
     // 1. Construir query con filtros
     let query = supabase
       .from('observacionesinformepv')
-      .select(
-        `id, proyecto_codigo, torre_codigo, depto_numero, 
-         fecha_creacion, semana_creacion, ambiente, partida_afectada, 
-         causa, observacion, estado, usuario_nombre, usuario_email, 
-         fecha_resolucion, propietario_nombre`
-      )
+      .select('*')  // TODAS las columnas
       .eq('proyecto_id', filtros.proyectoId)
       .eq('tipo', 'PRE-E')
       .order('fecha_creacion', { ascending: false });
@@ -79,49 +74,30 @@ export const generarReporteCompleto = async (filtros: FiltrosReporte): Promise<v
       return;
     }
 
-    // 2. Preparar datos para Excel
-    const datosExcel = data.map((obs: any) => ({
-      'Proyecto': obs.proyecto_codigo || '',
-      'Torre': obs.torre_codigo || '',
-      'Depto': obs.depto_numero || '',
-      'Fecha Creación': formatearFecha(obs.fecha_creacion),
-      'Semana': obs.semana_creacion || '',
-      'Ambiente': obs.ambiente || '',
-      'Partida Afectada': obs.partida_afectada || '',
-      'Causa': obs.causa || '',
-      'Observación': obs.observacion || '',
-      'Estado': obs.estado || '',
-      'Usuario': obs.usuario_nombre || obs.usuario_email || '',
-      'Fecha Resolución': obs.fecha_resolucion ? formatearFecha(obs.fecha_resolucion) : '',
-      'Propietario': obs.propietario_nombre || '',
-    }));
+    // 2. Preparar datos para Excel - TODAS las columnas de la tabla
+    const datosExcel = data.map((obs: any) => {
+      // Formatear fechas automáticamente
+      const formatted: any = {};
+      Object.keys(obs).forEach(key => {
+        if (key.includes('fecha') || key.includes('creacion') || key.includes('resolucion')) {
+          // Formatear fechas
+          formatted[key] = obs[key] ? formatearFecha(obs[key]) : '';
+        } else {
+          formatted[key] = obs[key] || '';
+        }
+      });
+      return formatted;
+    });
 
     // 3. Crear workbook
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(datosExcel, {
-      header: [
-        'Proyecto', 'Torre', 'Depto', 'Fecha Creación', 'Semana',
-        'Ambiente', 'Partida Afectada', 'Causa', 'Observación', 'Estado',
-        'Usuario', 'Fecha Resolución', 'Propietario',
-      ],
-    });
+    const ws = XLSX.utils.json_to_sheet(datosExcel);  // Sin header específico - XLSX usa todas las keys
 
-    // Estilos: ancho de columnas
-    ws['!cols'] = [
-      { wch: 12 }, // Proyecto
-      { wch: 8 },  // Torre
-      { wch: 8 },  // Depto
-      { wch: 16 }, // Fecha Creación
-      { wch: 14 }, // Semana
-      { wch: 16 }, // Ambiente
-      { wch: 16 }, // Partida
-      { wch: 16 }, // Causa
-      { wch: 30 }, // Observación
-      { wch: 12 }, // Estado
-      { wch: 18 }, // Usuario
-      { wch: 16 }, // Fecha Resolución
-      { wch: 18 }, // Propietario
-    ];
+    // Estilos: auto-ancho para todas las columnas
+    if (datosExcel.length > 0) {
+      const columnWidths = Object.keys(datosExcel[0]).map(() => ({ wch: 20 }));
+      ws['!cols'] = columnWidths;
+    }
 
     XLSX.utils.book_append_sheet(wb, ws, 'Pre Entrega');
 
@@ -138,7 +114,7 @@ export const generarReporteCompleto = async (filtros: FiltrosReporte): Promise<v
 
 /**
  * Genera reporte ITLS: formato específico para plataforma ITLS
- * Columnas: Proyecto, Fecha, Torre, Depto, N° Obs, Observación
+ * Columnas: Proyecto, Fecha, Torre, Depto, N° Obs, Observación, Ambiente
  */
 export const generarReporteITLS = async (filtros: FiltrosReporte): Promise<void> => {
   try {
@@ -147,7 +123,7 @@ export const generarReporteITLS = async (filtros: FiltrosReporte): Promise<void>
       .from('observacionesinformepv')
       .select(
         `id, proyecto_codigo, torre_codigo, depto_numero, 
-         fecha_creacion, observacion`
+         fecha_creacion, observacion, ambiente`
       )
       .eq('proyecto_id', filtros.proyectoId)
       .eq('tipo', 'PRE-E')
@@ -194,12 +170,13 @@ export const generarReporteITLS = async (filtros: FiltrosReporte): Promise<void>
       'Depto': obs.depto_numero || '',
       'N° Obs': obs.numeroObs || '',
       'Observación': obs.observacion || '',
+      'Ambiente': obs.ambiente || '',
     }));
 
     // 4. Crear workbook
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(datosExcel, {
-      header: ['Proyecto', 'Fecha', 'Torre', 'Depto', 'N° Obs', 'Observación'],
+      header: ['Proyecto', 'Fecha', 'Torre', 'Depto', 'N° Obs', 'Observación', 'Ambiente'],
     });
 
     // Estilos: ancho de columnas
@@ -210,6 +187,7 @@ export const generarReporteITLS = async (filtros: FiltrosReporte): Promise<void>
       { wch: 8 },  // Depto
       { wch: 8 },  // N° Obs
       { wch: 40 }, // Observación
+      { wch: 18 }, // Ambiente
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'ITLS');

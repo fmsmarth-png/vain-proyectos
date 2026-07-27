@@ -1,115 +1,78 @@
 import React, { useEffect, useState } from 'react';
 import {
-  IonPage,
-  IonHeader,
-  IonToolbar,
-  IonTitle,
-  IonContent,
-  IonCard,
-  IonCardContent,
-  IonButton,
-  IonLoading,
-  IonIcon,
-  IonGrid,
-  IonRow,
-  IonCol,
-  IonSelect,
-  IonSelectOption,
-  IonInput,
-  IonLabel,
-  IonItem,
-  useIonViewDidEnter,
+  IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
+  IonButton, IonLoading, IonIcon, useIonViewDidEnter,
 } from '@ionic/react';
-import { chevronBack, download } from 'ionicons/icons';
+import { chevronBack, arrowForward, document, barChart } from 'ionicons/icons';
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { generarReporteCompleto, generarReporteITLS } from '../helpers/reportesPreEntrega';
+import BottomNavBar from '../components/BottomNavBar';
 
-interface Proyecto {
-  id: string;
-  nombre: string;
-  codigo: string;
-  etapa: string;
-}
-
-interface Torre {
-  id: string;
-  nombre: string;
-  proyecto_id: string;
-}
-
-interface Depto {
-  id: string;
-  numero: string;
-  torre_id: string;
-}
+interface Proyecto { id: string; nombre: string; codigo: string; etapa: string; }
+interface Torre { id: string; nombre: string; proyecto_id: string; }
+interface Depto { id: string; numero: string; torre_id: string; }
 
 export const PreEntregaReportes: React.FC = () => {
   const history = useHistory();
   const { theme } = useTheme();
-  const isDark = theme === 'dark';
+  const dark = theme === 'dark';
 
-  // Estado general
+  const bg = dark ? '#000000' : '#f8f8f8';
+  const card = dark ? '#111111' : '#ffffff';
+  const cardBg = dark ? '#0a0a0a' : '#f9f9f9';
+  const border = dark ? '#222222' : '#e8e8e8';
+  const textPrimary = dark ? '#ffffff' : '#1f2937';
+  const textSecondary = dark ? '#a0a0a0' : '#6b7280';
+  const textMuted = dark ? '#555555' : '#9ca3af';
+
   const [cargando, setCargando] = useState(true);
   const [generandoReporte, setGenerandoReporte] = useState(false);
-
-  // Datos
   const [proyectos, setProyectos] = useState<Proyecto[]>([]);
   const [torres, setTorres] = useState<Torre[]>([]);
   const [deptos, setDeptos] = useState<Depto[]>([]);
 
-  // Filtros
   const [proyectoSel, setProyectoSel] = useState<string>('');
   const [torreSel, setTorreSel] = useState<string>('');
   const [deptoSel, setDeptoSel] = useState<string>('');
   const [fechaDesde, setFechaDesde] = useState<string>('');
   const [fechaHasta, setFechaHasta] = useState<string>('');
 
-  // Colores tema
-  const colors = {
-    bg: isDark ? '#000000' : '#f0f4f8',
-    card: isDark ? '#0e0e0e' : '#ffffff',
-    border: isDark ? '#1e1e1e' : '#e2e8f0',
-    textPrimary: isDark ? '#f9fafb' : '#0f172a',
-    textSecondary: isDark ? '#6b7280' : '#64748b',
-    textMuted: isDark ? '#444444' : '#94a3b8',
-    toolbar: isDark ? '#000000' : '#1e3a5f',
-    primary: '#3b82f6',
-  };
+  useIonViewDidEnter(() => { cargarDatos(); }, []);
 
-  useIonViewDidEnter(() => {
-    cargarDatos();
-  }, []);
+  // Pre-seleccionar proyecto desde sessionStorage cuando se cargan los proyectos
+  useEffect(() => {
+    if (proyectos.length > 0) {
+      const sessionData = sessionStorage.getItem('og_seleccion');
+      if (sessionData) {
+        try {
+          const parsed = JSON.parse(sessionData);
+          if (parsed.proyectoId && proyectos.find(p => p.id === parsed.proyectoId)) {
+            setProyectoSel(parsed.proyectoId);
+          }
+        } catch (e) {
+          console.error('Error parsing session:', e);
+        }
+      }
+    }
+  }, [proyectos]);
 
   const cargarDatos = async () => {
     try {
       setCargando(true);
-
-      // Obtener usuario actual
       const { data } = await supabase.auth.getSession();
       const sesion = data?.session;
-      
-      if (!sesion?.user) {
-        history.push('/login');
-        return;
-      }
+      if (!sesion?.user) { history.push('/login'); return; }
 
-      // Obtener proyectos asignados al usuario (solo pre_entrega_postventa)
       const { data: userProyectos } = await supabase
         .from('usuario_proyectos')
         .select('proyecto_id')
         .eq('usuario_id', sesion.user.id);
 
-      if (!userProyectos || userProyectos.length === 0) {
-        setProyectos([]);
-        setCargando(false);
-        return;
-      }
+      if (!userProyectos || userProyectos.length === 0) { setProyectos([]); setCargando(false); return; }
 
       const proyectosIds = userProyectos.map((up: any) => up.proyecto_id);
-
-      // Obtener proyectos con etapa pre_entrega_postventa
       const { data: proy } = await supabase
         .from('proyectos')
         .select('id, nombre, codigo, etapa')
@@ -120,19 +83,13 @@ export const PreEntregaReportes: React.FC = () => {
       setProyectos(proy || []);
       setCargando(false);
     } catch (error) {
-      console.error('Error cargando datos:', error);
+      console.error('Error:', error);
       setCargando(false);
     }
   };
 
-  // Cargar torres cuando cambia proyecto
   useEffect(() => {
-    if (!proyectoSel) {
-      setTorres([]);
-      setDeptos([]);
-      return;
-    }
-
+    if (!proyectoSel) { setTorres([]); setDeptos([]); return; }
     const cargarTorres = async () => {
       try {
         const { data } = await supabase
@@ -140,27 +97,17 @@ export const PreEntregaReportes: React.FC = () => {
           .select('id, nombre, proyecto_id')
           .eq('proyecto_id', proyectoSel)
           .order('nombre');
-
         setTorres(data || []);
         setTorreSel('');
         setDeptoSel('');
         setDeptos([]);
-      } catch (error) {
-        console.error('Error cargando torres:', error);
-      }
+      } catch (error) { console.error('Error:', error); }
     };
-
     cargarTorres();
   }, [proyectoSel]);
 
-  // Cargar deptos cuando cambia torre
   useEffect(() => {
-    if (!torreSel) {
-      setDeptos([]);
-      setDeptoSel('');
-      return;
-    }
-
+    if (!torreSel) { setDeptos([]); setDeptoSel(''); return; }
     const cargarDeptos = async () => {
       try {
         const { data } = await supabase
@@ -168,23 +115,15 @@ export const PreEntregaReportes: React.FC = () => {
           .select('id, numero, torre_id')
           .eq('torre_id', torreSel)
           .order('numero');
-
         setDeptos(data || []);
         setDeptoSel('');
-      } catch (error) {
-        console.error('Error cargando deptos:', error);
-      }
+      } catch (error) { console.error('Error:', error); }
     };
-
     cargarDeptos();
   }, [torreSel]);
 
   const descargarReporteCompleto = async () => {
-    if (!proyectoSel) {
-      alert('Por favor selecciona un proyecto');
-      return;
-    }
-
+    if (!proyectoSel) { alert('Por favor selecciona un proyecto'); return; }
     try {
       setGenerandoReporte(true);
       await generarReporteCompleto({
@@ -195,7 +134,7 @@ export const PreEntregaReportes: React.FC = () => {
         fechaHasta: fechaHasta || undefined,
       });
     } catch (error) {
-      console.error('Error generando reporte completo:', error);
+      console.error('Error:', error);
       alert('Error al generar el reporte');
     } finally {
       setGenerandoReporte(false);
@@ -203,11 +142,7 @@ export const PreEntregaReportes: React.FC = () => {
   };
 
   const descargarReporteITLS = async () => {
-    if (!proyectoSel) {
-      alert('Por favor selecciona un proyecto');
-      return;
-    }
-
+    if (!proyectoSel) { alert('Por favor selecciona un proyecto'); return; }
     try {
       setGenerandoReporte(true);
       await generarReporteITLS({
@@ -218,255 +153,292 @@ export const PreEntregaReportes: React.FC = () => {
         fechaHasta: fechaHasta || undefined,
       });
     } catch (error) {
-      console.error('Error generando reporte ITLS:', error);
+      console.error('Error:', error);
       alert('Error al generar el reporte ITLS');
     } finally {
       setGenerandoReporte(false);
     }
   };
 
-  const proyectoSelNombre = proyectos.find((p) => p.id === proyectoSel)?.nombre || 'Proyecto';
+  const proyectoSelData = proyectos.find((p) => p.id === proyectoSel);
 
   return (
     <IonPage>
-      <IonHeader>
-        <IonToolbar style={{ backgroundColor: colors.toolbar }}>
+      <IonHeader style={{ borderBottom: 'none' }}>
+        <IonToolbar style={{ backgroundColor: '#1e3a5f', '--background': '#1e3a5f' } as any}>
           <IonButton slot="start" fill="clear" onClick={() => history.push('/pre-entrega')}>
-            <IonIcon icon={chevronBack} />
+            <IonIcon icon={chevronBack} style={{ color: '#fff', fontSize: '24px' }} />
           </IonButton>
           <IonTitle style={{ color: '#fff', fontWeight: '600' }}>Reportes Pre Entrega</IonTitle>
         </IonToolbar>
       </IonHeader>
 
-      <IonContent style={{ backgroundColor: colors.bg }}>
+      <IonContent style={{ backgroundColor: bg }}>
         <IonLoading isOpen={cargando} message="Cargando..." />
         <IonLoading isOpen={generandoReporte} message="Generando reporte..." />
 
-        <div style={{ padding: '16px', paddingBottom: '100px' }}>
-          {/* TARJETA PROYECTO BANNER */}
-          <IonCard
-            style={{
-              background: `linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)`,
-              borderRadius: '16px',
-              marginBottom: '24px',
-              overflow: 'hidden',
-              position: 'relative',
-              border: 'none',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            }}
-          >
+        <div style={{ padding: '16px 16px 100px' }}>
+          {/* BANNER PROYECTO - SIMPLE */}
+          {proyectoSelData && (
             <div
               style={{
-                position: 'absolute',
-                width: '120px',
-                height: '120px',
-                borderRadius: '50%',
-                background: 'rgba(255,255,255,0.05)',
-                top: '-40px',
-                right: '-40px',
+                background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
+                borderRadius: '16px',
+                marginBottom: '20px',
+                color: '#fff',
+                position: 'relative',
                 overflow: 'hidden',
               }}
-            />
-            <IonCardContent
+            >
+              <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
+              <div style={{ padding: '20px', position: 'relative', zIndex: 1 }}>
+                <div style={{ fontSize: '10px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', opacity: 0.7, marginBottom: '6px' }}>
+                  Proyecto Seleccionado
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: '700', marginBottom: '4px' }}>
+                  {proyectoSelData.nombre}
+                </div>
+                <div style={{ fontSize: '11px', opacity: 0.85 }}>
+                  Pre Entrega - Post Venta
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECCIÓN FILTROS */}
+          <div style={{ marginBottom: '20px' }}>
+            <div style={{ fontSize: '10px', color: textMuted, letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: '600', marginBottom: '10px' }}>
+              Filtros
+            </div>
+
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: '12px', padding: '16px' }}>
+              {/* PROYECTO */}
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600', color: textPrimary, display: 'block', marginBottom: '6px' }}>
+                  Proyecto
+                </label>
+                <select
+                  value={proyectoSel}
+                  onChange={(e) => setProyectoSel(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: '40px',
+                    padding: '0 12px',
+                    background: cardBg,
+                    border: `1px solid ${border}`,
+                    borderRadius: '8px',
+                    color: textPrimary,
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="">Selecciona proyecto...</option>
+                  {proyectos.map((p) => (
+                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* TORRE + DEPTO */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '13px', fontWeight: '600', color: textPrimary, display: 'block', marginBottom: '6px' }}>
+                    Torre
+                  </label>
+                  <select
+                    value={torreSel}
+                    onChange={(e) => setTorreSel(e.target.value)}
+                    disabled={!proyectoSel}
+                    style={{
+                      width: '100%',
+                      height: '40px',
+                      padding: '0 12px',
+                      background: cardBg,
+                      border: `1px solid ${border}`,
+                      borderRadius: '8px',
+                      color: textPrimary,
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: proyectoSel ? 'pointer' : 'not-allowed',
+                      opacity: proyectoSel ? 1 : 0.5,
+                    }}
+                  >
+                    <option value="">Todas</option>
+                    {torres.map((t) => (
+                      <option key={t.id} value={t.id}>{t.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '13px', fontWeight: '600', color: textPrimary, display: 'block', marginBottom: '6px' }}>
+                    Departamento
+                  </label>
+                  <select
+                    value={deptoSel}
+                    onChange={(e) => setDeptoSel(e.target.value)}
+                    disabled={!torreSel}
+                    style={{
+                      width: '100%',
+                      height: '40px',
+                      padding: '0 12px',
+                      background: cardBg,
+                      border: `1px solid ${border}`,
+                      borderRadius: '8px',
+                      color: textPrimary,
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: torreSel ? 'pointer' : 'not-allowed',
+                      opacity: torreSel ? 1 : 0.5,
+                    }}
+                  >
+                    <option value="">Todos</option>
+                    {deptos.map((d) => (
+                      <option key={d.id} value={d.id}>Depto. {d.numero}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* RANGO DE FECHAS */}
+              <div>
+                <label style={{ fontSize: '10px', color: textMuted, letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                  Rango de fechas
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <input
+                    type="date"
+                    value={fechaDesde}
+                    onChange={(e) => setFechaDesde(e.target.value)}
+                    style={{
+                      height: '40px',
+                      padding: '0 12px',
+                      background: cardBg,
+                      border: `1px solid ${border}`,
+                      borderRadius: '8px',
+                      color: textPrimary,
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                    }}
+                  />
+                  <input
+                    type="date"
+                    value={fechaHasta}
+                    onChange={(e) => setFechaHasta(e.target.value)}
+                    style={{
+                      height: '40px',
+                      padding: '0 12px',
+                      background: cardBg,
+                      border: `1px solid ${border}`,
+                      borderRadius: '8px',
+                      color: textPrimary,
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SECCIÓN GENERAR REPORTE */}
+          <div>
+            <div style={{ fontSize: '10px', color: textMuted, letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: '600', marginBottom: '10px' }}>
+              Generar Reporte
+            </div>
+
+            {/* REPORTE COMPLETO */}
+            <div
+              onClick={proyectoSel ? descargarReporteCompleto : undefined}
               style={{
-                padding: '24px',
-                position: 'relative',
-                zIndex: 1,
+                background: card,
+                border: `1px solid ${border}`,
+                borderRadius: '12px',
+                padding: '14px',
+                marginBottom: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                cursor: proyectoSel ? 'pointer' : 'not-allowed',
+                opacity: proyectoSel ? 1 : 0.6,
               }}
             >
-              <div style={{ color: '#fff', fontSize: '14px', fontWeight: '600', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '8px' }}>
-                Descargar Observaciones
+              <div
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  background: '#10b981',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <IonIcon icon={document} style={{ color: '#fff', fontSize: '22px' }} />
               </div>
-              <div style={{ color: '#fff', fontSize: '20px', fontWeight: 'bold', marginBottom: '4px' }}>
-                {proyectoSelNombre}
-              </div>
-              <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
-                Selecciona los filtros y descarga el reporte
-              </div>
-            </IonCardContent>
-          </IonCard>
-
-          {/* FILTROS */}
-          <IonCard style={{ backgroundColor: colors.card, borderRadius: '16px', marginBottom: '16px', border: `0.5px solid ${colors.border}` }}>
-            <IonCardContent style={{ padding: '16px' }}>
-              <div style={{ marginBottom: '16px' }}>
-                <IonItem
-                  lines="none"
-                  style={{
-                    backgroundColor: 'transparent',
-                    paddingLeft: 0,
-                    paddingRight: 0,
-                  }}
-                >
-                  <IonLabel style={{ color: colors.textPrimary, fontWeight: '600', marginRight: '12px', minWidth: '100px' }}>
-                    Proyecto *
-                  </IonLabel>
-                  <IonSelect
-                    value={proyectoSel}
-                    onIonChange={(e) => setProyectoSel(e.detail.value)}
-                    placeholder="Selecciona..."
-                    style={{ color: colors.textPrimary }}
-                  >
-                    {proyectos.map((p) => (
-                      <IonSelectOption key={p.id} value={p.id}>
-                        {p.nombre} ({p.codigo})
-                      </IonSelectOption>
-                    ))}
-                  </IonSelect>
-                </IonItem>
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <IonItem
-                  lines="none"
-                  style={{
-                    backgroundColor: 'transparent',
-                    paddingLeft: 0,
-                    paddingRight: 0,
-                  }}
-                >
-                  <IonLabel style={{ color: colors.textPrimary, fontWeight: '600', marginRight: '12px', minWidth: '100px' }}>
-                    Torre
-                  </IonLabel>
-                  <IonSelect
-                    value={torreSel}
-                    onIonChange={(e) => setTorreSel(e.detail.value)}
-                    placeholder="Todas"
-                    disabled={!proyectoSel}
-                    style={{ color: colors.textPrimary }}
-                  >
-                    <IonSelectOption value="">Todas las torres</IonSelectOption>
-                    {torres.map((t) => (
-                      <IonSelectOption key={t.id} value={t.id}>
-                        {t.nombre}
-                      </IonSelectOption>
-                    ))}
-                  </IonSelect>
-                </IonItem>
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <IonItem
-                  lines="none"
-                  style={{
-                    backgroundColor: 'transparent',
-                    paddingLeft: 0,
-                    paddingRight: 0,
-                  }}
-                >
-                  <IonLabel style={{ color: colors.textPrimary, fontWeight: '600', marginRight: '12px', minWidth: '100px' }}>
-                    Depto
-                  </IonLabel>
-                  <IonSelect
-                    value={deptoSel}
-                    onIonChange={(e) => setDeptoSel(e.detail.value)}
-                    placeholder="Todos"
-                    disabled={!torreSel}
-                    style={{ color: colors.textPrimary }}
-                  >
-                    <IonSelectOption value="">Todos los deptos</IonSelectOption>
-                    {deptos.map((d) => (
-                      <IonSelectOption key={d.id} value={d.id}>
-                        {d.numero}
-                      </IonSelectOption>
-                    ))}
-                  </IonSelect>
-                </IonItem>
-              </div>
-
-              <div style={{ marginBottom: '8px' }}>
-                <IonLabel style={{ color: colors.textPrimary, fontWeight: '600', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
-                  Fecha de observación (desde)
-                </IonLabel>
-                <IonInput
-                  type="date"
-                  value={fechaDesde}
-                  onIonChange={(e) => setFechaDesde(e.detail.value || '')}
-                  style={{
-                    backgroundColor: colors.border,
-                    borderRadius: '8px',
-                    padding: '12px',
-                    color: colors.textPrimary,
-                  }}
-                  disabled={!proyectoSel}
-                />
-              </div>
-
-              <div>
-                <IonLabel style={{ color: colors.textPrimary, fontWeight: '600', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
-                  Fecha de observación (hasta)
-                </IonLabel>
-                <IonInput
-                  type="date"
-                  value={fechaHasta}
-                  onIonChange={(e) => setFechaHasta(e.detail.value || '')}
-                  style={{
-                    backgroundColor: colors.border,
-                    borderRadius: '8px',
-                    padding: '12px',
-                    color: colors.textPrimary,
-                  }}
-                  disabled={!proyectoSel}
-                />
-              </div>
-            </IonCardContent>
-          </IonCard>
-
-          {/* BOTONES REPORTE */}
-          <IonGrid style={{ padding: 0 }}>
-            <IonRow>
-              <IonCol>
-                <IonButton
-                  expand="block"
-                  color="primary"
-                  onClick={descargarReporteCompleto}
-                  disabled={!proyectoSel || generandoReporte}
-                  style={{
-                    borderRadius: '12px',
-                    height: '48px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                  }}
-                >
-                  <IonIcon icon={download} slot="start" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '14px', fontWeight: '700', color: textPrimary }}>
                   Reporte Completo
-                </IonButton>
-              </IonCol>
-            </IonRow>
-            <IonRow style={{ marginTop: '12px' }}>
-              <IonCol>
-                <IonButton
-                  expand="block"
-                  color="secondary"
-                  onClick={descargarReporteITLS}
-                  disabled={!proyectoSel || generandoReporte}
-                  style={{
-                    borderRadius: '12px',
-                    height: '48px',
-                    fontWeight: '600',
-                    fontSize: '14px',
-                  }}
-                >
-                  <IonIcon icon={download} slot="start" />
-                  Reporte ITLS
-                </IonButton>
-              </IonCol>
-            </IonRow>
-          </IonGrid>
-
-          {/* INFO */}
-          <IonCard style={{ backgroundColor: colors.border, borderRadius: '12px', marginTop: '24px', border: `1px solid ${colors.border}` }}>
-            <IonCardContent style={{ padding: '12px' }}>
-              <div style={{ fontSize: '12px', color: colors.textMuted, lineHeight: '1.6' }}>
-                <strong>Reporte Completo:</strong> Incluye todas las columnas de observaciones (ambiente, partida, causa, etc.)
-                <br />
-                <br />
-                <strong>Reporte ITLS:</strong> Columnas específicas para subir a plataforma ITLS (Proyecto, Fecha, Torre, Depto, N° Obs, Observación)
+                </div>
+                <div style={{ fontSize: '12px', color: textSecondary, marginTop: '2px' }}>
+                  Descarga completa en Excel
+                </div>
               </div>
-            </IonCardContent>
-          </IonCard>
+              <IonIcon icon={arrowForward} style={{ color: textMuted, fontSize: '18px' }} />
+            </div>
+
+            {/* REPORTE ITLS */}
+            <div
+              onClick={proyectoSel ? descargarReporteITLS : undefined}
+              style={{
+                background: card,
+                border: `1px solid ${border}`,
+                borderRadius: '12px',
+                padding: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                cursor: proyectoSel ? 'pointer' : 'not-allowed',
+                opacity: proyectoSel ? 1 : 0.6,
+              }}
+            >
+              <div
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  background: '#3b82f6',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <IonIcon icon={barChart} style={{ color: '#fff', fontSize: '22px' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '14px', fontWeight: '700', color: textPrimary }}>
+                  Reporte ITLS
+                </div>
+                <div style={{ fontSize: '12px', color: textSecondary, marginTop: '2px' }}>
+                  Formato para plataforma ITLS
+                </div>
+              </div>
+              <IonIcon icon={arrowForward} style={{ color: textMuted, fontSize: '18px' }} />
+            </div>
+          </div>
         </div>
       </IonContent>
+
+      {/* BOTTOM NAV BAR */}
+      <BottomNavBar 
+        activeTab="reportes"
+        proyecto={proyectoSelData}
+        torres={torres}
+        deptos={deptos}
+        proyectoNombre={proyectoSelData?.nombre || ''}
+      />
     </IonPage>
   );
 };
