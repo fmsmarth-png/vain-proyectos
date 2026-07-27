@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { IonIcon, IonModal } from '@ionic/react';
-import { home, search, barChart, ellipsisVertical } from 'ionicons/icons';
+import { home, search, barChart, ellipsisVertical, chevronDown } from 'ionicons/icons';
 
 interface BottomNavBarProps {
-  activeTab: 'inicio' | 'buscar' | 'informes' | 'mas';
+  activeTab: 'inicio' | 'buscar' | 'informes' | 'reportes' | 'mas';
   proyecto?: any;
   torres?: any[];
   deptos?: any[];
@@ -81,6 +81,11 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
     setTorreSelBusqueda(null);
   };
 
+  // Click en botón Reportes
+  const handleClickReportes = () => {
+    history.push('/pre-entrega-reportes');
+  };
+
   const NavButton = ({ icon, label, isActive, onClick }: any) => (
     <button
       onClick={onClick}
@@ -154,6 +159,13 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           label="Informes"
           isActive={activeTab === 'informes'}
           onClick={() => history.push('/informe-pv', { proyecto })}
+        />
+
+        <NavButton
+          icon={chevronDown}
+          label="Reportes"
+          isActive={activeTab === 'reportes'}
+          onClick={handleClickReportes}
         />
 
         <NavButton

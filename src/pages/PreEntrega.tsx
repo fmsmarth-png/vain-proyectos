@@ -1,6 +1,7 @@
 import {
   IonContent, IonPage, IonHeader, IonToolbar,
-  IonTitle, IonSpinner, IonMenuButton, IonIcon, IonRefresher, IonRefresherContent
+  IonTitle, IonSpinner, IonMenuButton, IonIcon, IonRefresher, IonRefresherContent,
+  IonModal, IonButton
 } from '@ionic/react';
 import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
@@ -129,6 +130,8 @@ const PreEntregaDashboard: React.FC = () => {
     nombreMes: ''
   });
 
+  const [modalProyecto, setModalProyecto] = useState(false);
+
   useEffect(() => {
     const cargarProyectos = async () => {
       try {
@@ -185,6 +188,34 @@ const PreEntregaDashboard: React.FC = () => {
   useEffect(() => {
     if (!proyectoId) return;
     cargarDatos();
+  }, [proyectoId]);
+
+  // REALTIME: Escuchar cambios en departamentos y recalcular KPIs
+  useEffect(() => {
+    if (!proyectoId) return;
+
+    const channel = supabase
+      .channel(`departamentos:proyecto_id=eq.${proyectoId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'departamentos',
+          filter: `proyecto_id=eq.${proyectoId}`
+        },
+        async (payload) => {
+          console.log('🔄 Cambio detectado en departamentos:', payload);
+          // Recargar datos cuando hay cambios
+          await cargarDatos();
+        }
+      )
+      .subscribe();
+
+    // Limpiar suscripción al desmontar
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [proyectoId]);
 
   const cargarDatos = async () => {
@@ -363,41 +394,10 @@ const PreEntregaDashboard: React.FC = () => {
 
         <div style={{ padding: '16px 16px 100px' }}>
           
-          {/* SELECTOR DE PROYECTOS */}
-          {proyectos.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <select
-                value={proyectoId}
-                onChange={(e) => setProyectoId(e.target.value)}
-                style={{
-                  width: '100%',
-                  height: 44,
-                  padding: '0 12px',
-                  background: card,
-                  border: `0.5px solid ${border}`,
-                  borderRadius: 12,
-                  color: textPrimary,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  appearance: 'none',
-                  backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${textPrimary}' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 10px center',
-                  backgroundSize: '20px',
-                  paddingRight: '36px',
-                  cursor: 'pointer'
-                }}
-              >
-                {proyectos.map(p => (
-                  <option key={p.id} value={p.id}>{p.nombre}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          
-          {/* BANNER PROYECTO - PROTAGONISMO */}
+          {/* BANNER PROYECTO - PROTAGONISMO - CLICKEABLE */}
           {proyectoSel && (
             <div
+              onClick={() => setModalProyecto(true)}
               style={{
                 background: dark
                   ? 'linear-gradient(135deg, #111 0%, #1a1a1a 50%, #111 100%)'
@@ -407,13 +407,23 @@ const PreEntregaDashboard: React.FC = () => {
                 marginBottom: 20,
                 border: dark ? '0.5px solid #2a2a2a' : 'none',
                 position: 'relative',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'transform 0.2s, box-shadow 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
+                (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 20px rgba(0,0,0,0.2)';
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                (e.currentTarget as HTMLElement).style.boxShadow = 'none';
               }}
             >
               <div style={{ position: 'absolute', top: -40, right: -40, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
               <div style={{ position: 'relative', zIndex: 1 }}>
                 <div style={{ fontSize: 11, color: dark ? '#555' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
-                  Proyecto Principal
+                  Proyecto Actual • Click para cambiar
                 </div>
                 <div style={{ fontSize: 26, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
                   {proyectoSel.nombre}
@@ -587,6 +597,68 @@ const PreEntregaDashboard: React.FC = () => {
           </div>
         </div>
       </IonContent>
+
+      {/* MODAL CAMBIAR PROYECTO */}
+      <IonModal isOpen={modalProyecto} onDidDismiss={() => setModalProyecto(false)}>
+        <IonHeader>
+          <IonToolbar style={{ backgroundColor: toolbar }}>
+            <IonTitle style={{ color: '#fff' }}>Cambiar Proyecto</IonTitle>
+          </IonToolbar>
+        </IonHeader>
+        <IonContent style={{ '--background': bg } as any}>
+          <div style={{ padding: '16px' }}>
+            <div style={{ marginBottom: '12px' }}>
+              {proyectos.map(proy => (
+                <div
+                  key={proy.id}
+                  onClick={() => {
+                    setProyectoId(proy.id);
+                    setModalProyecto(false);
+                  }}
+                  style={{
+                    background: proy.id === proyectoId 
+                      ? (dark ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : 'linear-gradient(135deg, #dbeafe, #3b82f6)')
+                      : card,
+                    border: proy.id === proyectoId ? '0.5px solid #2563eb' : `0.5px solid ${border}`,
+                    borderRadius: '12px',
+                    padding: '16px',
+                    marginBottom: '12px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    color: proy.id === proyectoId ? '#fff' : textPrimary
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div style={{ fontSize: '16px', fontWeight: '700', marginBottom: '4px' }}>
+                    {proy.nombre}
+                  </div>
+                  <div style={{ fontSize: '12px', opacity: 0.8 }}>
+                    Código: {proy.codigo || '—'}
+                  </div>
+                  {proy.id === proyectoId && (
+                    <div style={{ marginTop: '8px', fontSize: '12px', fontWeight: '600' }}>
+                      ✓ Seleccionado
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <IonButton
+              expand="block"
+              fill="clear"
+              onClick={() => setModalProyecto(false)}
+              style={{ marginTop: '16px' }}
+            >
+              Cerrar
+            </IonButton>
+          </div>
+        </IonContent>
+      </IonModal>
 
       {/* BOTTOM NAV BAR */}
       <BottomNavBar 

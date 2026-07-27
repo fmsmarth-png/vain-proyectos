@@ -33,6 +33,7 @@ import PreEntrega from '../pages/PreEntrega';
 import PreEntregaDepto from '../pages/PreEntregaDepto';
 import DeptosFiltrados from '../pages/DeptosFiltrados';
 import DetalleDepto from '../pages/DetalleDepto';
+import PreEntregaReportes from '../pages/PreEntregaReportes';
 import InformePV from '../components/InformePV';
 import RevisionOG from '../pages/RevisionOG';
 import RevisionOGDetalle from '../pages/RevisionOGDetalle';
@@ -145,6 +146,11 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
         {/* Informe PV — Indicador de Producción */}
         <Route exact path="/informe-pv" render={() =>
           tienePermiso('preentrega_ver') ? <InformePV /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Reportes Pre Entrega */}
+        <Route exact path="/pre-entrega-reportes" render={() =>
+          tienePermiso('preentrega_ver') ? <PreEntregaReportes /> : <Redirect to="/dashboard" />
         } />
 
         {/* Revisión OG */}
