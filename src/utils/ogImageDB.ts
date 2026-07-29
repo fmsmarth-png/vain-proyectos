@@ -113,13 +113,13 @@ function blobADataUrl(blob: Blob): Promise<string> {
  * (comportamiento online). Úsala para resolver el `src` de planos e imágenes de
  * ambiente en RevisionOGDetalle / RevisionOGAmbiente.
  */
-export async function getImagenUrlDB(url: string | null | undefined): Promise<string> {
-  if (!url) return '';
+export async function getImagenUrlDB(url: string | null | undefined): Promise<string | null> {
+  if (!url) return null;  // ← Devolver null en lugar de string vacío
   try {
     const cached = await getImagen(url);
-    return cached || url;
+    return cached || url;  // Fallback a URL original si no está en cache
   } catch {
-    return url;
+    return url;  // Fallback a URL original en caso de error IndexedDB
   }
 }
 

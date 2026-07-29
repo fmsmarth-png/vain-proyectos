@@ -91,6 +91,10 @@ const RevisionOGDetalle: React.FC = () => {
   const [contenedorW, setContenedorW]   = useState(0);
   const [cacheOk]                       = useState(hayCacheOG()); // ← FMS offline OG
 
+  // Se puede interactuar (seleccionar ambiente) si estamos online, o si estamos
+  // offline pero con cache descargado. Solo se bloquea offline + sin cache.
+  const puedeInteractuar = online || cacheOk;
+
   // Revocar blob URLs al desmontar para evitar memory leak.
   // Con IndexedDB (data: URLs) esto queda como no-op seguro: revokeObjectURL
   // sobre un data: URL no hace nada. Se mantiene por compatibilidad.
@@ -100,19 +104,37 @@ const RevisionOGDetalle: React.FC = () => {
     };
   }, [planoBlob]);
 
-  // ── medir contenedor — con reintento para Android ─────────────────────────
+  // ── medir contenedor — robusto para Android/Ionic ─────────────────────────
+  // Mide el ancho real disponible. Prioriza la imagen interna (siempre tiene
+  // ancho natural al cargar); si no, el contenedor o su padre. Reintenta con
+  // requestAnimationFrame porque IonContent puede no tener layout al 1er intento.
   const medirContenedor = useCallback(() => {
-    if (!contenedorRef.current) return;
-    const w = contenedorRef.current.offsetWidth;
-    if (w > 0) {
-      setContenedorW(w);
-    } else {
-      setTimeout(() => {
-        if (contenedorRef.current) {
-          setContenedorW(contenedorRef.current.offsetWidth);
+    let intentos = 0;
+    const intentar = () => {
+      const el = contenedorRef.current;
+      if (el) {
+        // 1) ancho del contenedor
+        let w = el.getBoundingClientRect().width || el.offsetWidth;
+        // 2) si colapsó a 0, medir la imagen interna
+        if (!w) {
+          const img = el.querySelector('img');
+          if (img) w = img.getBoundingClientRect().width || (img as HTMLImageElement).offsetWidth;
         }
-      }, 100);
-    }
+        // 3) último recurso: el padre
+        if (!w && el.parentElement) {
+          w = el.parentElement.getBoundingClientRect().width;
+        }
+        if (w > 0) {
+          setContenedorW(w);
+          return;
+        }
+      }
+      if (intentos < 15) {
+        intentos++;
+        requestAnimationFrame(intentar);
+      }
+    };
+    requestAnimationFrame(intentar);
   }, []);
 
   // ── init ──────────────────────────────────────────────────────────────────
@@ -151,10 +173,9 @@ const RevisionOGDetalle: React.FC = () => {
       }
 
       if (urlParaCargar) {
-        // Servir desde IndexedDB si está descargada (offline); si no, URL original (online)
         const src = await getImagenUrlDB(urlParaCargar);
-        setPlanoUrl(src);
-        setPlanoBlob(null); // data: URLs no requieren revoke (a diferencia de los blob URLs)
+        setPlanoUrl(src || urlParaCargar);  // Fallback a URL original si getImagenUrlDB devuelve null
+        setPlanoBlob(null);
       }
 
       setTimeout(medirContenedor, 150);
@@ -163,11 +184,27 @@ const RevisionOGDetalle: React.FC = () => {
     }
   };
 
+  // Conectar ResizeObserver cuando el contenedor del plano aparece en el DOM.
+  // Depende de planoUrl y cargando: cuando el plano se renderiza, este efecto
+  // vuelve a correr con contenedorRef.current ya montado.
   useEffect(() => {
+    const el = contenedorRef.current;
+    if (!el) return;
+
     medirContenedor();
+
+    const ro = new ResizeObserver(() => {
+      const w = el.getBoundingClientRect().width || el.offsetWidth;
+      if (w > 0) setContenedorW(w);
+    });
+    ro.observe(el);
+
     window.addEventListener('resize', medirContenedor);
-    return () => window.removeEventListener('resize', medirContenedor);
-  }, [medirContenedor]);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', medirContenedor);
+    };
+  }, [medirContenedor, planoUrl, cargando]);
 
   const onImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -188,7 +225,8 @@ const RevisionOGDetalle: React.FC = () => {
   // FIX: se hace merge de 'ambiente' sobre og_seleccion y push sin state.
   const irAAmbiente = (amb: PlanoAmbiente) => {
     if (cerrado) return;
-    if (!cacheOk) return; // sin cache no se puede inspeccionar offline
+    // Solo bloquear si estamos OFFLINE y sin cache. Online siempre puede navegar.
+    if (!online && !cacheOk) return;
     const actual = leerSeleccionOG() || ({} as NavState);
     sessionStorage.setItem('og_seleccion', JSON.stringify({
       ...actual,
@@ -395,14 +433,14 @@ const RevisionOGDetalle: React.FC = () => {
                     top:    escalarY(amb.pos_y_base),
                     width:  escalarX(amb.ancho_base),
                     height: escalarY(amb.alto_base),
-                    background: (cerrado || !cacheOk)
+                    background: (cerrado || !puedeInteractuar)
                       ? 'rgba(100,100,100,0.15)'
                       : 'rgba(30, 58, 95, 0.18)',
-                    border: (cerrado || !cacheOk)
+                    border: (cerrado || !puedeInteractuar)
                       ? '1.5px solid rgba(100,100,100,0.3)'
                       : '1.5px solid rgba(37, 99, 235, 0.5)',
                     borderRadius: 6,
-                    cursor: (cerrado || !cacheOk) ? 'not-allowed' : 'pointer',
+                    cursor: (cerrado || !puedeInteractuar) ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -410,12 +448,12 @@ const RevisionOGDetalle: React.FC = () => {
                     transition: 'background 0.15s',
                   }}
                   onMouseEnter={e => {
-                    if (!cerrado && cacheOk) {
+                    if (!cerrado && puedeInteractuar) {
                       (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37,99,235,0.35)';
                     }
                   }}
                   onMouseLeave={e => {
-                    if (!cerrado && cacheOk) {
+                    if (!cerrado && puedeInteractuar) {
                       (e.currentTarget as HTMLButtonElement).style.background = 'rgba(30, 58, 95, 0.18)';
                     }
                   }}
@@ -423,7 +461,7 @@ const RevisionOGDetalle: React.FC = () => {
                   <span style={{
                     fontSize: Math.max(8, escalarX(30) * 0.35),
                     fontWeight: 700,
-                    color: (cerrado || !cacheOk) ? 'rgba(150,150,150,0.8)' : 'rgba(255,255,255,0.95)',
+                    color: (cerrado || !puedeInteractuar) ? 'rgba(150,150,150,0.8)' : 'rgba(255,255,255,0.95)',
                     textAlign: 'center',
                     lineHeight: 1.2,
                     textShadow: '0 1px 3px rgba(0,0,0,0.6)',

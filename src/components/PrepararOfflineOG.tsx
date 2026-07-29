@@ -18,6 +18,7 @@
 import { useState, useEffect } from 'react';
 import { useIonViewDidEnter } from '@ionic/react';
 import { useTheme } from '../Context/ThemeContext';
+import { useOffline } from '../Context/OfflineContext'; // ← FMS: check de conexión
 import {
   descargarTodasLasImagenesOG,
   contarImagenesDescargadas,
@@ -28,6 +29,7 @@ import {
   contarDatosDescargados,
   ProyectoOffline,
 } from '../utils/ogDataDB';
+import { descargarCacheOG } from '../utils/Ogcache'; // ← FMS: cache de datos (catálogo, tolerancias, planos) en localStorage
 
 interface Props {
   proyectos: any[]; // los asignados al usuario, tal cual los muestra el selector
@@ -36,6 +38,7 @@ interface Props {
 const PrepararOfflineOG: React.FC<Props> = ({ proyectos = [] }) => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
+  const { online } = useOffline(); // ← FMS: para prevenir descarga sin red
 
   const [descargando, setDescargando] = useState(false);
   const [prog, setProg]               = useState<{ hechas: number; total: number }>({ hechas: 0, total: 0 });
@@ -70,23 +73,45 @@ const PrepararOfflineOG: React.FC<Props> = ({ proyectos = [] }) => {
 
   const handleDescargar = async () => {
     if (descargando) return;
+
+    // Validación 1: necesita conexión para descargar
+    if (!online) {
+      setResultado('Sin conexión. Conéctate a internet para preparar el modo offline.');
+      return;
+    }
+
+    // Validación 2: necesita proyectos para cachear el selector
+    if (!proyectos || proyectos.length === 0) {
+      setResultado('No hay proyectos para descargar. Espera a que cargue el selector o verifica tus proyectos asignados.');
+      return;
+    }
+
     setResultado('');
     setDescargando(true);
     setProg({ hechas: 0, total: 0 });
     setFaseData('');
     try {
-      // 1) Imágenes (planos + ambientes)
+      // 1) Imágenes (planos + ambientes) → IndexedDB
       const r = await descargarTodasLasImagenesOG((hechas, total) => {
         setProg({ hechas, total });
       });
 
-      // 2) Datos estructurales (proyectos → torres → departamentos)
+      // 2) Datos estructurales (proyectos → torres → departamentos) → IndexedDB
       setFaseData('Guardando datos de proyectos…');
       const d = await descargarDatosOG(proyectos as ProyectoOffline[], (p) => {
         if (p.fase === 'proyectos')       setFaseData(`Guardando proyectos… ${p.actual}`);
         else if (p.fase === 'torres')     setFaseData(`Guardando torres… ${p.actual}`);
         else if (p.fase === 'departamentos') setFaseData(`Guardando departamentos… ${p.actual}`);
       });
+
+      // 3) Cache de catálogo/tolerancias/planos/ambientes → localStorage
+      //    CRÍTICO: esto llena lo que verifica hayCacheOG(). Sin este paso,
+      //    el banner "Sin cache" aparece aunque las imágenes y datos estén bajados.
+      setFaseData('Guardando catálogo y tolerancias…');
+      const cacheOk = await descargarCacheOG(true); // forzar = true para refrescar siempre
+      if (!cacheOk) {
+        console.warn('[PrepararOfflineOG] descargarCacheOG devolvió false');
+      }
 
       const avisoImg = r.fail > 0 ? ` · ⚠️ ${r.fail} imágenes fallaron` : '';
       setResultado(
@@ -139,31 +164,60 @@ const PrepararOfflineOG: React.FC<Props> = ({ proyectos = [] }) => {
         </div>
       )}
 
+      {/* Aviso sin conexión */}
+      {!descargando && !online && (
+        <div style={{
+          fontSize: 12, color: rojo, marginBottom: 12,
+          background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2',
+          border: `0.5px solid ${dark ? 'rgba(239,68,68,0.15)' : '#fecaca'}`,
+          borderRadius: 10, padding: '8px 12px',
+        }}>
+          📶 Sin conexión — conéctate a internet para preparar el modo offline.
+        </div>
+      )}
+
       {/* Progreso */}
       {descargando && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: textPrimary, marginBottom: 6 }}>
             {faseData ? faseData : `Descargando imágenes… ${prog.hechas}/${prog.total || '…'}`}
           </div>
-          <div style={{ height: 6, borderRadius: 999, background: border, overflow: 'hidden' }}>
-            <div style={{
-              height: '100%', width: faseData ? '100%' : `${pct}%`, background: azul,
-              transition: 'width .2s ease',
-            }} />
+          <div style={{ height: 6, borderRadius: 999, background: border, overflow: 'hidden', position: 'relative' }}>
+            {faseData ? (
+              // Fase de datos: barra indeterminada animada (no sabemos % exacto)
+              <div style={{
+                height: '100%', width: '40%', background: azul,
+                borderRadius: 999,
+                animation: 'ogIndeterminado 1.2s ease-in-out infinite',
+              }} />
+            ) : (
+              // Fase de imágenes: progreso real
+              <div style={{
+                height: '100%', width: `${pct}%`, background: azul,
+                transition: 'width .2s ease',
+              }} />
+            )}
           </div>
+          <style>{`
+            @keyframes ogIndeterminado {
+              0%   { transform: translateX(-100%); }
+              100% { transform: translateX(250%); }
+            }
+          `}</style>
         </div>
       )}
 
       <button
         onClick={handleDescargar}
-        disabled={descargando}
+        disabled={descargando || !online}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          background: descargando ? 'transparent' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
-          color: descargando ? textSecondary : '#ffffff',
-          border: descargando ? `0.5px solid ${border}` : 'none',
+          background: (descargando || !online) ? 'transparent' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+          color: (descargando || !online) ? textSecondary : '#ffffff',
+          border: (descargando || !online) ? `0.5px solid ${border}` : 'none',
           borderRadius: 12, padding: '13px 0', fontSize: 14, fontWeight: 700,
-          width: '100%', cursor: descargando ? 'default' : 'pointer',
+          width: '100%', cursor: (descargando || !online) ? 'default' : 'pointer',
+          opacity: (!online && !descargando) ? 0.6 : 1,
         }}
       >
         {descargando

@@ -51,39 +51,40 @@ interface Row {
 }
 
 type DimKey =
-  | 'torre' | 'tipo_depto' | 'ambiente' | 'elemento'
-  | 'item_revision' | 'accion' | 'depto' | 'tolerancia';
+  | 'frente' | 'tipo_depto' | 'ambiente' | 'elemento'
+  | 'item_revision' | 'accion' | 'id_obra' | 'tolerancia';
 
 const DIMENSIONES: { key: DimKey; label: string; buscador: boolean }[] = [
-  { key: 'torre',         label: 'Torre',             buscador: false },
+  { key: 'frente',        label: 'Torre',             buscador: false },
   { key: 'tipo_depto',    label: 'Tipo depto',        buscador: false },
   { key: 'ambiente',      label: 'Ambiente',          buscador: false },
   { key: 'elemento',      label: 'Elemento',          buscador: true  },
-  { key: 'item_revision', label: 'Ítem de revisión',  buscador: false },
-  { key: 'accion',        label: 'Acción',            buscador: false },
-  { key: 'depto',         label: 'Depto',             buscador: true  },
+  { key: 'item_revision', label: 'Revisión',          buscador: false },
+  { key: 'accion',        label: 'Reparación',        buscador: false },
+  { key: 'id_obra',       label: 'Depto',             buscador: true  },
   { key: 'tolerancia',    label: 'Tolerancia',        buscador: true  },
 ];
 
 // Dimensiones para "Agrupar por" (tabla dinámica)
 const AGRUPABLES: { key: DimKey; label: string }[] = [
-  { key: 'torre',         label: 'Torre' },
-  { key: 'depto',         label: 'Depto' },
+  { key: 'frente',        label: 'Torre' },
+  { key: 'id_obra',       label: 'Depto' },
   { key: 'ambiente',      label: 'Ambiente' },
   { key: 'elemento',      label: 'Elemento' },
-  { key: 'item_revision', label: 'Ítem de revisión' },
+  { key: 'item_revision', label: 'Revisión' },
+  { key: 'accion',        label: 'Reparación' },
   { key: 'tipo_depto',    label: 'Tipo depto' },
   { key: 'tolerancia',    label: 'Tolerancia' },
 ];
 
 // Orden y color de acciones
-const ACCIONES = ['picar', 'copa', 'yeso', 'albañilería', 'revisar'] as const;
+const ACCIONES = ['picado/albañilería', 'puntereo/albañilería', 'copa', 'yeso', 'por definir'] as const;
 const COLOR_ACCION: Record<string, string> = {
-  picar: '#ef4444',
+  'picado/albañilería': '#ef4444',
+  'puntereo/albañilería': '#3b82f6',
   copa: '#f59e0b',
   yeso: '#8b5cf6',
-  'albañilería': '#3b82f6',
-  revisar: '#6b7280',
+  'por definir': '#6b7280',
 };
 
 const NULO = '—';
@@ -111,16 +112,45 @@ const ReporteOG: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
+  const [proyectos, setProyectos]       = useState<{ id: string; nombre: string }[]>([]);
+  const [proyectoSel, setProyectoSel]   = useState<string>('');
+
   const [filtros, setFiltros]     = useState<Record<string, string[]>>({}); // [] o ausente = todos
   const [abiertos, setAbiertos]   = useState<Set<string>>(new Set());
   const [busqueda, setBusqueda]   = useState<Record<string, string>>({});
   const [panelAbierto, setPanel]  = useState(true);
 
   const [vista, setVista]         = useState<'detalle' | 'resumen'>('resumen');
-  const [agruparPor, setAgrupar]  = useState<DimKey>('depto');
+  const [agruparPor, setAgrupar]  = useState<DimKey>('id_obra');
 
-  // ── Carga ────────────────────────────────────────────────────────────────
+  // ── Carga de proyectos con registros OG ────────────────────────────────────
   useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data } = await supabase
+        .from('og_reparaciones')
+        .select('proyecto_id, proyecto');
+
+      if (data) {
+        const mapa = new Map<string, string>();
+        (data as any[]).forEach((r) => {
+          if (r.proyecto_id && !mapa.has(r.proyecto_id)) {
+            mapa.set(r.proyecto_id, r.proyecto ?? 'Sin nombre');
+          }
+        });
+        const lista = Array.from(mapa, ([id, nombre]) => ({ id, nombre }))
+          .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+        setProyectos(lista);
+        setProyectoSel((prev) => prev || (lista[0]?.id ?? ''));
+      }
+    })();
+  }, []);
+
+  // ── Carga de registros del proyecto seleccionado ───────────────────────────
+  useEffect(() => {
+    if (!proyectoSel) return;
     (async () => {
       setLoading(true);
       setError(null);
@@ -130,14 +160,15 @@ const ReporteOG: React.FC = () => {
       const { data, error } = await supabase
         .from('og_reparaciones')
         .select('*')
-        .order('torre', { ascending: true })
-        .order('depto', { ascending: true });
+        .eq('proyecto_id', proyectoSel)
+        .order('frente', { ascending: true })
+        .order('id_obra', { ascending: true });
 
       if (error) setError(error.message);
       else setRows((data ?? []) as Row[]);
       setLoading(false);
     })();
-  }, []);
+  }, [proyectoSel]);
 
   // ── Opciones por dimensión (universo completo) ─────────────────────────────
   const opciones = useMemo(() => {
@@ -173,7 +204,7 @@ const ReporteOG: React.FC = () => {
   const kpis = useMemo(() => {
     const k: Record<string, number> = { total: filtradas.length };
     ACCIONES.forEach((a) => (k[a] = 0));
-    filtradas.forEach((r) => { const a = r.accion || 'revisar'; k[a] = (k[a] || 0) + 1; });
+    filtradas.forEach((r) => { const a = r.accion || 'por definir'; k[a] = (k[a] || 0) + 1; });
     return k;
   }, [filtradas]);
 
@@ -185,12 +216,12 @@ const ReporteOG: React.FC = () => {
       if (!map.has(clave)) {
         map.set(clave, {
           clave,
-          torre: r.torre, frente: r.frente, tipo_depto: r.tipo_depto,
-          total: 0, picar: 0, copa: 0, yeso: 0, 'albañilería': 0, revisar: 0,
+          torre: r.torre, frente: r.frente, id_obra: r.id_obra, tipo_depto: r.tipo_depto,
+          total: 0, 'picado/albañilería': 0, 'puntereo/albañilería': 0, copa: 0, yeso: 0, 'por definir': 0,
         });
       }
       const fila = map.get(clave);
-      const a = r.accion || 'revisar';
+      const a = r.accion || 'por definir';
       fila[a] = (fila[a] || 0) + 1;
       fila.total += 1;
     });
@@ -217,29 +248,30 @@ const ReporteOG: React.FC = () => {
   const exportar = async () => {
     if (!filtradas.length) return;
     const filas = filtradas.map((r) => ({
-      Torre: r.torre ?? '',
-      Frente: r.frente ?? '',
-      Depto: r.depto ?? '',
+      Torre: r.frente ?? '',
+      Depto: r.id_obra ?? '',
       'Tipo depto': r.tipo_depto ?? '',
       Ambiente: r.ambiente ?? '',
       Elemento: r.elemento ?? '',
-      'Ítem revisión': r.item_revision ?? '',
+      'Revisión': r.item_revision ?? '',
       Tolerancia: r.tolerancia ?? '',
-      'Acción': r.accion ?? '',
+      'Reparación': r.accion ?? '',
       Fecha: r.creado_en ? new Date(r.creado_en).toLocaleDateString('es-CL') : '',
       Origen: r.es_importado ? 'Histórico' : 'App',
     }));
-    const enc = ['Torre', 'Frente', 'Depto', 'Tipo depto', 'Ambiente', 'Elemento',
-      'Ítem revisión', 'Tolerancia', 'Acción', 'Fecha', 'Origen'];
+    const enc = ['Torre', 'Depto', 'Tipo depto', 'Ambiente', 'Elemento',
+      'Revisión', 'Tolerancia', 'Reparación', 'Fecha', 'Origen'];
     const hoja = XLSX.utils.json_to_sheet(filas, { header: enc });
     hoja['!cols'] = enc.map((h) =>
       h === 'Tolerancia' ? { wch: 28 } : h === 'Elemento' ? { wch: 22 }
-        : h === 'Ambiente' ? { wch: 16 } : h === 'Frente' ? { wch: 10 } : { wch: 12 });
+        : h === 'Ambiente' ? { wch: 16 } : h === 'Depto' ? { wch: 10 } : { wch: 12 });
     hoja['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: filas.length, c: enc.length - 1 } }) };
 
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, 'Reporte OG');
-    const nombre = `Reporte_OG_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const nomProy = (proyectos.find((p) => p.id === proyectoSel)?.nombre ?? 'OG')
+      .replace(/[^a-zA-Z0-9]+/g, '_');
+    const nombre = `Reporte_${nomProy}_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     if (!Capacitor.isNativePlatform()) { XLSX.writeFile(libro, nombre); return; }
     const base64 = XLSX.write(libro, { bookType: 'xlsx', type: 'base64' });
@@ -264,7 +296,7 @@ const ReporteOG: React.FC = () => {
   const tdNum: React.CSSProperties = { ...td, textAlign: 'center', fontVariantNumeric: 'tabular-nums' };
 
   const badge = (accion: string | null) => {
-    const a = accion || 'revisar';
+    const a = accion || 'por definir';
     const c = COLOR_ACCION[a] || textMuted;
     return (
       <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11,
@@ -285,6 +317,35 @@ const ReporteOG: React.FC = () => {
       <IonContent style={{ '--background': bg } as any}>
         <div style={{ padding: 12, maxWidth: 900, margin: '0 auto' }}>
 
+          {/* Selector de proyecto (contexto) */}
+          <div style={{ ...tarjeta, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+              background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', fontWeight: 800, fontSize: 18,
+            }}>OG</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', color: textMuted, fontWeight: 600 }}>
+                Proyecto
+              </div>
+              {proyectos.length <= 1 ? (
+                <div style={{ fontSize: 16, fontWeight: 700, color: textPrimary }}>
+                  {proyectos[0]?.nombre ?? '—'}
+                </div>
+              ) : (
+                <select
+                  value={proyectoSel}
+                  onChange={(e) => setProyectoSel(e.target.value)}
+                  style={{ width: '100%', padding: '4px 0', border: 'none', background: 'transparent',
+                    color: textPrimary, fontSize: 16, fontWeight: 700, outline: 'none' }}
+                >
+                  {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              )}
+            </div>
+          </div>
+
           {loading && (
             <div style={{ textAlign: 'center', padding: 40 }}>
               <IonSpinner name="crescent" />
@@ -300,13 +361,24 @@ const ReporteOG: React.FC = () => {
 
           {!loading && !error && (
             <>
-              {/* KPIs */}
+              {/* KPIs (clickeables: filtran por reparación) */}
               <div style={{ ...tarjeta, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                 <span style={chip(dark ? '#e5e7eb' : '#111827')}>
                   Total&nbsp;<b>{kpis.total}</b>
                 </span>
                 {ACCIONES.map((a) => kpis[a] > 0 && (
-                  <span key={a} style={chip(COLOR_ACCION[a])}>{a}&nbsp;<b>{kpis[a]}</b></span>
+                  <span
+                    key={a}
+                    onClick={() => setFiltros((prev) => {
+                      const cur = prev['accion'] || [];
+                      const yaSolo = cur.length === 1 && cur[0] === a;
+                      return { ...prev, accion: yaSolo ? [] : [a] };
+                    })}
+                    style={{
+                      ...chip(COLOR_ACCION[a], (filtros['accion']?.length ?? 0) === 0 || filtros['accion']?.includes(a)),
+                      cursor: 'pointer',
+                    }}
+                  >{a}&nbsp;<b>{kpis[a]}</b></span>
                 ))}
                 <span style={{ marginLeft: 'auto', fontSize: 12, color: textSecondary }}>
                   Mostrando <b style={{ color: textPrimary }}>{filtradas.length}</b> de {rows.length}
@@ -472,8 +544,8 @@ const ReporteOG: React.FC = () => {
                       {pivote.map((f, i) => (
                         <tr key={f.clave} style={{ background: i % 2 ? rowAlt : 'transparent' }}>
                           <td style={td}>
-                            {agruparPor === 'depto'
-                              ? <span>{f.torre ? `T${f.torre} · ` : ''}<b>{f.clave}</b>{f.tipo_depto ? ` (${f.tipo_depto})` : ''}</span>
+                            {agruparPor === 'id_obra'
+                              ? <span>{f.frente ? `${f.frente} · ` : ''}<b>{f.clave}</b>{f.tipo_depto ? ` (${f.tipo_depto})` : ''}</span>
                               : agruparPor === 'accion' ? badge(f.clave) : <b>{f.clave}</b>}
                           </td>
                           {ACCIONES.map((a) => (
@@ -488,6 +560,19 @@ const ReporteOG: React.FC = () => {
                         <tr><td style={td} colSpan={ACCIONES.length + 2}>Sin datos para los filtros actuales.</td></tr>
                       )}
                     </tbody>
+                    {pivote.length > 0 && (
+                      <tfoot>
+                        <tr style={{ borderTop: `2px solid ${border}` }}>
+                          <td style={{ ...td, fontWeight: 800, color: textPrimary }}>TOTAL</td>
+                          {ACCIONES.map((a) => (
+                            <td key={a} style={{ ...tdNum, fontWeight: 800, color: kpis[a] ? COLOR_ACCION[a] : textMuted }}>
+                              {kpis[a] || ''}
+                            </td>
+                          ))}
+                          <td style={{ ...tdNum, fontWeight: 900, color: textPrimary }}>{kpis.total}</td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               )}
@@ -495,21 +580,23 @@ const ReporteOG: React.FC = () => {
               {/* DETALLE */}
               {vista === 'detalle' && (
                 <div style={{ ...tarjeta, padding: 0, overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
                     <thead>
                       <tr>
-                        <th style={th}>Torre/Depto</th>
+                        <th style={th}>Torre</th>
+                        <th style={th}>Depto</th>
                         <th style={th}>Ambiente</th>
                         <th style={th}>Elemento</th>
-                        <th style={th}>Ítem</th>
+                        <th style={th}>Revisión</th>
                         <th style={th}>Tolerancia</th>
-                        <th style={{ ...th, textAlign: 'center' }}>Acción</th>
+                        <th style={{ ...th, textAlign: 'center' }}>Reparación</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filtradas.slice(0, 300).map((r, i) => (
                         <tr key={r.id} style={{ background: i % 2 ? rowAlt : 'transparent' }}>
-                          <td style={td}><b>{r.torre}</b> · {String(r.depto ?? NULO)}{r.tipo_depto ? ` (${r.tipo_depto})` : ''}</td>
+                          <td style={td}><b>{r.frente ?? NULO}</b></td>
+                          <td style={td}>{r.id_obra ?? NULO}</td>
                           <td style={td}>{r.ambiente ?? NULO}</td>
                           <td style={td}>{r.elemento ?? NULO}</td>
                           <td style={td}>{r.item_revision ?? NULO}</td>
@@ -518,7 +605,7 @@ const ReporteOG: React.FC = () => {
                         </tr>
                       ))}
                       {filtradas.length === 0 && (
-                        <tr><td style={td} colSpan={6}>Sin registros para los filtros actuales.</td></tr>
+                        <tr><td style={td} colSpan={7}>Sin registros para los filtros actuales.</td></tr>
                       )}
                     </tbody>
                   </table>

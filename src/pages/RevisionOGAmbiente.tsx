@@ -12,8 +12,11 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   IonContent, IonHeader, IonMenuButton, IonPage, IonTitle, IonToolbar,
+  IonButtons, IonButton, IonIcon,
 } from '@ionic/react';
 import { useIonViewDidEnter } from '@ionic/react';
+import { useHistory } from 'react-router-dom';
+import { chevronBack } from 'ionicons/icons';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
 import { getToleranciaCache, getImagenAmbienteCache, getElementosAmbienteCache } from '../utils/Ogcache';          // ← FMS offline OG
@@ -92,11 +95,19 @@ const getRevisionReal = (
 const RevisionOGAmbiente: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
+  const history = useHistory();
   const lastGrupo = useRef<string | null>(null);
   const contenedorRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
   const fotoInputRef = useRef<HTMLInputElement>(null); // ← FMS: ref estable para input foto
   const { online } = useOffline(); // ← FMS offline OG
+
+  // ── volver a la selección de ambiente (RevisionOGDetalle) ──────────────────
+  // El depto sigue seteado en sessionStorage['og_seleccion'], así que Detalle
+  // lo re-hidrata solo. No hace falta pasar nada por state.
+  const volverADetalle = () => {
+    history.push('/revision-og/detalle');
+  };
 
   // ── tokens ──────────────────────────────────────────────────────────────────
   const bg            = dark ? '#000000' : '#f0f4f8';
@@ -159,18 +170,34 @@ const RevisionOGAmbiente: React.FC = () => {
   const [guardando, setGuardando]     = useState(false);
   const [status, setStatus]           = useState<{ msg: string; ok: boolean } | null>(null);
 
-  // ── medir contenedor ─────────────────────────────────────────────────────────
+  // ── medir contenedor — robusto para Android/Ionic ─────────────────────────
+  // Mide el ancho real disponible. Prioriza el contenedor; si colapsó a 0, mide
+  // la imagen interna o el padre. Reintenta con requestAnimationFrame porque
+  // IonContent puede no tener layout listo al primer intento.
   const medirContenedor = useCallback(() => {
-    if (!contenedorRef.current) return;
-    const w = contenedorRef.current.offsetWidth;
-    if (w > 0) {
-      setContenedorW(w);
-    } else {
-      setTimeout(() => {
-        if (contenedorRef.current)
-          setContenedorW(contenedorRef.current.offsetWidth);
-      }, 100);
-    }
+    let intentos = 0;
+    const intentar = () => {
+      const el = contenedorRef.current;
+      if (el) {
+        let w = el.getBoundingClientRect().width || el.offsetWidth;
+        if (!w) {
+          const img = el.querySelector('img');
+          if (img) w = img.getBoundingClientRect().width || (img as HTMLImageElement).offsetWidth;
+        }
+        if (!w && el.parentElement) {
+          w = el.parentElement.getBoundingClientRect().width;
+        }
+        if (w > 0) {
+          setContenedorW(w);
+          return;
+        }
+      }
+      if (intentos < 15) {
+        intentos++;
+        requestAnimationFrame(intentar);
+      }
+    };
+    requestAnimationFrame(intentar);
   }, []);
 
   // ── init ─────────────────────────────────────────────────────────────────────
@@ -218,7 +245,7 @@ const RevisionOGAmbiente: React.FC = () => {
       if (imgData) {
         // Servir desde IndexedDB si está descargada (offline); si no, URL original (online)
         const src = await getImagenUrlDB(imgData.imagen_url);
-        setImagen({ ...imgData, imagen_url: src });
+        setImagen({ ...imgData, imagen_url: src || imgData.imagen_url });
         setImagenBlobUrl(null); // data: URLs no requieren revoke
       }
 
@@ -228,11 +255,27 @@ const RevisionOGAmbiente: React.FC = () => {
     }
   };
 
+  // Conectar ResizeObserver cuando el contenedor de la imagen aparece en el DOM.
+  // Depende de imagen y cargando: cuando la imagen se renderiza, este efecto
+  // vuelve a correr con contenedorRef.current ya montado.
   useEffect(() => {
+    const el = contenedorRef.current;
+    if (!el) return;
+
     medirContenedor();
+
+    const ro = new ResizeObserver(() => {
+      const w = el.getBoundingClientRect().width || el.offsetWidth;
+      if (w > 0) setContenedorW(w);
+    });
+    ro.observe(el);
+
     window.addEventListener('resize', medirContenedor);
-    return () => window.removeEventListener('resize', medirContenedor);
-  }, [medirContenedor]);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', medirContenedor);
+    };
+  }, [medirContenedor, imagen, cargando]);
 
   // ── reset helpers ─────────────────────────────────────────────────────────────
   const resetSeleccion = () => {
@@ -478,8 +521,13 @@ const RevisionOGAmbiente: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-          <IonMenuButton slot="start" menu="menu-lateral"
-            style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+          <IonButtons slot="start">
+            <IonMenuButton menu="menu-lateral"
+              style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+            <IonButton onClick={volverADetalle} style={{ '--color': '#ffffff' } as any}>
+              <IonIcon icon={chevronBack} slot="icon-only" />
+            </IonButton>
+          </IonButtons>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>
             📐 {ambiente.titulo}
           </IonTitle>
