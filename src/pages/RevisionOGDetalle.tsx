@@ -13,9 +13,9 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
-  IonContent, IonHeader, IonMenuButton, IonPage, IonTitle, IonToolbar,
+  IonContent, IonHeader, IonPage, IonTitle, IonToolbar,
 } from '@ionic/react';
-import { useIonViewDidEnter } from '@ionic/react';
+import { useIonViewDidEnter, useIonViewWillEnter } from '@ionic/react';
 import { useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
@@ -29,7 +29,7 @@ const PLANO_H = 961;
 
 interface NavState {
   proyecto: { id: string; nombre: string };
-  torre:    { id: string; nombre: string };
+  torre:    { id: string; nombre: string; frente?: string };
   depto:    { id: string; numero: string; id_obra?: string; plano_version_id?: string };
   cerrado:  boolean;
 }
@@ -71,6 +71,9 @@ const RevisionOGDetalle: React.FC = () => {
   const rojo        = dark ? '#f87171' : '#b91c1c';
   const rojoBg      = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
   const rojoBord    = dark ? 'rgba(239,68,68,0.15)' : '#fecaca';
+  const azul        = dark ? '#60a5fa' : '#1d4ed8';
+  const azulBg      = dark ? 'rgba(96,165,250,0.06)' : '#eff6ff';
+  const azulBord    = dark ? 'rgba(96,165,250,0.2)'  : '#bfdbfe';
   const amarillo    = dark ? '#fbbf24' : '#a16207';   // ← FMS offline OG
   const amarilloBg  = dark ? 'rgba(251,191,36,0.06)' : '#fffbeb'; // ← FMS offline OG
   const amarilloBord = dark ? 'rgba(251,191,36,0.2)' : '#fde68a'; // ← FMS offline OG
@@ -80,7 +83,6 @@ const RevisionOGDetalle: React.FC = () => {
   const proyecto = sel?.proyecto;
   const torre    = sel?.torre;
   const depto     = sel?.depto;
-  const cerrado   = sel?.cerrado ?? false;
 
   // ── state ─────────────────────────────────────────────────────────────────
   const [planoUrl, setPlanoUrl]         = useState<string | null>(null);
@@ -90,6 +92,13 @@ const RevisionOGDetalle: React.FC = () => {
   const [imgSize, setImgSize]           = useState<{ w: number; h: number } | null>(null);
   const [contenedorW, setContenedorW]   = useState(0);
   const [cacheOk]                       = useState(hayCacheOG()); // ← FMS offline OG
+
+  // ── state — cerrado / admin / ambientes con obs ─────────────────────────────
+  const [cerrado, setCerrado]                     = useState(false);
+  const [cerrando, setCerrando]                   = useState(false);
+  const [esAdmin, setEsAdmin]                     = useState(false);
+  const [usuario, setUsuario]                     = useState<any>(null);
+  const [ambientesConObs, setAmbientesConObs]     = useState<Set<string>>(new Set());
 
   // Se puede interactuar (seleccionar ambiente) si estamos online, o si estamos
   // offline pero con cache descargado. Solo se bloquea offline + sin cache.
@@ -142,6 +151,35 @@ const RevisionOGDetalle: React.FC = () => {
     if (!mounted.current) { mounted.current = true; inicializar(); }
   });
 
+  // Refrescar ambientes con obs al volver de OGAmbiente
+  useIonViewWillEnter(() => {
+    if (mounted.current && depto) {
+      cargarAmbientesConObs();
+      cargarEstadoCerrado();
+    }
+  });
+
+  const cargarAmbientesConObs = async () => {
+    if (!depto || !online) return;
+    const { data } = await supabase
+      .from('og_registros')
+      .select('ambiente')
+      .eq('departamento_id', depto.id);
+    const set = new Set<string>();
+    (data || []).forEach((r: any) => { if (r.ambiente) set.add(r.ambiente); });
+    setAmbientesConObs(set);
+  };
+
+  const cargarEstadoCerrado = async () => {
+    if (!depto || !online) return;
+    const { data } = await supabase
+      .from('og_inspecciones_depto')
+      .select('estado')
+      .eq('departamento_id', depto.id)
+      .maybeSingle();
+    setCerrado(data?.estado === 'cerrado');
+  };
+
   const inicializar = async () => {
     if (!depto?.plano_version_id) { setCargando(false); return; }
     setCargando(true);
@@ -182,6 +220,23 @@ const RevisionOGDetalle: React.FC = () => {
     } finally {
       setCargando(false);
     }
+
+    // Cargar usuario, estado cerrado, y ambientes con obs
+    if (online) {
+      const { data: { session } } = await supabase.auth.getSession();
+      const email = session?.user?.email;
+      if (email) {
+        const { data: u } = await supabase
+          .from('usuarios')
+          .select('id, nombre, rol')
+          .eq('email', email.toLowerCase())
+          .maybeSingle();
+        setUsuario(u);
+        setEsAdmin(u?.rol === 'administrador');
+      }
+    }
+    await cargarEstadoCerrado();
+    await cargarAmbientesConObs();
   };
 
   // Conectar ResizeObserver cuando el contenedor del plano aparece en el DOM.
@@ -240,14 +295,63 @@ const RevisionOGDetalle: React.FC = () => {
     history.push('/revision-og/ambiente');
   };
 
+  // ── cerrar / reabrir depto ─────────────────────────────────────────────────
+  const cerrarDepto = async () => {
+    if (!depto || !proyecto || !torre || !usuario) return;
+    const ok = window.confirm(`¿Cerrar el depto ${depto.numero}? No se podrán agregar más observaciones.`);
+    if (!ok) return;
+    setCerrando(true);
+    try {
+      await supabase.from('og_inspecciones_depto').upsert({
+        proyecto_id:     proyecto.id,
+        torre_id:        torre.id,
+        departamento_id: depto.id,
+        estado:          'cerrado',
+        cerrado_por:     usuario.id,
+        fecha_cierre:    new Date().toISOString(),
+      }, { onConflict: 'proyecto_id,torre_id,departamento_id' });
+      setCerrado(true);
+    } finally {
+      setCerrando(false);
+    }
+  };
+
+  const reabrirDepto = async () => {
+    if (!depto || !proyecto || !torre) return;
+    setCerrando(true);
+    try {
+      await supabase.from('og_inspecciones_depto').upsert({
+        proyecto_id:     proyecto.id,
+        torre_id:        torre.id,
+        departamento_id: depto.id,
+        estado:          'abierto',
+        cerrado_por:     null,
+        fecha_cierre:    null,
+      }, { onConflict: 'proyecto_id,torre_id,departamento_id' });
+      setCerrado(false);
+    } finally {
+      setCerrando(false);
+    }
+  };
+
+  const irAResumen = () => {
+    if (!proyecto || !torre || !depto) return;
+    sessionStorage.setItem('og_seleccion', JSON.stringify({
+      proyecto, torre, depto,
+    }));
+    history.push('/revision-og/resumen');
+  };
+
   // ── guard ─────────────────────────────────────────────────────────────────
   if (!proyecto || !torre || !depto) {
     return (
       <IonPage>
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-            <IonMenuButton slot="start" menu="menu-lateral"
-              style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+            <button slot="start" onClick={() => history.goBack()}
+              style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+              ‹
+            </button>
             <IonTitle style={{ fontSize: 16 }}>Revisión OG</IonTitle>
           </IonToolbar>
         </IonHeader>
@@ -266,8 +370,10 @@ const RevisionOGDetalle: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-          <IonMenuButton slot="start" menu="menu-lateral"
-            style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+          <button slot="start" onClick={() => history.goBack()}
+            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            ‹
+          </button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>📐 Seleccionar Ambiente</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -281,21 +387,11 @@ const RevisionOGDetalle: React.FC = () => {
             border: `0.5px solid ${border}`, padding: '10px 14px', marginBottom: 12,
           }}>
             <div style={{ fontSize: 11, color: textSecondary, marginBottom: 2 }}>
-              {proyecto.nombre} · Torre {torre.nombre}
+              {proyecto.nombre} · Torre {torre.nombre} · Depto {depto.numero}
             </div>
             <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary }}>
-              Depto {depto.numero}
-              {depto.id_obra && (
-                <span style={{ fontSize: 13, color: textMuted, fontWeight: 400 }}>
-                  {' '}— {depto.id_obra}
-                </span>
-              )}
+              {torre.frente || torre.nombre} · {depto.id_obra || depto.numero}
             </div>
-            {depto.plano_version_id && (
-              <div style={{ fontSize: 10, color: textMuted, marginTop: 2, letterSpacing: '0.5px' }}>
-                {depto.plano_version_id}
-              </div>
-            )}
           </div>
 
           {/* Banner cerrado */}
@@ -336,6 +432,69 @@ const RevisionOGDetalle: React.FC = () => {
                 📶 Sin red — si descargaste el modo offline verás el plano; si no, toca un ambiente abajo para inspeccionar
               </span>
             </div>
+          )}
+
+          {/* Leyenda ambientes + Botones */}
+          {!cargando && (
+            <>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 10, justifyContent: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: 2, border: '2px solid rgba(37,99,235,0.5)', background: 'rgba(30,58,95,0.18)' }} />
+                  <span style={{ fontSize: 11, color: textSecondary }}>Sin revisar</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: 2, border: '2px solid rgba(74,222,128,0.7)', background: 'rgba(74,222,128,0.25)' }} />
+                  <span style={{ fontSize: 11, color: textSecondary }}>Con obs ({ambientesConObs.size})</span>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                <button
+                  onClick={irAResumen}
+                  disabled={ambientesConObs.size === 0}
+                  style={{
+                    height: 42, borderRadius: 12,
+                    border: `0.5px solid ${ambientesConObs.size > 0 ? (dark ? 'rgba(30,58,95,0.5)' : '#bfdbfe') : border}`,
+                    background: ambientesConObs.size > 0 ? azulBg : 'transparent',
+                    color: ambientesConObs.size > 0 ? azul : textMuted,
+                    fontSize: 13, fontWeight: 600,
+                    cursor: ambientesConObs.size > 0 ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  📊 Resumen
+                </button>
+
+                {esAdmin && !cerrado && (
+                  <button
+                    onClick={cerrarDepto}
+                    disabled={cerrando}
+                    style={{
+                      height: 42, borderRadius: 12,
+                      border: `0.5px solid ${rojoBord}`, background: rojoBg,
+                      color: rojo, fontSize: 13, fontWeight: 600,
+                      cursor: cerrando ? 'not-allowed' : 'pointer', opacity: cerrando ? 0.6 : 1,
+                    }}
+                  >
+                    {cerrando ? 'Procesando...' : '🔒 Cerrar depto'}
+                  </button>
+                )}
+
+                {esAdmin && cerrado && (
+                  <button
+                    onClick={reabrirDepto}
+                    disabled={cerrando}
+                    style={{
+                      height: 42, borderRadius: 12,
+                      border: `0.5px solid ${border}`, background: 'transparent',
+                      color: textSecondary, fontSize: 13, fontWeight: 600,
+                      cursor: cerrando ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    🔓 Reabrir
+                  </button>
+                )}
+              </div>
+            </>
           )}
 
           {/* Instrucción */}
@@ -423,7 +582,9 @@ const RevisionOGDetalle: React.FC = () => {
                 }}
               />
 
-              {contenedorW > 0 && ambientes.map(amb => (
+              {contenedorW > 0 && ambientes.map(amb => {
+                const tieneObs = ambientesConObs.has(amb.titulo);
+                return (
                 <button
                   key={amb.id}
                   onClick={() => irAAmbiente(amb)}
@@ -435,10 +596,14 @@ const RevisionOGDetalle: React.FC = () => {
                     height: escalarY(amb.alto_base),
                     background: (cerrado || !puedeInteractuar)
                       ? 'rgba(100,100,100,0.15)'
-                      : 'rgba(30, 58, 95, 0.18)',
+                      : tieneObs
+                        ? 'rgba(74,222,128,0.25)'
+                        : 'rgba(30, 58, 95, 0.18)',
                     border: (cerrado || !puedeInteractuar)
                       ? '1.5px solid rgba(100,100,100,0.3)'
-                      : '1.5px solid rgba(37, 99, 235, 0.5)',
+                      : tieneObs
+                        ? '2px solid rgba(74,222,128,0.7)'
+                        : '1.5px solid rgba(37, 99, 235, 0.5)',
                     borderRadius: 6,
                     cursor: (cerrado || !puedeInteractuar) ? 'not-allowed' : 'pointer',
                     display: 'flex',
@@ -446,16 +611,6 @@ const RevisionOGDetalle: React.FC = () => {
                     justifyContent: 'center',
                     padding: 2,
                     transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={e => {
-                    if (!cerrado && puedeInteractuar) {
-                      (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37,99,235,0.35)';
-                    }
-                  }}
-                  onMouseLeave={e => {
-                    if (!cerrado && puedeInteractuar) {
-                      (e.currentTarget as HTMLButtonElement).style.background = 'rgba(30, 58, 95, 0.18)';
-                    }
                   }}
                 >
                   <span style={{
@@ -472,7 +627,8 @@ const RevisionOGDetalle: React.FC = () => {
                     {amb.titulo}
                   </span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -484,6 +640,7 @@ const RevisionOGDetalle: React.FC = () => {
               Sin ambientes configurados para este plano
             </div>
           )}
+
 
         </div>
       </IonContent>

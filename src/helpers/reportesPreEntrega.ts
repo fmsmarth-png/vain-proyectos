@@ -36,7 +36,20 @@ interface ObservacionPE {
  */
 export const generarReporteCompleto = async (filtros: FiltrosReporte): Promise<void> => {
   try {
-    // 1. Construir query con filtros
+    // 1. Si se seleccionó torre, obtener su código
+    let torreCodigo = null;
+    if (filtros.torreId) {
+      const { data: torreData } = await supabase
+        .from('torres')
+        .select('nombre')
+        .eq('id', filtros.torreId)
+        .single();
+      if (torreData) {
+        torreCodigo = torreData.nombre;
+      }
+    }
+
+    // 2. Construir query con filtros
     let query = supabase
       .from('observacionesinformepv')
       .select('*')  // TODAS las columnas
@@ -44,8 +57,8 @@ export const generarReporteCompleto = async (filtros: FiltrosReporte): Promise<v
       .eq('tipo', 'PRE-E')
       .order('fecha_creacion', { ascending: false });
 
-    if (filtros.torreId) {
-      query = query.eq('torre_codigo', filtros.torreId);
+    if (torreCodigo) {
+      query = query.eq('torre_codigo', torreCodigo);
     }
 
     if (filtros.deptoId) {
@@ -118,7 +131,20 @@ export const generarReporteCompleto = async (filtros: FiltrosReporte): Promise<v
  */
 export const generarReporteITLS = async (filtros: FiltrosReporte): Promise<void> => {
   try {
-    // 1. Consultar observaciones
+    // 1. Si se seleccionó torre, obtener su código
+    let torreCodigo = null;
+    if (filtros.torreId) {
+      const { data: torreData } = await supabase
+        .from('torres')
+        .select('nombre')
+        .eq('id', filtros.torreId)
+        .single();
+      if (torreData) {
+        torreCodigo = torreData.nombre;
+      }
+    }
+
+    // 2. Consultar observaciones
     let query = supabase
       .from('observacionesinformepv')
       .select(
@@ -129,8 +155,8 @@ export const generarReporteITLS = async (filtros: FiltrosReporte): Promise<void>
       .eq('tipo', 'PRE-E')
       .order('fecha_creacion', { ascending: false });
 
-    if (filtros.torreId) {
-      query = query.eq('torre_codigo', filtros.torreId);
+    if (torreCodigo) {
+      query = query.eq('torre_codigo', torreCodigo);
     }
 
     if (filtros.deptoId) {

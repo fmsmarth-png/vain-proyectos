@@ -292,7 +292,10 @@ const PostVenta: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (!file) return;
 
-    if (file.type !== 'application/pdf') { setError('Solo se aceptan archivos PDF'); return; }
+    // iOS WebView/Safari puede reportar MIME vacío o 'application/octet-stream' para PDFs
+    const esPdf = file.type === 'application/pdf'
+      || file.name.toLowerCase().endsWith('.pdf');
+    if (!esPdf) { setError('Solo se aceptan archivos PDF'); return; }
 
     setLeyendo(true); setError('');
     try {
@@ -697,7 +700,7 @@ const PostVenta: React.FC = () => {
                 <div style={cardStyle}>
                   {errorBox}
 
-                  <input ref={fileInputRef} type="file" accept="application/pdf"
+                  <input ref={fileInputRef} type="file" accept="application/pdf,.pdf"
                     onChange={seleccionarPdf} style={{ display: 'none' }} />
 
                   <button onClick={() => fileInputRef.current?.click()}

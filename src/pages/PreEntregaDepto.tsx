@@ -413,6 +413,35 @@ const PreEntregaDepto: React.FC = () => {
         console.warn('Hoy quedó fuera del calendario de semanas VAIN: hay que extender la tabla');
       }
 
+      // Subir foto a Storage si existe
+      let fotoUrl = null;
+      if (foto && online) {
+        try {
+          const timestamp = Date.now();
+          const fileName = `pre-entrega/${proyecto.id}/${depto.id}/${timestamp}.jpg`;
+          
+          // Comprimir imagen antes de subir
+          const comprimida = await comprimirImagen(foto);
+          
+          const { error: uploadError } = await supabase.storage
+            .from('observaciones')
+            .upload(fileName, comprimida, { upsert: false });
+          
+          if (uploadError) throw uploadError;
+          
+          const { data: { publicUrl } } = supabase.storage
+            .from('observaciones')
+            .getPublicUrl(fileName);
+          
+          fotoUrl = publicUrl;
+        } catch (e: any) {
+          console.error('Error subiendo foto:', e);
+          setError('Error al subir foto: ' + e.message);
+          setGuardando(false);
+          return;
+        }
+      }
+
       const datosObservacion = {
         proyecto_id: proyecto.id,
         proyecto_codigo: proyecto.codigo || '',
@@ -430,6 +459,7 @@ const PreEntregaDepto: React.FC = () => {
         usuario_nombre: userNombreRef.current || null,
         fecha_creacion: new Date().toISOString(),
         semana_creacion: semanaCreacion,
+        foto_url: fotoUrl, // ✅ NUEVA: Agregar URL de foto
       };
 
       if (online) {
@@ -443,7 +473,7 @@ const PreEntregaDepto: React.FC = () => {
           return;
         }
       } else {
-        await agregarPendiente(datosObservacion, undefined);
+        await agregarPendiente(datosObservacion, (fotoUrl ?? undefined) as any);
       }
 
       setObservacion(''); setAmbienteId(''); setPartidaId('');

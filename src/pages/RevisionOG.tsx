@@ -97,6 +97,30 @@ const RevisionOG: React.FC = () => {
   });
 
   useIonViewWillEnter(() => {
+    // ── Restaurar selección al volver de detalle/resumen/ambiente ──
+    // Si hay og_seleccion con proyecto+torre+depto y estamos en 'inicio',
+    // rehidratar el state para caer directo en pantalla 'depto'.
+    if (pantalla === 'inicio') {
+      try {
+        const sel = JSON.parse(sessionStorage.getItem('og_seleccion') || 'null');
+        if (sel?.proyecto && sel?.torre) {
+          setProyectoSel(sel.proyecto);
+          setTorreSel(sel.torre);
+          // Cargar torres y deptos para que la vista torres funcione
+          if (online) {
+            supabase.from('torres').select('id, nombre, frente, pisos').eq('proyecto_id', sel.proyecto.id).order('nombre').then(({ data }) => setTorres(data || []));
+            supabase.from('departamentos').select('id, numero, id_obra, piso, frente_depto, plano_version_id').eq('torre_id', sel.torre.id).order('id_obra').then(({ data }) => setDeptos(data || []));
+          } else {
+            getTorresDB(sel.proyecto.id).then(t => setTorres(t));
+            getDeptosDB(sel.torre.id).then(d => setDeptos(d));
+          }
+          setPantalla('torres');
+          setPendientesOGCount(contarPendientesOG());
+          return;
+        }
+      } catch {}
+    }
+
     const id = deptoSel?.id || sessionStorage.getItem('og_depto_activo');
     if (id) {
       cargarObsDepto(id);
@@ -232,22 +256,15 @@ const RevisionOG: React.FC = () => {
   };
 
   const seleccionarDepto = async (depto: any) => {
-    setDeptoSel(depto);
+    if (!proyectoSel || !torreSel) return;
     sessionStorage.setItem('og_depto_activo', depto.id);
-    setObsDepto([]);
-    setCerrado(false);
-    setResumenDisponible(false);
-    setExpandidos(new Set());
-    setCargandoDepto(true);
-    setPantalla('depto');
-    try {
-      await Promise.all([
-        cargarObsDepto(depto.id),
-        cargarEstadoDepto(depto.id),
-      ]);
-    } finally {
-      setCargandoDepto(false);
-    }
+    sessionStorage.setItem('og_seleccion', JSON.stringify({
+      proyecto: proyectoSel,
+      torre:    torreSel,
+      depto:    depto,
+      cerrado:  false,
+    }));
+    history.push('/revision-og/detalle');
   };
 
   const cargarObsDepto = async (deptoId: string) => {
@@ -349,6 +366,18 @@ const RevisionOG: React.FC = () => {
       return next;
     });
   };
+
+  const torresPorFrente = useMemo(() => {
+    const grupos: Record<string, any[]> = {};
+    for (const t of torres) {
+      const f = t.frente ?? 'Sin frente';
+      if (!grupos[f]) grupos[f] = [];
+      grupos[f].push(t);
+    }
+    return Object.entries(grupos)
+      .sort(([a], [b]) => a.localeCompare(b, 'es', { numeric: true }))
+      .map(([frente, lista]) => ({ frente, torres: lista }));
+  }, [torres]);
 
   const deptosPorPiso = useMemo(() => {
     const porPiso: Record<number, any[]> = {};
@@ -467,22 +496,44 @@ const RevisionOG: React.FC = () => {
             </div>
           ) : (
             <>
-              <div style={{ background: cardGrad, borderRadius: 16, border: `0.5px solid ${border}`, padding: 16, marginBottom: 12 }}>
-                <div style={{ ...labelStyle, marginBottom: 10 }}>Proyecto</div>
-                <IonSelect
-                  placeholder="— Seleccionar proyecto —"
-                  value={proyectoSel?.id || ''}
-                  onIonChange={e => {
-                    const p = proyectos.find((x: any) => x.id === e.detail.value);
-                    if (p) seleccionarProyecto(p);
+              <div style={{ ...labelStyle, marginBottom: 10 }}>Proyectos asignados</div>
+              <div style={{ height: '0.5px', background: sepLine, marginBottom: 12 }} />
+
+              {proyectos.map((p: any) => (
+                <div
+                  key={p.id}
+                  onClick={() => seleccionarProyecto(p)}
+                  style={{
+                    background: cardGrad,
+                    borderRadius: 14,
+                    border: `0.5px solid ${border}`,
+                    padding: '14px 16px',
+                    marginBottom: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    cursor: 'pointer',
                   }}
-                  style={{ background: inputBg, borderRadius: 10, border: `0.5px solid ${inputBorder}`, padding: '10px 12px', color: textPrimary, width: '100%', fontSize: 14 }}
                 >
-                  {proyectos.map((p: any) => (
-                    <IonSelectOption key={p.id} value={p.id}>{p.nombre}</IonSelectOption>
-                  ))}
-                </IonSelect>
-              </div>
+                  <div style={{
+                    width: 42, height: 42, borderRadius: 10,
+                    background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #eff6ff, #dbeafe)',
+                    border: dark ? '0.5px solid #2a2a2a' : '0.5px solid #bfdbfe',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700,
+                    color: dark ? '#666' : '#1e3a5f', flexShrink: 0,
+                  }}>
+                    {p.codigo ? p.codigo.toUpperCase() : p.nombre.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{p.nombre}</div>
+                    {p.codigo && (
+                      <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{p.codigo}</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 20, color: dark ? '#2a2a2a' : '#bfdbfe' }}>›</div>
+                </div>
+              ))}
 
               {/* Descarga de imágenes + datos (proyectos/torres/deptos) a IndexedDB */}
               <PrepararOfflineOG proyectos={proyectos} />
@@ -516,54 +567,49 @@ const RevisionOG: React.FC = () => {
 
           <BannerOfflineOG />
 
-          <div style={{ ...labelStyle, marginBottom: 10 }}>Torres</div>
+          <div style={{ ...labelStyle, marginBottom: 10 }}>Torres por frente</div>
 
-          {torres.map(torre => {
-            const activa = torreSel?.id === torre.id;
-            return (
-              <div key={torre.id}>
-                <div
-                  onClick={() => seleccionarTorre(torre)}
-                  style={{
-                    background: activa
-                      ? (dark ? 'linear-gradient(135deg, #0a1628, #0e1f3d)' : 'linear-gradient(135deg, #eff6ff, #dbeafe)')
-                      : cardGrad,
-                    borderRadius: 14,
-                    border: `0.5px solid ${activa ? (dark ? 'rgba(30,58,95,0.6)' : '#bfdbfe') : border}`,
-                    padding: '14px 16px', marginBottom: activa ? 0 : 8,
-                    display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer',
-                    borderBottomLeftRadius: activa && deptos.length > 0 ? 0 : 14,
-                    borderBottomRightRadius: activa && deptos.length > 0 ? 0 : 14,
-                  }}
-                >
-                  <div style={{
-                    width: 42, height: 42, borderRadius: 10,
-                    background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #eff6ff, #dbeafe)',
-                    border: dark ? '0.5px solid #2a2a2a' : '0.5px solid #bfdbfe',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 15, fontWeight: 700,
-                    color: dark ? '#666' : '#1e3a5f', flexShrink: 0,
-                  }}>
-                    {torre.nombre?.charAt(0)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{torre.nombre}</div>
-                    <div style={{ fontSize: 12, color: textSecondary, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{
-                        background: dark ? 'rgba(30,58,95,0.4)' : 'rgba(30,58,95,0.08)',
-                        border: `0.5px solid ${dark ? 'rgba(30,58,95,0.6)' : 'rgba(30,58,95,0.2)'}`,
-                        borderRadius: 6, padding: '1px 6px', fontSize: 11, fontWeight: 600,
-                        color: dark ? '#4a7ab5' : '#1e3a5f',
-                      }}>
-                        {torre.frente}
-                      </span>
-                      {torre.pisos} pisos
+          {torresPorFrente.map(({ frente, torres: torresGrupo }) => (
+            <div key={frente} style={{ marginBottom: 14 }}>
+              {/* Header del grupo frente */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{
+                  background: dark ? 'rgba(30,58,95,0.4)' : 'rgba(30,58,95,0.08)',
+                  border: `0.5px solid ${dark ? 'rgba(30,58,95,0.6)' : 'rgba(30,58,95,0.2)'}`,
+                  borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700,
+                  color: dark ? '#4a7ab5' : '#1e3a5f',
+                }}>
+                  {frente}
+                </span>
+                <div style={{ flex: 1, height: '0.5px', background: dark ? '#1e1e1e' : '#e2e8f0' }} />
+                <span style={{ fontSize: 11, color: textMuted }}>{torresGrupo.length} torre{torresGrupo.length !== 1 ? 's' : ''}</span>
+              </div>
+
+              {torresGrupo.map(torre => {
+                const activa = torreSel?.id === torre.id;
+                return (
+                  <div key={torre.id}>
+                    <div
+                      onClick={() => seleccionarTorre(torre)}
+                      style={{
+                        background: activa
+                          ? (dark ? 'linear-gradient(135deg, #0a1628, #0e1f3d)' : 'linear-gradient(135deg, #eff6ff, #dbeafe)')
+                          : cardGrad,
+                        borderRadius: 14,
+                        border: `0.5px solid ${activa ? (dark ? 'rgba(30,58,95,0.6)' : '#bfdbfe') : border}`,
+                        padding: '14px 16px', marginBottom: activa ? 0 : 8,
+                        display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer',
+                        borderBottomLeftRadius: activa && deptos.length > 0 ? 0 : 14,
+                        borderBottomRightRadius: activa && deptos.length > 0 ? 0 : 14,
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>Torre {torre.nombre}</div>
+                      </div>
+                      <div style={{ fontSize: 20, color: dark ? '#2a2a2a' : '#bfdbfe' }}>
+                        {activa ? '▾' : '›'}
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ fontSize: 20, color: dark ? '#2a2a2a' : '#bfdbfe' }}>
-                    {activa ? '▾' : '›'}
-                  </div>
-                </div>
 
                 {activa && deptos.length > 0 && (
                   <div style={{
@@ -635,8 +681,10 @@ const RevisionOG: React.FC = () => {
                   </div>
                 )}
               </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          ))}
         </div>
       </IonContent>
     </IonPage>

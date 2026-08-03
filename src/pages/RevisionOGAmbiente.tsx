@@ -11,12 +11,10 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
-  IonContent, IonHeader, IonMenuButton, IonPage, IonTitle, IonToolbar,
-  IonButtons, IonButton, IonIcon,
+  IonContent, IonHeader, IonPage, IonTitle, IonToolbar,
 } from '@ionic/react';
-import { useIonViewDidEnter } from '@ionic/react';
+import { useIonViewDidEnter, useIonViewWillEnter } from '@ionic/react';
 import { useHistory } from 'react-router-dom';
-import { chevronBack } from 'ionicons/icons';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
 import { getToleranciaCache, getImagenAmbienteCache, getElementosAmbienteCache } from '../utils/Ogcache';          // ← FMS offline OG
@@ -29,7 +27,7 @@ import { comprimirImagen }              from '../utils/comprimirImagen';   // �
 
 interface NavState {
   proyecto:  { id: string; nombre: string };
-  torre:     { id: string; nombre: string };
+  torre:     { id: string; nombre: string; frente?: string };
   depto:     { id: string; numero: string; id_obra?: string; plano_version_id?: string; tipo_depto?: string };
   cerrado:   boolean;
   ambiente:  {
@@ -106,7 +104,7 @@ const RevisionOGAmbiente: React.FC = () => {
   // El depto sigue seteado en sessionStorage['og_seleccion'], así que Detalle
   // lo re-hidrata solo. No hace falta pasar nada por state.
   const volverADetalle = () => {
-    history.push('/revision-og/detalle');
+    history.goBack();
   };
 
   // ── tokens ──────────────────────────────────────────────────────────────────
@@ -170,6 +168,9 @@ const RevisionOGAmbiente: React.FC = () => {
   const [guardando, setGuardando]     = useState(false);
   const [status, setStatus]           = useState<{ msg: string; ok: boolean } | null>(null);
 
+  // ── state — elementos con observación ya registrada (para marcar en rojo) ───
+  const [elementosConObs, setElementosConObs] = useState<Set<string>>(new Set());
+
   // ── medir contenedor — robusto para Android/Ionic ─────────────────────────
   // Mide el ancho real disponible. Prioriza el contenedor; si colapsó a 0, mide
   // la imagen interna o el padre. Reintenta con requestAnimationFrame porque
@@ -212,6 +213,11 @@ const RevisionOGAmbiente: React.FC = () => {
     });
   });
 
+  // Refrescar elementos con obs al volver (ej. si se registró una obs y se vuelve)
+  useIonViewWillEnter(() => {
+    if (lastGrupo.current) cargarElementosConObs();
+  });
+
   const inicializar = async () => {
     if (!grupoImagenCompleto) { setCargando(false); return; }
     setCargando(true);
@@ -249,6 +255,9 @@ const RevisionOGAmbiente: React.FC = () => {
         setImagenBlobUrl(null); // data: URLs no requieren revoke
       }
 
+      // Cargar elementos que ya tienen observaciones registradas en este ambiente
+      await cargarElementosConObs();
+
       setTimeout(medirContenedor, 150);
     } finally {
       setCargando(false);
@@ -276,6 +285,21 @@ const RevisionOGAmbiente: React.FC = () => {
       window.removeEventListener('resize', medirContenedor);
     };
   }, [medirContenedor, imagen, cargando]);
+
+  // ── cargar elementos que ya tienen observaciones registradas ─────────────────
+  const cargarElementosConObs = async () => {
+    if (!depto || !ambiente) return;
+    const set = new Set<string>();
+    if (online) {
+      const { data } = await supabase
+        .from('og_registros')
+        .select('elemento')
+        .eq('departamento_id', depto.id)
+        .eq('ambiente', ambiente.titulo);
+      (data || []).forEach((r: any) => set.add(r.elemento));
+    }
+    setElementosConObs(set);
+  };
 
   // ── reset helpers ─────────────────────────────────────────────────────────────
   const resetSeleccion = () => {
@@ -424,6 +448,7 @@ const RevisionOGAmbiente: React.FC = () => {
         });
 
         setStatus({ msg: '✓ Guardado offline — se sincronizará al reconectarte', ok: true });
+        setElementosConObs(prev => new Set(prev).add(elSel.elemento));
         resetRegistro();
         return;
       }
@@ -464,6 +489,7 @@ const RevisionOGAmbiente: React.FC = () => {
       if (error) throw error;
 
       setStatus({ msg: '✓ Observación registrada', ok: true });
+      setElementosConObs(prev => new Set(prev).add(elSel.elemento));
       resetRegistro();
     } catch (e: any) {
       setStatus({ msg: 'Error: ' + (e.message || 'desconocido'), ok: false });
@@ -484,6 +510,8 @@ const RevisionOGAmbiente: React.FC = () => {
   const colorHotspot = (el: Elemento) => {
     const sel = elSel?.id === el.id;
     if (sel) return { bg: 'rgba(245,158,11,0.35)', border: 'rgba(245,158,11,0.9)' };
+    // Rojo si ya tiene observación registrada
+    if (elementosConObs.has(el.elemento)) return { bg: 'rgba(239,68,68,0.25)', border: 'rgba(239,68,68,0.85)' };
     switch (el.tipo_elemento) {
       case 'Muros': return { bg: 'rgba(37,99,235,0.18)',  border: 'rgba(37,99,235,0.7)'  };
       case 'Vanos': return { bg: 'rgba(245,158,11,0.18)', border: 'rgba(245,158,11,0.7)' };
@@ -498,8 +526,10 @@ const RevisionOGAmbiente: React.FC = () => {
       <IonPage>
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-            <IonMenuButton slot="start" menu="menu-lateral"
-              style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+            <button slot="start" onClick={() => history.goBack()}
+              style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+              ‹
+            </button>
             <IonTitle style={{ fontSize: 16 }}>Revisión OG</IonTitle>
           </IonToolbar>
         </IonHeader>
@@ -521,13 +551,10 @@ const RevisionOGAmbiente: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-          <IonButtons slot="start">
-            <IonMenuButton menu="menu-lateral"
-              style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
-            <IonButton onClick={volverADetalle} style={{ '--color': '#ffffff' } as any}>
-              <IonIcon icon={chevronBack} slot="icon-only" />
-            </IonButton>
-          </IonButtons>
+          <button slot="start" onClick={volverADetalle}
+            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            ‹
+          </button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>
             📐 {ambiente.titulo}
           </IonTitle>
@@ -543,7 +570,10 @@ const RevisionOGAmbiente: React.FC = () => {
             border: `0.5px solid ${border}`, padding: '10px 14px', marginBottom: 12,
           }}>
             <div style={{ fontSize: 11, color: textSecondary, marginBottom: 2 }}>
-              {proyecto.nombre} · Torre {torre.nombre} · Depto {depto.numero}
+              {proyecto.nombre} · {torre.frente || torre.nombre} · {depto.id_obra || depto.numero}
+            </div>
+            <div style={{ fontSize: 13, color: textMuted, marginBottom: 2 }}>
+              Torre {torre.nombre} · Depto {depto.numero}
             </div>
             <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary }}>
               {ambiente.titulo}
@@ -658,7 +688,17 @@ const RevisionOGAmbiente: React.FC = () => {
                 { tipo: 'Muros', col: 'rgba(37,99,235,0.7)'   },
                 { tipo: 'Vanos', col: 'rgba(245,158,11,0.7)'  },
                 { tipo: 'Losas', col: 'rgba(16,185,129,0.7)'  },
+                { tipo: 'Con obs', col: 'rgba(239,68,68,0.85)' },
               ].map(({ tipo, col }) => {
+                if (tipo === 'Con obs') {
+                  if (elementosConObs.size === 0) return null;
+                  return (
+                    <div key={tipo} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <div style={{ width: 12, height: 12, borderRadius: 2, border: `2px solid ${col}`, background: col.replace('0.85', '0.25') }} />
+                      <span style={{ fontSize: 11, color: textSecondary }}>Con obs ({elementosConObs.size})</span>
+                    </div>
+                  );
+                }
                 const count = elementos.filter(e => e.tipo_elemento === tipo).length;
                 if (!count) return null;
                 return (
@@ -671,36 +711,37 @@ const RevisionOGAmbiente: React.FC = () => {
             </div>
           )}
 
-          {/* ── Panel de registro ────────────────────────────────────────────── */}
-          {elSel && (
+          {/* ── Panel de registro (siempre visible) ────────────────────── */}
+          {!cargando && !cerrado && (
             <div style={{
               marginTop: 14, background: cardGrad, borderRadius: 16,
-              border: `0.5px solid ${azulBord}`, overflow: 'hidden',
+              border: `0.5px solid ${elSel ? azulBord : border}`, overflow: 'hidden',
             }}>
 
-              {/* Elemento seleccionado */}
+              {/* Header: elemento seleccionado o instrucción */}
               <div style={{
-                padding: '10px 14px', background: azulBg,
-                borderBottom: `0.5px solid ${azulBord}`,
+                padding: '10px 14px', background: elSel ? azulBg : 'transparent',
+                borderBottom: `0.5px solid ${elSel ? azulBord : border}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               }}>
                 <div>
-                  <div style={{ fontSize: 10, color: azul, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' }}>
-                    Elemento seleccionado
+                  <div style={{ fontSize: 10, color: elSel ? azul : textMuted, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' }}>
+                    {elSel ? 'Elemento seleccionado' : 'Seleccione elemento'}
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary, marginTop: 2 }}>
-                    {elSel.elemento}
+                  <div style={{ fontSize: 14, fontWeight: 700, color: elSel ? textPrimary : textMuted, marginTop: 2 }}>
+                    {elSel ? elSel.elemento : 'Toque un elemento en el plano'}
                   </div>
                 </div>
-                <button
-                  onClick={resetSeleccion}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: textMuted, padding: 4 }}
-                >✕</button>
+                {elSel && (
+                  <button
+                    onClick={resetSeleccion}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: textMuted, padding: 4 }}
+                  >✕</button>
+                )}
               </div>
 
-              <div style={{ padding: '12px 14px' }}>
-
-                {/* Tabs Muros / Vanos */}
+              {/* Tabs Muros / Vanos — siempre visibles para filtrar hotspots */}
+              <div style={{ padding: '12px 14px 0' }}>
                 <div style={{
                   display: 'flex', gap: 0, marginBottom: 12,
                   background: dark ? '#0a0a0a' : '#f1f5f9',
@@ -727,6 +768,10 @@ const RevisionOGAmbiente: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {elSel ? (
+              <div style={{ padding: '0 14px 12px' }}>
 
                 {/* Botones tipo revisión */}
                 <div style={{ fontSize: 10, color: textMuted, letterSpacing: '1px', marginBottom: 6, fontWeight: 600 }}>
@@ -890,21 +935,13 @@ const RevisionOGAmbiente: React.FC = () => {
                 </button>
 
               </div>
-            </div>
-          )}
-
-          {/* Instrucción si no hay elemento seleccionado */}
-          {!cargando && !elSel && (
-            <div style={{
-              marginTop: 12, fontSize: 12, color: textMuted,
-              textAlign: 'center', fontStyle: 'italic',
-            }}>
-              {imagen
-                ? 'Toca un elemento en el plano para registrar una observación'
-                : !online
-                  ? 'Sin conexión — el plano visual no está disponible'
-                  : 'Sin imagen configurada para este ambiente'
-              }
+              ) : (
+                <div style={{ padding: '16px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 12, color: textMuted, fontStyle: 'italic' }}>
+                    Seleccione un elemento en el plano para registrar
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

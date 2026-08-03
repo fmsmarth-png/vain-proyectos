@@ -10,8 +10,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
-  IonButtons, IonMenuButton, useIonViewDidEnter,
+  IonButtons, useIonViewDidEnter,
 } from '@ionic/react';
+import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 
@@ -105,6 +106,7 @@ function estadoBadge(count: number, dark: boolean) {
 const RevisionOGResumen: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
+  const history = useHistory();
   const iniciado = useRef(false);
 
   // ── Tokens de diseño ──────────────────────────────────────────────────────
@@ -327,9 +329,10 @@ const RevisionOGResumen: React.FC = () => {
       <IonPage>
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#fff' } as any}>
-            <IonButtons slot="start">
-              <IonMenuButton style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
-            </IonButtons>
+            <button slot="start" onClick={() => history.goBack()}
+              style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+              ‹
+            </button>
             <IonTitle>Resumen OG</IonTitle>
           </IonToolbar>
         </IonHeader>
@@ -347,9 +350,10 @@ const RevisionOGResumen: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-          <IonButtons slot="start">
-            <IonMenuButton style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
-          </IonButtons>
+          <button slot="start" onClick={() => history.goBack()}
+            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            ‹
+          </button>
           <IonTitle style={{ fontSize: 15 }}>
             Resumen · Depto {depto.numero} · {torre?.nombre}
           </IonTitle>
