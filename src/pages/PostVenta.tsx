@@ -823,11 +823,11 @@ const PostVenta: React.FC = () => {
 
                 <div style={cardStyle}>
                   <button onClick={iniciarSinPapeleta} disabled={leyendo} style={btnGhost}>
-                    🚨 Atender sin papeleta (urgencia)
+                      Visita sin papeleta 
                   </button>
                   <div style={{ fontSize: 11, color: textMuted, marginTop: 10, lineHeight: 1.4 }}>
-                    Para urgencias no agendadas. Registras las observaciones a mano; el resto
-                    del flujo (fotos, receptor, firma e informe) es idéntico.
+                    Para trabajos necesarios no agendados
+                    (fotos, receptor, firma e informe)
                   </div>
                 </div>
               </>
