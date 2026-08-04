@@ -60,7 +60,8 @@ export async function extraerPapeletaPdf(file: File): Promise<PapeletaPdf> {
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const tc = await page.getTextContent();
-    for (const raw of tc.items as any[]) {
+    const items = tc.items || []; // Fallback a array vacío si tc.items es undefined
+    for (const raw of items as any[]) {
       const str = (raw.str || '').replace(/\s+/g, ' ').trim();
       if (!str) continue;
       celdas.push({ str, x: raw.transform[4], y: raw.transform[5], page: p });

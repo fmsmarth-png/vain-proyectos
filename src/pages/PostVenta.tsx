@@ -33,6 +33,11 @@ interface RevisionObs {
   estado: 'PENDIENTE' | 'SOLUCIONADO';
   fotoAntes: string | null;
   fotoDespues: string | null;
+  // Origen de la observación:
+  //  'papeleta'   → viene del PDF (solicitud_cliente = descripción del PDF)
+  //  'derivada'   → separación de una obs de papeleta (hereda su solicitud_cliente)
+  //  'adicional'  → trabajo no registrado en la visita (solicitud_cliente = null)
+  origen?: 'papeleta' | 'derivada' | 'adicional';
 }
 
 const DATOS_VACIOS: DatosSolicitud = {
@@ -146,6 +151,9 @@ const PostVenta: React.FC = () => {
   const [paso, setPaso] = useState<'carga' | 'revision' | 'firma'>('carga');
   const [loading, setLoading] = useState(true);
   const [leyendo, setLeyendo] = useState(false);
+  // Cuando es una atención urgente sin papeleta agendada: no hay solicitud del
+  // cliente, las observaciones se crean a mano y se guardan con solicitud_cliente null.
+  const [sinPapeleta, setSinPapeleta] = useState(false);
 
   const [ambientes, setAmbientes] = useState<Catalogo[]>([]);
   const [partidas, setPartidas] = useState<Catalogo[]>([]);
@@ -279,6 +287,7 @@ const PostVenta: React.FC = () => {
     setDesajuste(''); setDesajusteOk(false);
     setRecNombre(''); setRecRut('');
     setFirmaDataUrl(null); setError(''); setPaso('carga');
+    setSinPapeleta(false);
   };
 
   const usarDatosPropietario = () => {
@@ -329,6 +338,7 @@ const PostVenta: React.FC = () => {
         observacion: '', partida: '', causa: '',
         estado: 'SOLUCIONADO' as const,
         fotoAntes: null, fotoDespues: null,
+        origen: 'papeleta' as const,
       })));
       setAbierta(0);
       setPaso('revision');
@@ -336,6 +346,75 @@ const PostVenta: React.FC = () => {
       setError(e?.message ?? 'No se pudo leer el PDF');
     }
     setLeyendo(false);
+  };
+
+  /* ---------- atención sin papeleta (urgencia no agendada) ---------- */
+  // Crea una observación en blanco para el mismo formulario de siempre. La
+  // solicitud del cliente no aplica: se guardará como null al finalizar.
+  const obsVacia = (n: number = 1): ObservacionPdf => ({
+    numero: String(n), ambiente: '', descripcion: '',
+  } as ObservacionPdf);
+
+  const revVacia = (origen: RevisionObs['origen'] = 'adicional'): RevisionObs => ({
+    ambienteSel: '', ambienteLibre: '',
+    observacion: '', partida: '', causa: '',
+    estado: 'SOLUCIONADO' as const,
+    fotoAntes: null, fotoDespues: null,
+    origen,
+  });
+
+  const iniciarSinPapeleta = () => {
+    setSinPapeleta(true);
+    setDatos(DATOS_VACIOS);
+    setDesajuste(''); setDesajusteOk(false);
+    setObs([obsVacia(1)]);
+    setRev([revVacia('adicional')]);
+    setAbierta(0);
+    setError('');
+    setPaso('revision');
+  };
+
+  const agregarObs = () => {
+    setObs(prev => [...prev, obsVacia(prev.length + 1)]);
+    setRev(prev => [...prev, revVacia('adicional')]);
+    setAbierta(obs.length);
+  };
+
+  // Con papeleta: separa un problema adicional dentro de la MISMA solicitud del
+  // cliente. La nueva obs hereda la descripción del PDF de la obs padre para que
+  // solicitud_cliente quede igual. Se inserta justo después de su padre.
+  const derivarObs = (idxPadre: number) => {
+    const padre = obs[idxPadre];
+    setObs(prev => {
+      const copia = [...prev];
+      copia.splice(idxPadre + 1, 0, { ...padre });
+      return copia;
+    });
+    setRev(prev => {
+      const copia = [...prev];
+      copia.splice(idxPadre + 1, 0, {
+        ...revVacia('derivada'),
+        ambienteSel: prev[idxPadre].ambienteSel,
+        ambienteLibre: prev[idxPadre].ambienteLibre,
+      });
+      return copia;
+    });
+    setAbierta(idxPadre + 1);
+  };
+
+  // Con papeleta: agrega un trabajo NO registrado en la papeleta (se hizo en la
+  // misma visita). No tiene solicitud del cliente → se guarda con null.
+  const agregarAdicional = () => {
+    setObs(prev => [...prev, obsVacia(prev.length + 1)]);
+    setRev(prev => [...prev, revVacia('adicional')]);
+    setAbierta(obs.length);
+  };
+
+  const quitarObs = (idx: number) => {
+    if (obs.length <= 1) return; // siempre queda al menos una
+    setObs(prev => prev.filter((_, i) => i !== idx));
+    setRev(prev => prev.filter((_, i) => i !== idx));
+    setAbierta(null);
   };
 
   /* ---------- edición ---------- */
@@ -379,7 +458,7 @@ const PostVenta: React.FC = () => {
 
     const faltante = rev.findIndex(r => !completa(r));
     if (faltante !== -1) {
-      setError(`Observación #${obs[faltante].numero}: falta ambiente, observación o alguna foto`);
+      setError(`Observación ${faltante + 1}: falta ambiente, observación o alguna foto`);
       setAbierta(faltante);
       return;
     }
@@ -492,29 +571,35 @@ const PostVenta: React.FC = () => {
       // Los datos del propietario NO se repiten acá: viven en `departamentos`
       // y se alcanzan por departamento_id. Lo que sí es propio de esta visita
       // es quien la recibió y su firma.
-      const filas = obs.map((o, i) => ({
-        proyecto_id: proyecto.id,
-        proyecto_codigo: proyectoCodigo || '',
-        torre_codigo: torre.nombre,
-        depto_numero: depto.numero,
-        departamento_id: depto.id,
-        tipo: 'PV',
-        estado: rev[i].estado,
-        n_requerimiento: datos.requerimiento || null,
-        solicitud_cliente: o.descripcion,
-        observacion: rev[i].observacion.trim(),
-        ambiente: ambienteFinal(rev[i]),
-        partida_afectada: rev[i].partida || null,
-        causa: rev[i].causa || null,
-        receptor_nombre: recNombre.trim(),
-        receptor_rut: recRut.trim(),
-        receptor_firma_url: firmaUrl,
-        usuario_id: user.id,
-        usuario_email: (user.email ?? '').toLowerCase(),
-        usuario_nombre: inspectorNombre || null,
-        fecha_creacion: fechaCreacion,
-        semana_creacion: semanaCreacion,
-      }));
+      const filas = obs.map((o, i) => {
+        const esAdicional = rev[i].origen === 'adicional';
+        return {
+          proyecto_id: proyecto.id,
+          proyecto_codigo: proyectoCodigo || '',
+          torre_codigo: torre.nombre,
+          depto_numero: depto.numero,
+          departamento_id: depto.id,
+          tipo: 'PV',
+          estado: rev[i].estado,
+          // Trabajo no registrado en la papeleta → sin número de requerimiento.
+          n_requerimiento: (sinPapeleta || esAdicional) ? null : (datos.requerimiento || null),
+          // Sin solicitud del cliente para urgencias y trabajos adicionales.
+          // Las derivadas heredan la descripción del padre (viene en o.descripcion).
+          solicitud_cliente: (sinPapeleta || esAdicional) ? null : o.descripcion,
+          observacion: rev[i].observacion.trim(),
+          ambiente: ambienteFinal(rev[i]),
+          partida_afectada: rev[i].partida || null,
+          causa: rev[i].causa || null,
+          receptor_nombre: recNombre.trim(),
+          receptor_rut: recRut.trim(),
+          receptor_firma_url: firmaUrl,
+          usuario_id: user.id,
+          usuario_email: (user.email ?? '').toLowerCase(),
+          usuario_nombre: inspectorNombre || null,
+          fecha_creacion: fechaCreacion,
+          semana_creacion: semanaCreacion,
+        };
+      });
 
       const { error: insErr } = await supabase.from('observacionesinformepv').insert(filas);
       if (insErr) throw new Error(insErr.message);
@@ -530,9 +615,9 @@ const PostVenta: React.FC = () => {
         receptorNombre: recNombre.trim(),
         receptorRut: recRut.trim(),
         observaciones: obs.map((o, i) => ({
-          numero: o.numero,
+          numero: String(i + 1),
           ambiente: ambienteFinal(rev[i]),
-          solicitudCliente: o.descripcion,
+          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : o.descripcion,
           observacion: rev[i].observacion.trim(),
           partida: rev[i].partida || undefined,
           causa: rev[i].causa || undefined,
@@ -623,16 +708,32 @@ const PostVenta: React.FC = () => {
               style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 15, cursor: 'pointer' }}>×</button>
           </div>
         ) : (
-          <label style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            height: 80, borderRadius: 12, border: `0.5px dashed ${border}`, marginBottom: 12,
-            cursor: 'pointer', color: textMuted, gap: 4, background: dark ? 'transparent' : '#f8fafc',
+          <div style={{
+            display: 'flex', gap: 8, marginBottom: 12,
           }}>
-            <span style={{ fontSize: 20 }}>📷</span>
-            <span style={{ fontSize: 11 }}>Adjuntar</span>
-            <input type="file" accept="image/*" capture="environment"
-              onChange={e => seleccionarFoto(idx, tipo, e)} style={{ display: 'none' }} />
-          </label>
+            {/* Cámara: fuerza captura en el momento */}
+            <label style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              height: 80, borderRadius: 12, border: `0.5px dashed ${border}`,
+              cursor: 'pointer', color: textMuted, gap: 4, background: dark ? 'transparent' : '#f8fafc',
+            }}>
+              <span style={{ fontSize: 20 }}>📷</span>
+              <span style={{ fontSize: 10 }}>Cámara</span>
+              <input type="file" accept="image/*" capture="environment"
+                onChange={e => seleccionarFoto(idx, tipo, e)} style={{ display: 'none' }} />
+            </label>
+            {/* Galería: sin capture, deja elegir fotos existentes */}
+            <label style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              height: 80, borderRadius: 12, border: `0.5px dashed ${border}`,
+              cursor: 'pointer', color: textMuted, gap: 4, background: dark ? 'transparent' : '#f8fafc',
+            }}>
+              <span style={{ fontSize: 20 }}>🖼️</span>
+              <span style={{ fontSize: 10 }}>Galería</span>
+              <input type="file" accept="image/*"
+                onChange={e => seleccionarFoto(idx, tipo, e)} style={{ display: 'none' }} />
+            </label>
+          </div>
         )}
       </div>
     );
@@ -713,6 +814,22 @@ const PostVenta: React.FC = () => {
                     fechas, horario y el listado de requerimientos del cliente.
                   </div>
                 </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 16px' }}>
+                  <div style={{ flex: 1, height: '0.5px', background: sepLine }} />
+                  <div style={{ fontSize: 10, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>o</div>
+                  <div style={{ flex: 1, height: '0.5px', background: sepLine }} />
+                </div>
+
+                <div style={cardStyle}>
+                  <button onClick={iniciarSinPapeleta} disabled={leyendo} style={btnGhost}>
+                    🚨 Atender sin papeleta (urgencia)
+                  </button>
+                  <div style={{ fontSize: 11, color: textMuted, marginTop: 10, lineHeight: 1.4 }}>
+                    Para urgencias no agendadas. Registras las observaciones a mano; el resto
+                    del flujo (fotos, receptor, firma e informe) es idéntico.
+                  </div>
+                </div>
               </>
             )
           )}
@@ -741,13 +858,17 @@ const PostVenta: React.FC = () => {
 
               {tarjetaDepto}
 
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-                {metaChip('registro', datos.fechaRegistro)}
-                {metaChip('atención', datos.fechaAtencion)}
-                {metaChip('horario', datos.horaAtencion)}
-              </div>
+              {!sinPapeleta && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {metaChip('registro', datos.fechaRegistro)}
+                  {metaChip('atención', datos.fechaAtencion)}
+                  {metaChip('horario', datos.horaAtencion)}
+                </div>
+              )}
 
-              <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Requerimientos del cliente</div>
+              <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>
+                {sinPapeleta ? 'Observaciones' : 'Requerimientos del cliente'}
+              </div>
               <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
               {obs.map((o, idx) => {
@@ -766,15 +887,27 @@ const PostVenta: React.FC = () => {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11, fontWeight: 700,
                         color: ok ? (dark ? '#4ade80' : '#15803d') : textMuted,
-                      }}>{ok ? '✓' : o.numero}</div>
+                      }}>{ok ? '✓' : (r.origen === 'adicional' ? '+' : idx + 1)}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: amb ? textPrimary : textMuted }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: amb ? textPrimary : textMuted, display: 'flex', alignItems: 'center', gap: 6 }}>
                           {amb || 'Elegir ambiente'}
+                          {r.origen === 'derivada' && (
+                            <span style={{ fontSize: 8, fontWeight: 700, color: accent, background: dark ? 'rgba(96,165,250,0.12)' : '#eff6ff', border: `0.5px solid ${dark ? 'rgba(96,165,250,0.25)' : '#bfdbfe'}`, borderRadius: 6, padding: '1px 6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>derivada</span>
+                          )}
+                          {r.origen === 'adicional' && !sinPapeleta && (
+                            <span style={{ fontSize: 8, fontWeight: 700, color: dark ? '#fbbf24' : '#92400e', background: dark ? 'rgba(251,191,36,0.1)' : '#fffbeb', border: `0.5px solid ${dark ? 'rgba(251,191,36,0.25)' : '#fde68a'}`, borderRadius: 6, padding: '1px 6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>adicional</span>
+                          )}
                         </div>
                         <div style={{ fontSize: 11, color: textMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {o.descripcion}
+                          {(sinPapeleta || r.origen === 'adicional')
+                            ? (r.observacion.trim() || 'Sin descripción aún')
+                            : o.descripcion}
                         </div>
                       </div>
+                      {(sinPapeleta || r.origen === 'derivada' || r.origen === 'adicional') && obs.length > 1 && (
+                        <button onClick={e => { e.stopPropagation(); quitarObs(idx); }}
+                          style={{ background: 'transparent', border: 'none', color: textMuted, fontSize: 18, cursor: 'pointer', flexShrink: 0, padding: '0 4px' }}>×</button>
+                      )}
                       <div style={{ color: textMuted, fontSize: 12, flexShrink: 0 }}>{open ? '▲' : '▼'}</div>
                     </div>
 
@@ -782,16 +915,33 @@ const PostVenta: React.FC = () => {
                       <div style={{ padding: '0 14px 14px' }}>
                         <div style={{ height: '0.5px', background: sepLine, marginBottom: 14 }} />
 
-                        <label style={labelStyle}>solicitud del cliente</label>
-                        <div style={{
-                          background: dark ? 'rgba(96,165,250,0.05)' : '#eff6ff',
-                          border: `0.5px solid ${dark ? 'rgba(96,165,250,0.15)' : '#bfdbfe'}`,
-                          borderRadius: 10, padding: '10px 12px', marginBottom: 6,
-                          fontSize: 13, lineHeight: 1.5, color: textPrimary,
-                        }}>{o.descripcion}</div>
-                        <div style={{ fontSize: 10, color: textMuted, marginBottom: 14 }}>
-                          Ubicación indicada por el cliente: <strong>{o.ambiente || '—'}</strong>
-                        </div>
+                        {!sinPapeleta && r.origen !== 'adicional' && (
+                          <>
+                            <label style={labelStyle}>
+                              solicitud del cliente{r.origen === 'derivada' ? ' (compartida)' : ''}
+                            </label>
+                            <div style={{
+                              background: dark ? 'rgba(96,165,250,0.05)' : '#eff6ff',
+                              border: `0.5px solid ${dark ? 'rgba(96,165,250,0.15)' : '#bfdbfe'}`,
+                              borderRadius: 10, padding: '10px 12px', marginBottom: 6,
+                              fontSize: 13, lineHeight: 1.5, color: textPrimary,
+                            }}>{o.descripcion}</div>
+                            <div style={{ fontSize: 10, color: textMuted, marginBottom: 14 }}>
+                              Ubicación indicada por el cliente: <strong>{o.ambiente || '—'}</strong>
+                            </div>
+                          </>
+                        )}
+
+                        {!sinPapeleta && r.origen === 'adicional' && (
+                          <div style={{
+                            background: dark ? 'rgba(251,191,36,0.06)' : '#fffbeb',
+                            border: `0.5px solid ${dark ? 'rgba(251,191,36,0.2)' : '#fde68a'}`,
+                            borderRadius: 10, padding: '8px 12px', marginBottom: 14,
+                            fontSize: 11, color: dark ? '#fbbf24' : '#92400e', lineHeight: 1.4,
+                          }}>
+                            Trabajo adicional no registrado en la papeleta. Se guardará sin solicitud del cliente.
+                          </div>
+                        )}
 
                         <label style={labelStyle}>ambiente *</label>
                         <select value={r.ambienteSel} onChange={e => setCampo(idx, 'ambienteSel', e.target.value)} style={inputStyle}>
@@ -839,11 +989,28 @@ const PostVenta: React.FC = () => {
                           {fotoSlot(idx, 'antes')}
                           {fotoSlot(idx, 'despues')}
                         </div>
+
+                        {!sinPapeleta && (r.origen === 'papeleta' || r.origen === 'derivada') && (
+                          <button onClick={() => derivarObs(idx)}
+                            style={{ ...btnGhost, marginTop: 12, height: 40, fontSize: 12, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe' }}>
+                            ▹ Separar otro problema de esta solicitud
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
                 );
               })}
+
+              {sinPapeleta ? (
+                <button onClick={agregarObs} style={{ ...btnGhost, marginBottom: 8, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe' }}>
+                  ➕ Agregar observación
+                </button>
+              ) : (
+                <button onClick={agregarAdicional} style={{ ...btnGhost, marginBottom: 8, color: dark ? '#fbbf24' : '#92400e', borderColor: dark ? 'rgba(251,191,36,0.3)' : '#fde68a' }}>
+                  ➕ Agregar trabajo no registrado en la papeleta
+                </button>
+              )}
 
               <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, margin: '20px 0 12px' }}>Quien recibe la visita</div>
               <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
@@ -876,7 +1043,9 @@ const PostVenta: React.FC = () => {
               {errorBox}
 
               <button onClick={irAFirma} style={btnPrimary(false)}>✍️ Continuar a la firma</button>
-              <button onClick={reiniciar} style={{ ...btnGhost, marginTop: 8, marginBottom: 40 }}>Cargar otra papeleta</button>
+              <button onClick={reiniciar} style={{ ...btnGhost, marginTop: 8, marginBottom: 40 }}>
+                {sinPapeleta ? 'Cancelar y volver' : 'Cargar otra papeleta'}
+              </button>
             </>
           )}
 
