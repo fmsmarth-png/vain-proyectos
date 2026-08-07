@@ -640,9 +640,14 @@ export const generatePdfPostventa = async (datos: DatosPostventa): Promise<Blob>
     ]);
     const altoFoto = (info: ImgInfo) =>
       !info.b64 || info.w === 0 ? 0 : Math.min(fotoMaxH, fotoW * (info.h / info.w));
-    const fotoH = Math.max(altoFoto(antes), altoFoto(despues), 30);
 
-    doc.check(cardH + 4 + titH + fotoH + 10);
+    const hayAntes   = !!antes.b64 && antes.w > 0;
+    const hayDespues = !!despues.b64 && despues.w > 0;
+    const hayFotos   = hayAntes || hayDespues;
+    const fotoH = hayFotos ? Math.max(altoFoto(antes), altoFoto(despues), 30) : 0;
+    const bloqueFotosH = hayFotos ? 4 + titH + fotoH + 8 : 0;
+
+    doc.check(cardH + bloqueFotosH + 6);
     const cardY = doc.y;
 
     // encabezado de la tarjeta (fondo gris)
@@ -723,38 +728,40 @@ export const generatePdfPostventa = async (datos: DatosPostventa): Promise<Blob>
     pdf.setLineWidth(0.3);
     pdf.rect(ML, cardY, CW, cy - cardY, 'D');
 
-    // fotos con barra de título
-    doc.y = cy + 4;
-    const py = doc.y;
-    const colA = ML;
-    const colD = ML + fotoW + 6;
+    // fotos con barra de título — solo si existe al menos una
+    if (hayFotos) {
+      doc.y = cy + 4;
+      const py = doc.y;
 
-    const panel = (x: number, info: ImgInfo, titulo: string) => {
-      pdf.setFillColor(FONDO_FICHA);
-      pdf.setDrawColor(BORDE);
-      pdf.setLineWidth(0.3);
-      pdf.rect(x, py, fotoW, titH, 'FD');
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(6.5);
-      pdf.setTextColor(GRIS);
-      pdf.text(titulo, x + fotoW / 2, py + titH / 2 + 1.2, { align: 'center' });
+      const panel = (x: number, w: number, info: ImgInfo, titulo: string) => {
+        pdf.setFillColor(FONDO_FICHA);
+        pdf.setDrawColor(BORDE);
+        pdf.setLineWidth(0.3);
+        pdf.rect(x, py, w, titH, 'FD');
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(6.5);
+        pdf.setTextColor(GRIS);
+        pdf.text(titulo, x + w / 2, py + titH / 2 + 1.2, { align: 'center' });
 
-      pdf.rect(x, py + titH, fotoW, fotoH, 'D');
-      if (info.b64) {
+        pdf.rect(x, py + titH, w, fotoH, 'D');
         const h = altoFoto(info);
-        pdf.addImage(info.b64, 'JPEG', x, py + titH + (fotoH - h) / 2, fotoW, h);
+        const imgW = Math.min(w, fotoW);
+        pdf.addImage(info.b64, 'JPEG', x + (w - imgW) / 2, py + titH + (fotoH - h) / 2, imgW, h);
+      };
+
+      if (hayAntes && hayDespues) {
+        panel(ML, fotoW, antes, 'ESTADO ANTERIOR');
+        panel(ML + fotoW + 6, fotoW, despues, 'ESTADO POSTERIOR');
+      } else if (hayAntes) {
+        panel(ML, CW, antes, 'ESTADO ANTERIOR');
       } else {
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(7);
-        pdf.setTextColor(GRIS_LIGHT);
-        pdf.text('Sin foto', x + fotoW / 2, py + titH + fotoH / 2, { align: 'center' });
+        panel(ML, CW, despues, 'ESTADO POSTERIOR');
       }
-    };
 
-    panel(colA, antes, 'ESTADO ANTERIOR');
-    panel(colD, despues, 'ESTADO POSTERIOR');
-
-    doc.y = py + titH + fotoH + 8;
+      doc.y = py + titH + fotoH + 8;
+    } else {
+      doc.y = cy + 6;
+    }
   }
 
   // ── 4. conformidad ─────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ interface FiltroState {
   tipo: string;
   proyectoId: string;
   proyectoNombre: string;
+  filtroAntiguedad?: { min: number; max: number } | null; // Días min/max para filtrar obs
 }
 
 const DeptosFiltrados: React.FC = () => {
@@ -70,6 +71,10 @@ const DeptosFiltrados: React.FC = () => {
       case 'listoEntregar': return 'Listo para Inmobiliaria';
       case 'entregadosInmob': return 'Entregados a Inmobiliaria';
       case 'entregadosProp': return 'Entregados a Propietario';
+      case 'antiguedad_menos7': return 'Observaciones: Menos de 7 días';
+      case 'antiguedad_8a14': return 'Observaciones: 8 a 14 días';
+      case 'antiguedad_15a30': return 'Observaciones: 15 a 30 días';
+      case 'antiguedad_mas30': return 'Observaciones: Más de 30 días';
       default: return 'Departamentos';
     }
   };
@@ -132,6 +137,7 @@ const DeptosFiltrados: React.FC = () => {
           .select('id, numero, piso, torre_id, preentrega_estado')
           .in('torre_id', torreIds);
 
+        // Filtros por estado (existentes)
         if (tipo === 'sinPreE') {
           query = query.or('preentrega_estado.eq.1,preentrega_estado.is.null');
         } else if (tipo === 'enProceso') {
@@ -142,6 +148,52 @@ const DeptosFiltrados: React.FC = () => {
           query = query.eq('preentrega_estado', 4);
         } else if (tipo === 'entregadosProp') {
           query = query.eq('preentrega_estado', 5);
+        } 
+        // Filtros por antigüedad (NUEVOS)
+        else if (tipo.startsWith('antiguedad_')) {
+          // Primero obtenemos todos los deptos del proyecto
+          const { data: allDeptos } = await query.order('numero');
+          if (allDeptos && allDeptos.length > 0) {
+            // Ahora filtrar por antigüedad
+            const hoy = new Date();
+            let minDias = 0, maxDias = 999;
+
+            if (tipo === 'antiguedad_menos7') {
+              minDias = 0; maxDias = 7;
+            } else if (tipo === 'antiguedad_8a14') {
+              minDias = 8; maxDias = 14;
+            } else if (tipo === 'antiguedad_15a30') {
+              minDias = 15; maxDias = 30;
+            } else if (tipo === 'antiguedad_mas30') {
+              minDias = 31; maxDias = 999;
+            }
+
+            // Obtener observaciones PRE-E para estos deptos
+            const deptosIds = allDeptos.map(d => d.id);
+            const { data: obs } = await supabase
+              .from('observacionesinformepv')
+              .select('departamento_id, fecha_creacion')
+              .in('departamento_id', deptosIds)
+              .eq('tipo', 'PRE-E');
+
+            // Filtrar deptos que tienen obs en el rango de antigüedad
+            const deptosConObsEnRango = new Set<string>();
+            if (obs) {
+              for (const o of obs) {
+                if (!o.fecha_creacion) continue;
+                const fechaCreacion = new Date(o.fecha_creacion);
+                const diferencia = Math.floor((hoy.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
+                if (diferencia >= minDias && diferencia <= maxDias) {
+                  deptosConObsEnRango.add(o.departamento_id);
+                }
+              }
+            }
+
+            const filtrados = allDeptos.filter(d => deptosConObsEnRango.has(d.id));
+            setDeptos(filtrados);
+            setLoading(false);
+            return;
+          }
         }
 
         const { data: deptosData } = await query.order('numero');

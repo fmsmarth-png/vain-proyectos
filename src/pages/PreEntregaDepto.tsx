@@ -116,7 +116,7 @@ const PreEntregaDepto: React.FC = () => {
   const location = useLocation<any>();
   const { theme } = useTheme();
   const dark = theme === 'dark';
-  const { online, pendientes, agregarPendiente } = useOffline();
+  const { online, pendientes, agregarPendientePreEntrega } = useOffline();
   const userIdRef      = useRef<string>('');
   // Nombre tal cual está en `usuarios`. El state inspectorNombre va en
   // mayúsculas para el acta; en la BD se guarda sin transformar.
@@ -134,7 +134,11 @@ const PreEntregaDepto: React.FC = () => {
   const navState = resolveNavState();
   const depto    = navState?.depto    ?? null;
   const torre    = navState?.torre    ?? null;
-  const proyecto = navState?.proyecto ?? null;
+  const proyectoNav = navState?.proyecto ?? null;
+
+  // ✅ FIX: Estado para proyecto completo (con todos los campos acta_*)
+  const [proyectoCompleto, setProyectoCompleto] = useState<any>(proyectoNav);
+  const proyecto = proyectoCompleto; // Usar el proyecto completo
 
   const bg            = dark ? '#000000' : '#f0f4f8';
   const card          = dark ? '#0e0e0e'  : '#ffffff';
@@ -185,6 +189,46 @@ const PreEntregaDepto: React.FC = () => {
       try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(location.state)); } catch {}
     }
   }, [location.state]);
+
+  // ✅ FIX: Cargar proyecto completo desde BD para garantizar que trae TODOS los campos acta_*
+  useEffect(() => {
+    if (!proyectoNav?.id) return;
+
+    const cargarProyectoCompleto = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('proyectos')
+          .select('*')
+          .eq('id', proyectoNav.id)
+          .maybeSingle();
+
+        if (error) {
+          console.error('[PreEntregaDepto] Error cargando proyecto completo:', error);
+          // Mantener el proyecto del navigation state si falla
+          setProyectoCompleto(proyectoNav);
+        } else if (data) {
+          console.log('[PreEntregaDepto] ✅ Proyecto completo cargado:', {
+            id: data.id,
+            acta_nombre_inmobiliaria: data.acta_nombre_inmobiliaria,
+            acta_direccion: data.acta_direccion,
+            acta_ciudad: data.acta_ciudad,
+            acta_telefono: data.acta_telefono,
+            acta_email: data.acta_email,
+            acta_nombre_legal: data.acta_nombre_legal,
+            acta_logo_url: data.acta_logo_url,
+          });
+          setProyectoCompleto(data);
+        } else {
+          setProyectoCompleto(proyectoNav);
+        }
+      } catch (err: any) {
+        console.error('[PreEntregaDepto] Excepción cargando proyecto:', err.message);
+        setProyectoCompleto(proyectoNav);
+      }
+    };
+
+    cargarProyectoCompleto();
+  }, [proyectoNav?.id]);
 
   useIonViewDidEnter(() => {
     const currentState = (() => {
@@ -473,7 +517,7 @@ const PreEntregaDepto: React.FC = () => {
           return;
         }
       } else {
-        await agregarPendiente(datosObservacion, (fotoUrl ?? undefined) as any);
+        await agregarPendientePreEntrega(datosObservacion, foto ?? undefined);
       }
 
       setObservacion(''); setAmbienteId(''); setPartidaId('');
@@ -534,6 +578,15 @@ const PreEntregaDepto: React.FC = () => {
   };
 
   const generarActa = async () => {
+    // ✅ FIX: Validar que proyecto tiene datos requeridos para el acta
+    if (!proyecto) { setErrorActa('Error: Proyecto no cargado'); return; }
+    if (!proyecto.acta_nombre_inmobiliaria) { setErrorActa('Error: Nombre inmobiliaria no configurado en Admin'); return; }
+    if (!proyecto.acta_direccion) { setErrorActa('Error: Dirección no configurada en Admin'); return; }
+    if (!proyecto.acta_ciudad) { setErrorActa('Error: Ciudad no configurada en Admin'); return; }
+    if (!proyecto.acta_telefono) { setErrorActa('Error: Teléfono no configurado en Admin'); return; }
+    if (!proyecto.acta_email) { setErrorActa('Error: Email no configurado en Admin'); return; }
+    if (!proyecto.acta_nombre_legal) { setErrorActa('Error: Nombre legal no configurado en Admin'); return; }
+
     if (!propNombre.trim()) { setErrorActa('El nombre del propietario es obligatorio'); return; }
     if (!propRut.trim())    { setErrorActa('El RUT del propietario es obligatorio'); return; }
     if (!fechaPromesa)      { setErrorActa('La fecha de la promesa es obligatoria'); return; }
@@ -542,6 +595,21 @@ const PreEntregaDepto: React.FC = () => {
 
     setGenerando(true); setErrorActa('');
     try {
+      // ✅ FIX: Logs detallados de los datos que se van a usar en el PDF
+      console.log('[PreEntregaDepto] Generando acta con datos:', {
+        proyecto_id: proyecto.id,
+        nombreInmobiliaria: proyecto.acta_nombre_inmobiliaria,
+        direccion: proyecto.acta_direccion,
+        ciudad: proyecto.acta_ciudad,
+        telefono: proyecto.acta_telefono,
+        email: proyecto.acta_email,
+        nombreLegal: proyecto.acta_nombre_legal,
+        logoUrl: proyecto.acta_logo_url,
+        propNombre,
+        depto: depto.numero,
+        torre: torre?.nombre,
+      });
+
       const { data: regs, error: regErr } = await supabase
         .from('observacionesinformepv')
         .select('observacion, ambiente')

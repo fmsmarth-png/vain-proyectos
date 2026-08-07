@@ -450,15 +450,18 @@ const PostVenta: React.FC = () => {
     }
   };
 
+  // Una observación queda lista con ambiente + comentario del inspector.
+  // Las fotos son opcionales: hay casos donde no aplica reparación y solo se
+  // deja constancia por escrito.
   const completa = (r: RevisionObs) =>
-    !!ambienteFinal(r) && !!r.observacion.trim() && !!r.fotoAntes && !!r.fotoDespues;
+    !!ambienteFinal(r) && !!r.observacion.trim();
 
   const irAFirma = () => {
     if (desajuste && !desajusteOk) { setError('Confirma la advertencia sobre el departamento antes de continuar'); return; }
 
     const faltante = rev.findIndex(r => !completa(r));
     if (faltante !== -1) {
-      setError(`Observación ${faltante + 1}: falta ambiente, observación o alguna foto`);
+      setError(`Observación ${faltante + 1}: falta el ambiente o el comentario del inspector`);
       setAbierta(faltante);
       return;
     }
@@ -985,6 +988,9 @@ const PostVenta: React.FC = () => {
                           <option value="PENDIENTE">Pendiente</option>
                         </select>
 
+                        <label style={labelStyle}>
+                          registro fotográfico <span style={{ color: textMuted, fontWeight: 400, textTransform: 'none' }}>(opcional)</span>
+                        </label>
                         <div style={{ display: 'flex', gap: 12 }}>
                           {fotoSlot(idx, 'antes')}
                           {fotoSlot(idx, 'despues')}

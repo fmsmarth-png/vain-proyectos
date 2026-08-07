@@ -460,8 +460,8 @@ const DetalleDepto: React.FC = () => {
 
             {/* Timeline visual con líneas conectoras */}
             <div style={{ background: card, borderRadius: 14, padding: 20, border: `0.5px solid ${border}`, marginBottom: 12, position: 'relative' }}>
-              {/* Botón de 3 puntos - visible si estado es 3 o 4 y es admin */}
-              {esAdmin && (preentregaEstado === 3 || preentregaEstado === 4) && (
+              {/* Botón de 3 puntos - visible si estado es 3 o 4 (sin restricción de admin) */}
+              {(preentregaEstado === 3 || preentregaEstado === 4) && (
                 <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
                   <button
                     onClick={() => setMenuAbierto(!menuAbierto)}

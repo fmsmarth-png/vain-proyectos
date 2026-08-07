@@ -132,6 +132,59 @@ const PreEntregaDashboard: React.FC = () => {
 
   const [modalProyecto, setModalProyecto] = useState(false);
 
+  // ← NUEVA: Calcular deptos por antigüedad
+  const [deptosPorAntiguedad, setDeptosPorAntiguedad] = useState({
+    menos7: 0,
+    entre8y14: 0,
+    entre15y30: 0,
+    mas30: 0
+  });
+
+  const calcularDeptosPorAntiguedad = async (deptosData: any[]) => {
+    const hoy = new Date();
+    const contadores = { menos7: 0, entre8y14: 0, entre15y30: 0, mas30: 0 };
+    
+    try {
+      // Obtener observaciones PRE-E de estos deptos
+      const deptosIds = deptosData.map(d => d.id);
+      const { data: obs } = await supabase
+        .from('observacionesinformepv')
+        .select('departamento_id, fecha_creacion')
+        .in('departamento_id', deptosIds)
+        .eq('tipo', 'PRE-E');
+
+      // Agrupar deptos por rango de antigüedad de sus observaciones
+      const deptosPorRango = new Map<string, number>();
+      if (obs) {
+        for (const o of obs) {
+          if (!o.fecha_creacion) continue;
+          const fechaCreacion = new Date(o.fecha_creacion);
+          const diferencia = Math.floor((hoy.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (!deptosPorRango.has(o.departamento_id)) {
+            // Asignar al rango MAYOR (más antiguo) si tiene obs en múltiples rangos
+            if (diferencia <= 7) deptosPorRango.set(o.departamento_id, 1);
+            else if (diferencia <= 14) deptosPorRango.set(o.departamento_id, 2);
+            else if (diferencia <= 30) deptosPorRango.set(o.departamento_id, 3);
+            else deptosPorRango.set(o.departamento_id, 4);
+          }
+        }
+      }
+
+      // Contar deptos únicos por rango
+      for (const rango of deptosPorRango.values()) {
+        if (rango === 1) contadores.menos7++;
+        else if (rango === 2) contadores.entre8y14++;
+        else if (rango === 3) contadores.entre15y30++;
+        else if (rango === 4) contadores.mas30++;
+      }
+
+      setDeptosPorAntiguedad(contadores);
+    } catch (e) {
+      console.error('Error calculando deptos por antigüedad:', e);
+    }
+  };
+
   useEffect(() => {
     const cargarProyectos = async () => {
       try {
@@ -252,6 +305,7 @@ const PreEntregaDashboard: React.FC = () => {
 
       setDeptos(deptosList);
       await calcularKpis(deptosList, proyectoId);
+      await calcularDeptosPorAntiguedad(deptosList); // ← NUEVA: Calcular deptos por antigüedad
     } catch (err) {
       console.error('Error cargarDatos:', err);
     }
@@ -549,22 +603,55 @@ const PreEntregaDashboard: React.FC = () => {
           {/* SEPARADOR VISUAL */}
           <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
 
+          {/* SEPARADOR VISUAL */}
+          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
+
+          {/* ANTIGÜEDAD PRE ENTREGA - TÍTULO ARRIBA */}
+          <div style={{ fontSize: 9, color: textMuted, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>Observaciones Pre Entrega por Antigüedad</div>
+
           {/* ANTIGÜEDAD PRE ENTREGA */}
           <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 9, color: textMuted, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>Observaciones Pre Entrega por Antigüedad</div>
             <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)', border: `0.5px solid ${border}`, borderRadius: 16, padding: 16 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
                 {[
-                  { label: 'Menos de 7 días', count: kpis.antiguedad.hasta7, color: '#ef4444' },
-                  { label: '8 a 14 días', count: kpis.antiguedad.entre8y14, color: '#f59e0b' },
-                  { label: '15 a 30 días', count: kpis.antiguedad.entre15y30, color: '#8b5cf6' },
-                  { label: 'Más de 30 días', count: kpis.antiguedad.mas30, color: '#6b7280' }
+                  { label: 'Menos de 7 días', obs: kpis.antiguedad.hasta7, deptos: deptosPorAntiguedad.menos7, color: '#ef4444', textColor: '#f87171', tipo: 'antiguedad_menos7' },
+                  { label: '8 a 14 días', obs: kpis.antiguedad.entre8y14, deptos: deptosPorAntiguedad.entre8y14, color: '#f59e0b', textColor: '#fbbf24', tipo: 'antiguedad_8a14' },
+                  { label: '15 a 30 días', obs: kpis.antiguedad.entre15y30, deptos: deptosPorAntiguedad.entre15y30, color: '#8b5cf6', textColor: '#a78bfa', tipo: 'antiguedad_15a30' },
+                  { label: 'Más de 30 días', obs: kpis.antiguedad.mas30, deptos: deptosPorAntiguedad.mas30, color: '#dc2626', textColor: '#ef4444', tipo: 'antiguedad_mas30' }
                 ].map((item, idx) => (
-                  <div key={idx} style={{ background: dark ? '#111' : '#f8fafc', borderRadius: 12, padding: 12, textAlign: 'center', border: `0.5px solid ${border}` }}>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: item.color, marginBottom: 8, lineHeight: 1 }}>
-                      {item.count}
+                  <div 
+                    key={idx} 
+                    onClick={() => {
+                      if (!proyectoId) return;
+                      history.push('/deptos-filtrados', { tipo: item.tipo, proyectoId, proyectoNombre: proyectoSel?.nombre });
+                    }}
+                    style={{ 
+                      background: dark ? '#111' : '#f8fafc', 
+                      borderRadius: 12, 
+                      padding: 12, 
+                      textAlign: 'center', 
+                      border: `0.5px solid ${border}`,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      transform: 'scale(1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.transform = 'scale(1.02)';
+                      (e.currentTarget as HTMLElement).style.borderColor = item.color;
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
+                      (e.currentTarget as HTMLElement).style.borderColor = border;
+                    }}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 700, color: item.textColor, marginBottom: 12, lineHeight: 1.3 }}>{item.label}</div>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: item.textColor, marginBottom: 4, lineHeight: 1 }}>
+                      {item.obs}
                     </div>
-                    <div style={{ fontSize: 9, color: textMuted, fontWeight: 500, lineHeight: 1.3 }}>{item.label}</div>
+                    <div style={{ fontSize: 8, color: item.textColor, fontWeight: 500, lineHeight: 1.2 }}>obs.</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: item.textColor, marginTop: 8, paddingTop: 8, borderTop: `0.5px solid ${border}` }}>
+                      {item.deptos} deptos
+                    </div>
                   </div>
                 ))}
               </div>

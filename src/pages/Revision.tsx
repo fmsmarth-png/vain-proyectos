@@ -458,15 +458,62 @@ const Revision: React.FC = () => {
             updateData.semana_resolucion = `${semana}-${ahora.getFullYear()}`;
           }
           
-          const { error } = await supabase.from('observacionesinformepv').update(updateData).eq('id', reg.id);
-          if (error) {
-            console.error('Error actualizando observación:', error);
-            setObservacionesInforme(observacionesInforme);
+          // ✅ FIX: Validar que existe ANTES de actualizar
+          const { data: existe, error: errorExiste } = await supabase
+            .from('observacionesinformepv')
+            .select('id')
+            .eq('id', reg.id)
+            .maybeSingle();
+          
+          if (errorExiste) {
+            console.error('[Revision] ❌ Error consultando observación:', errorExiste);
+            setObservacionesInforme(observacionesInforme); // Revertir cambio visual
+            setError(`Error al guardar: ${errorExiste.message}`);
+          } else if (!existe) {
+            console.error('[Revision] ❌ FALLO SILENCIOSO: ID no existe en observacionesinformepv:', reg.id);
+            setObservacionesInforme(observacionesInforme); // Revertir cambio visual
+            setError(`No se encontró la observación con ID ${reg.id}`);
+          } else {
+            // ✅ Existe, ahora actualizar
+            const { error: errorUpdate } = await supabase
+              .from('observacionesinformepv')
+              .update(updateData)
+              .eq('id', reg.id);
+            
+            if (errorUpdate) {
+              console.error('[Revision] ❌ Error actualizando observación:', errorUpdate);
+              setObservacionesInforme(observacionesInforme); // Revertir cambio visual
+              setError(`Error al guardar: ${errorUpdate.message}`);
+            } else {
+              // ✅ Verificar que realmente se guardó
+              const { data: actualizado, error: errorVerify } = await supabase
+                .from('observacionesinformepv')
+                .select('estado, fecha_resolucion')
+                .eq('id', reg.id)
+                .maybeSingle();
+              
+              if (errorVerify || !actualizado) {
+                console.error('[Revision] ❌ Error verificando actualización:', errorVerify);
+                setObservacionesInforme(observacionesInforme); // Revertir cambio visual
+                setError('Error: No se pudo confirmar la actualización');
+              } else if (actualizado.estado !== estadoNormalizado) {
+                console.error('[Revision] ❌ Estado no cambió en BD. Esperado:', estadoNormalizado, 'Obtenido:', actualizado.estado);
+                setObservacionesInforme(observacionesInforme); // Revertir cambio visual
+                setError(`Error: El estado no se guardó correctamente (${actualizado.estado})`);
+              } else {
+                console.log('[Revision] ✅ Observación actualizada correctamente en BD:', reg.id, actualizado);
+              }
+            }
           }
         } catch (e: any) {
-          console.error('Error:', e.message);
+          console.error('[Revision] ❌ Excepción:', e.message);
           setObservacionesInforme(observacionesInforme);
+          setError(`Error inesperado: ${e.message}`);
         }
+      } else {
+        // ✅ FIX: Manejar offline con agregarCambioPendiente
+        console.log('[Revision] Cambio marcado como pendiente (offline):', reg.id);
+        agregarCambioPendiente('estado', reg.id, { estado: estadoNormalizado, fecha_resolucion: estadoNormalizado === 'SOLUCIONADO' ? new Date().toISOString() : null });
       }
     } else {
       // Es de registros → actualizar esa tabla (lógica original)
