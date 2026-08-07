@@ -468,13 +468,13 @@ const PreEntregaDepto: React.FC = () => {
           const comprimida = await comprimirImagen(foto);
           
           const { error: uploadError } = await supabase.storage
-            .from('observaciones')
+            .from('fotos-registros')
             .upload(fileName, comprimida, { upsert: false });
           
           if (uploadError) throw uploadError;
           
           const { data: { publicUrl } } = supabase.storage
-            .from('observaciones')
+            .from('fotos-registros')
             .getPublicUrl(fileName);
           
           fotoUrl = publicUrl;
