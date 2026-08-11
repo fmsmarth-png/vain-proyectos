@@ -1,0 +1,23 @@
+.admin-notificaciones {
+  --background: #fafafa;
+}
+
+.notif-card {
+  margin: 0;
+}
+
+.notif-card.notif-info {
+  border-left: 4px solid #3b82f6;
+}
+
+.notif-card.notif-success {
+  border-left: 4px solid #10b981;
+}
+
+.notif-card.notif-warning {
+  border-left: 4px solid #f59e0b;
+}
+
+.notif-card.notif-error {
+  border-left: 4px solid #ef4444;
+}

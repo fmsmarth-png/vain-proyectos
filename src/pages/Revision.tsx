@@ -139,7 +139,7 @@ const Revision: React.FC = () => {
         // Query directa - traer TODOS los campos (sin numero_obs que se calcula en app)
         let query = supabase
           .from('observacionesinformepv')
-          .select('id, proyecto_id, proyecto_codigo, torre_codigo, depto_numero, tipo, estado, observacion, ambiente, partida_afectada, causa, usuario_email, usuario_id, fecha_creacion, fecha_resolucion, semana_creacion, semana_resolucion')
+          .select('id, proyecto_id, proyecto_codigo, torre_codigo, depto_numero, tipo, estado, observacion, ambiente, partida_afectada, causa, usuario_email, usuario_id, fecha_creacion, fecha_resolucion, semana_creacion, semana_resolucion, foto_url')
           .eq('depto_numero', deptoNum)
           .eq('proyecto_id', proyectoId);
 

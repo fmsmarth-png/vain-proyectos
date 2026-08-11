@@ -28,6 +28,7 @@ import {
   Layers,
   Paintbrush,
   ClipboardList,
+  Bell,
 } from 'lucide-react';
 
 interface Props { usuario: any; }
@@ -427,6 +428,25 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
                 >
                   <Users width={19} height={19} stroke={textSecondaryColor} strokeWidth={1.8} style={{ flex: 'none' }} />
                   Administración
+                </div>
+              </>
+            )}
+
+            {/* Admin Notificaciones (solo para jcaballero) */}
+            {(usuario?.email === 'fmsmarth@gmail.com' || puedeAdmin) && (
+              <>
+                {renderDivider()}
+                {renderSectionLabel('notificaciones')}
+                <div
+                  onClick={() => navegar('/admin-notificaciones')}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 14,
+                    padding: '13px 20px', fontSize: 14, cursor: 'pointer',
+                    borderLeft: '2px solid transparent', color: textSecondaryColor,
+                  }}
+                >
+                  <Bell width={19} height={19} stroke={accentColor} strokeWidth={1.8} style={{ flex: 'none' }} />
+                  <span style={{ color: accentColor }}>Notificaciones</span>
                 </div>
               </>
             )}

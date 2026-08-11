@@ -1,0 +1,53 @@
+.notif-modal {
+  --width: 90%;
+  --max-width: 500px;
+}
+
+.notif-modal-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.notif-icono-grande {
+  font-size: 64px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.notif-modal-info .notif-icono-grande {
+  color: #3b82f6;
+}
+
+.notif-modal-success .notif-icono-grande {
+  color: #10b981;
+}
+
+.notif-modal-warning .notif-icono-grande {
+  color: #f59e0b;
+}
+
+.notif-modal-error .notif-icono-grande {
+  color: #ef4444;
+}
+
+.notif-mensaje-grande {
+  font-size: 16px;
+  line-height: 1.6;
+  color: #374151;
+  margin: 0 0 12px 0;
+}
+
+.notif-fecha {
+  color: #9ca3af;
+  font-size: 12px;
+}

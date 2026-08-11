@@ -15,6 +15,7 @@ import { Route, Redirect } from 'react-router-dom';
 import { IonSplitPane, IonRouterOutlet } from '@ionic/react';
 import { usePermiso } from '../Context/usePermiso';
 import MenuLateral from './MenuLateral';
+import { NotificacionModal } from './NotificacionModal';
 
 // Páginas
 import Dashboard from '../pages/Dashboard';
@@ -49,6 +50,7 @@ import DashboardBodega from '../pages/DashboardBodega';
 import LevantamientoCeramicos from '../pages/LevantamientoCeramicos';
 import LevantamientoCeramicosDetalle from '../pages/LevantamientoCeramicosDetalle';
 import LevantamientoCeramicosChecklist from '../pages/LevantamientoCeramicosChecklist';
+import AdminNotificaciones from '../pages/AdminNotificaciones';
 
 const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
 
@@ -87,6 +89,7 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
   return (
     <IonSplitPane contentId="main-content" when="false">
       <MenuLateral usuario={usuario} />
+      <NotificacionModal />
       <IonRouterOutlet id="main-content">
         <Route exact path="/dashboard" render={() =>
           esRolBodega ? <DashboardBodega /> : <Dashboard />
@@ -224,6 +227,11 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
         <Route exact path="/reportes" render={() =>
           tienePermiso('revision_ver') ? <Reportes /> : <Redirect to="/dashboard" />
         } />
+
+        {/* Admin Notificaciones */}
+        <Route exact path="/admin-notificaciones" render={() =>
+  (usuario?.email === 'fmsmarth@gmail.com' || tienePermiso('admin_permisos')) ? <AdminNotificaciones /> : <Redirect to="/dashboard" />
+} />
 
         <Redirect exact from="/" to="/dashboard" />
       </IonRouterOutlet>
