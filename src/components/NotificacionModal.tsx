@@ -16,13 +16,15 @@ export const NotificacionModal: React.FC = () => {
   const [mostrar, setMostrar] = useState(false);
 
   useEffect(() => {
-    if (!cargando && notificacion) setMostrar(true);
-  }, [notificacion, cargando]);
+    if (!cargando && notificacion && !notificacion.visto) {
+      setMostrar(true);
+      marcarVistoAuto();
+    }
+  }, [notificacion?.id, cargando]);
 
-  // Marca la notificación como vista y cierra el modal
-  const marcarVisto = async () => {
-    setMostrar(false);
-    if (!notificacion || notificacion.visto) return;
+  // Marca automáticamente como visto al abrir el modal
+  const marcarVistoAuto = async () => {
+    if (!notificacion) return;
 
     const { error } = await supabase
       .from('notificaciones_admin')
@@ -32,14 +34,34 @@ export const NotificacionModal: React.FC = () => {
     if (error) {
       console.error('[NotificacionModal] Error al marcar visto:', error);
     } else {
-      console.log('[NotificacionModal] ✅ Marcada como vista');
+      console.log('[NotificacionModal] ✅ Visto automáticamente al abrir');
     }
+  };
+
+  // Cierra el modal y abre el marcador de teléfono
+  const marcarVisto = () => {
+    setMostrar(false);
+    // Abrir marcador de teléfono cuando toca "Entendido" o la X
+    window.location.href = 'tel:+56949213183';
   };
 
   if (!notificacion) return null;
 
   const cfg = CONFIG[notificacion.tipo] || CONFIG.info;
   const Icon = cfg.Icon;
+
+  // Formatear fecha/hora en zona horaria de Chile Continental (CLT)
+  const formatFechaChile = (fecha: string) => {
+    return new Date(fecha).toLocaleString('es-CL', {
+      timeZone: 'America/Santiago',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  };
 
   return (
     <IonModal
@@ -52,7 +74,7 @@ export const NotificacionModal: React.FC = () => {
         '--border-radius': '20px',
         '--background': '#000000',
         '--box-shadow': '0 20px 60px rgba(0,0,0,0.6)',
-      }}
+      } as any}
     >
       <div style={{
         background: '#000000',
@@ -109,9 +131,7 @@ export const NotificacionModal: React.FC = () => {
             display: 'flex', alignItems: 'center', gap: 6,
           }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color, flexShrink: 0 }} />
-            {new Date(notificacion.actualizado_en).toLocaleString('es-CL', {
-              day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-            })}
+            {formatFechaChile(notificacion.actualizado_en)}
           </div>
 
           {/* Botón */}

@@ -17,6 +17,14 @@ import { nombreSemana, fechaDesdeDdMmAaaa } from '../utils/semanasVain';
 const SESSION_KEY = 'post_venta_depto_state';
 const OTRO = '__OTRO__';
 
+// Guardado automático: el borrador de una visita vive en tablas propias,
+// separadas de `observacionesinformepv`. Una visita en progreso NO aparece
+// en Revision ni en Reportes hasta que se finaliza (ahí se hace el INSERT
+// de siempre). RESUME_KEY es el id de borrador que DetalleDepto pide reanudar.
+const RESUME_KEY = 'postventa_papeleta_id';
+const T_PAPELETA = 'postventa_papeletas';
+const T_BORRADOR = 'postventa_obs_borrador';
+
 /* ------------------------------------------------------------------ */
 /*  Tipos                                                              */
 /* ------------------------------------------------------------------ */
@@ -25,6 +33,7 @@ interface Catalogo { id: string; nombre: string }
 interface Causa extends Catalogo { tipo: 'estandar' | 'tercero' | 'nombre_tercero' }
 
 interface RevisionObs {
+  id?: string;           // id de la fila en postventa_obs_borrador (guardado automático)
   ambienteSel: string;   // nombre del catálogo, '' o OTRO
   ambienteLibre: string; // usado solo cuando ambienteSel === OTRO
   observacion: string;
@@ -184,6 +193,19 @@ const PostVenta: React.FC = () => {
 
   const [anotando, setAnotando] = useState<{ idx: number; tipo: 'antes' | 'despues'; src: string } | null>(null);
 
+  /* ---------- guardado automático ---------- */
+  const [papeletaId, setPapeletaId] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [reanudando, setReanudando] = useState(false);
+  // Refs para leer el estado más reciente dentro de callbacks con debounce
+  const revRef = useRef<RevisionObs[]>([]);
+  const papeletaIdRef = useRef<string | null>(null);
+  const saveTimers = useRef<Record<string, any>>({});
+  const receptorTimer = useRef<any>(null);
+  const reanudadoRef = useRef(false);
+  useEffect(() => { revRef.current = rev; }, [rev]);
+  useEffect(() => { papeletaIdRef.current = papeletaId; }, [papeletaId]);
+
   /* ---------- paleta ---------- */
   const bg = dark ? '#000000' : '#f0f4f8';
   const cardGrad = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
@@ -274,6 +296,12 @@ const PostVenta: React.FC = () => {
           try { localStorage.setItem('detalles_user_nombre', n); } catch {}
         }
       }
+      // ¿Venimos a reanudar un borrador desde DetalleDepto?
+      const pid = sessionStorage.getItem(RESUME_KEY);
+      if (pid && !reanudadoRef.current) {
+        reanudadoRef.current = true;
+        await hidratarBorrador(pid, (amb.data as Catalogo[]) ?? []);
+      }
     } catch (e) {
       console.error('Error cargando catálogos:', e);
     }
@@ -283,6 +311,12 @@ const PostVenta: React.FC = () => {
   const salir = () => history.goBack();
 
   const reiniciar = () => {
+    Object.values(saveTimers.current).forEach(clearTimeout);
+    saveTimers.current = {};
+    clearTimeout(receptorTimer.current);
+    reanudadoRef.current = false;
+    sessionStorage.removeItem(RESUME_KEY);
+    setPapeletaId(null); setSaveState('idle');
     setDatos(DATOS_VACIOS); setObs([]); setRev([]); setAbierta(null);
     setDesajuste(''); setDesajusteOk(false);
     setRecNombre(''); setRecRut('');
@@ -291,8 +325,11 @@ const PostVenta: React.FC = () => {
   };
 
   const usarDatosPropietario = () => {
-    setRecNombre(propietario.nombre);
-    setRecRut(formatRut(propietario.rut));
+    const n = propietario.nombre;
+    const r = formatRut(propietario.rut);
+    setRecNombre(n);
+    setRecRut(r);
+    guardarReceptorDebounced(n, r);
   };
 
   /* ---------- lectura del PDF ---------- */
@@ -330,18 +367,21 @@ const PostVenta: React.FC = () => {
       setDesajuste(errores.join(' · '));
       setDesajusteOk(false);
 
-      setDatos(d);
-      setObs(observaciones);
-      setRev(observaciones.map(o => ({
+      const revsIniciales: RevisionObs[] = observaciones.map(o => ({
         ambienteSel: sugerirAmbiente(o.ambiente, ambientes),
         ambienteLibre: '',
         observacion: '', partida: '', causa: '',
         estado: 'SOLUCIONADO' as const,
         fotoAntes: null, fotoDespues: null,
         origen: 'papeleta' as const,
-      })));
+      }));
+      setDatos(d);
+      setObs(observaciones);
+      setRev(revsIniciales);
       setAbierta(0);
       setPaso('revision');
+      // Crea el borrador en la BD → desde aquí todo se guarda solo.
+      crearBorrador(d, observaciones, revsIniciales, false);
     } catch (e: any) {
       setError(e?.message ?? 'No se pudo leer el PDF');
     }
@@ -364,90 +404,356 @@ const PostVenta: React.FC = () => {
   });
 
   const iniciarSinPapeleta = () => {
+    const o = [obsVacia(1)];
+    const r = [revVacia('adicional')];
     setSinPapeleta(true);
     setDatos(DATOS_VACIOS);
     setDesajuste(''); setDesajusteOk(false);
-    setObs([obsVacia(1)]);
-    setRev([revVacia('adicional')]);
+    setObs(o);
+    setRev(r);
     setAbierta(0);
     setError('');
     setPaso('revision');
+    crearBorrador(DATOS_VACIOS, o, r, true);
   };
 
-  const agregarObs = () => {
-    setObs(prev => [...prev, obsVacia(prev.length + 1)]);
-    setRev(prev => [...prev, revVacia('adicional')]);
-    setAbierta(obs.length);
+  const agregarObs = async () => {
+    const nObs = obsVacia(obs.length + 1);
+    const nRev = revVacia('adicional');
+    const idx = obs.length;
+    setObs(prev => [...prev, nObs]);
+    setRev(prev => [...prev, nRev]);
+    setAbierta(idx);
+    const id = await insertarFilaBorrador(nObs, nRev, idx);
+    if (id) setRev(prev => prev.map((r, i) => (i === idx ? { ...r, id } : r)));
   };
 
   // Con papeleta: separa un problema adicional dentro de la MISMA solicitud del
   // cliente. La nueva obs hereda la descripción del PDF de la obs padre para que
   // solicitud_cliente quede igual. Se inserta justo después de su padre.
-  const derivarObs = (idxPadre: number) => {
-    const padre = obs[idxPadre];
-    setObs(prev => {
-      const copia = [...prev];
-      copia.splice(idxPadre + 1, 0, { ...padre });
-      return copia;
-    });
-    setRev(prev => {
-      const copia = [...prev];
-      copia.splice(idxPadre + 1, 0, {
-        ...revVacia('derivada'),
-        ambienteSel: prev[idxPadre].ambienteSel,
-        ambienteLibre: prev[idxPadre].ambienteLibre,
-      });
-      return copia;
-    });
+  const derivarObs = async (idxPadre: number) => {
+    const nObs = { ...obs[idxPadre] };
+    const nRev: RevisionObs = {
+      ...revVacia('derivada'),
+      ambienteSel: rev[idxPadre].ambienteSel,
+      ambienteLibre: rev[idxPadre].ambienteLibre,
+    };
+    setObs(prev => { const c = [...prev]; c.splice(idxPadre + 1, 0, nObs); return c; });
+    setRev(prev => { const c = [...prev]; c.splice(idxPadre + 1, 0, nRev); return c; });
     setAbierta(idxPadre + 1);
+    const id = await insertarFilaBorrador(nObs, nRev, idxPadre + 1);
+    if (id) setRev(prev => prev.map((r, i) => (i === idxPadre + 1 ? { ...r, id } : r)));
   };
 
   // Con papeleta: agrega un trabajo NO registrado en la papeleta (se hizo en la
   // misma visita). No tiene solicitud del cliente → se guarda con null.
-  const agregarAdicional = () => {
-    setObs(prev => [...prev, obsVacia(prev.length + 1)]);
-    setRev(prev => [...prev, revVacia('adicional')]);
-    setAbierta(obs.length);
+  const agregarAdicional = async () => {
+    const nObs = obsVacia(obs.length + 1);
+    const nRev = revVacia('adicional');
+    const idx = obs.length;
+    setObs(prev => [...prev, nObs]);
+    setRev(prev => [...prev, nRev]);
+    setAbierta(idx);
+    const id = await insertarFilaBorrador(nObs, nRev, idx);
+    if (id) setRev(prev => prev.map((r, i) => (i === idx ? { ...r, id } : r)));
   };
 
-  const quitarObs = (idx: number) => {
+  const quitarObs = async (idx: number) => {
     if (obs.length <= 1) return; // siempre queda al menos una
+    const id = rev[idx]?.id;
     setObs(prev => prev.filter((_, i) => i !== idx));
     setRev(prev => prev.filter((_, i) => i !== idx));
     setAbierta(null);
+    if (id) {
+      clearTimeout(saveTimers.current[id]);
+      try { await supabase.from(T_BORRADOR).delete().eq('id', id); } catch {}
+    }
   };
 
   /* ---------- edición ---------- */
-  const setCampo = (idx: number, campo: keyof RevisionObs, valor: any) => {
+  // Cambio puro en memoria (sin tocar la BD).
+  const setCampoLocal = (idx: number, campo: keyof RevisionObs, valor: any) => {
     setRev(prev => prev.map((r, i) => (i === idx ? { ...r, [campo]: valor } : r)));
+  };
+  // Edición con guardado automático (debounce) del borrador.
+  const setCampo = (idx: number, campo: keyof RevisionObs, valor: any) => {
+    setCampoLocal(idx, campo, valor);
+    guardarFilaDebounced(idx);
   };
 
   const ambienteFinal = (r: RevisionObs) =>
     (r.ambienteSel === OTRO ? r.ambienteLibre : r.ambienteSel).trim();
 
+  /* ------------------------------------------------------------------ */
+  /*  Guardado automático del borrador (crear / actualizar / reanudar)   */
+  /* ------------------------------------------------------------------ */
+
+  const idxPorId = (id: string) => revRef.current.findIndex(r => r.id === id);
+
+  // Sube una foto al bucket y devuelve la URL pública. Si falla (sin conexión),
+  // el llamador guarda el data URL directo como respaldo.
+  const subirFotoBorrador = async (dataUrl: string): Promise<string> => {
+    const blob = await fetch(dataUrl).then(r => r.blob());
+    const nombre = `pv_${depto.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
+    const path = `postventa-borradores/${nombre}`;
+    const { error } = await supabase.storage
+      .from('fotos-registros')
+      .upload(path, new File([blob], nombre, { type: 'image/jpeg' }), { upsert: true });
+    if (error) throw error;
+    return supabase.storage.from('fotos-registros').getPublicUrl(path).data.publicUrl;
+  };
+
+  const urlADataUrl = async (u: string): Promise<string | undefined> => {
+    try {
+      if (u.startsWith('data:')) return u;
+      const blob = await fetch(u).then(r => r.blob());
+      return await blobToDataUrl(blob);
+    } catch { return undefined; }
+  };
+
+  // Guarda un solo campo del borrador (usado por fotos, inmediato).
+  const guardarCampoDB = async (id: string, campo: string, valor: any) => {
+    setSaveState('saving');
+    const { data, error } = await supabase.from(T_BORRADOR)
+      .update({ [campo]: valor, updated_at: new Date().toISOString() })
+      .eq('id', id).select('id').maybeSingle();
+    setSaveState(error || !data ? 'error' : 'saved');
+  };
+
+  // Guarda los campos editables de una fila del borrador (por id, robusto a reordenamientos).
+  const guardarFilaPorId = async (id: string) => {
+    const idx = idxPorId(id);
+    if (idx < 0) return;
+    const r = revRef.current[idx];
+    setSaveState('saving');
+    const { data, error } = await supabase.from(T_BORRADOR)
+      .update({
+        ambiente: ambienteFinal(r) || null,
+        observacion: r.observacion.trim() || null,
+        partida_afectada: r.partida || null,
+        causa: r.causa || null,
+        estado: r.estado,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id).select('id').maybeSingle();
+    setSaveState(error || !data ? 'error' : 'saved');
+  };
+
+  const guardarFilaDebounced = (idx: number) => {
+    const id = revRef.current[idx]?.id ?? rev[idx]?.id;
+    if (!id) return;
+    clearTimeout(saveTimers.current[id]);
+    saveTimers.current[id] = setTimeout(() => guardarFilaPorId(id), 700);
+  };
+
+  // Fuerza el guardado de todas las filas pendientes (antes de finalizar).
+  const flushGuardadoFilas = async () => {
+    Object.values(saveTimers.current).forEach(clearTimeout);
+    saveTimers.current = {};
+    await Promise.all(revRef.current.filter(r => r.id).map(r => guardarFilaPorId(r.id!)));
+  };
+
+  // Preview instantáneo + subida a Storage + guardado inmediato en el borrador.
+  // Sin conexión: guarda el data URL directo como respaldo (se sube al reintentar).
+  const setFotoYGuardar = async (idx: number, tipo: 'antes' | 'despues', dataUrl: string | null) => {
+    const campo = tipo === 'antes' ? 'fotoAntes' : 'fotoDespues';
+    const campoDB = tipo === 'antes' ? 'foto_antes' : 'foto_despues';
+    setCampoLocal(idx, campo, dataUrl);
+    const id = revRef.current[idx]?.id ?? rev[idx]?.id;
+    if (!id) return;
+    if (!dataUrl) { await guardarCampoDB(id, campoDB, null); return; }
+    setSaveState('saving');
+    let valor = dataUrl;
+    try {
+      valor = await subirFotoBorrador(dataUrl);
+      const i = idxPorId(id);
+      if (i >= 0) setCampoLocal(i, campo, valor); // reemplaza preview por URL de Storage
+    } catch {
+      /* sin conexión: se conserva el data URL como respaldo */
+    }
+    await guardarCampoDB(id, campoDB, valor);
+  };
+
+  // Crea el borrador (papeleta padre + una fila por observación) apenas se
+  // inicia la visita. Desde este momento, cada cambio se persiste solo.
+  const crearBorrador = async (
+    d: DatosSolicitud,
+    observaciones: ObservacionPdf[],
+    revs: RevisionObs[],
+    esSinPapeleta: boolean,
+  ) => {
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const user = sess?.session?.user;
+
+      const { data: pap, error: errPap } = await supabase.from(T_PAPELETA).insert({
+        proyecto_id: proyecto.id,
+        proyecto_codigo: proyectoCodigo || proyecto.codigo || null,
+        torre_codigo: torre.nombre,
+        depto_numero: depto.numero,
+        departamento_id: depto.id,
+        sin_papeleta: esSinPapeleta,
+        n_requerimiento: esSinPapeleta ? null : (d.requerimiento || null),
+        fecha_registro: d.fechaRegistro || null,
+        fecha_atencion: d.fechaAtencion || null,
+        hora_atencion: d.horaAtencion || null,
+        condominio: d.condominio || null,
+        estado: 'EN_PROGRESO',
+        usuario_id: user?.id ?? null,
+        usuario_email: (user?.email ?? '').toLowerCase() || null,
+        usuario_nombre: inspectorNombre || null,
+      }).select('id').maybeSingle();
+
+      if (errPap || !pap) { setSaveState('error'); return; }
+
+      const filas = revs.map((r, i) => ({
+        papeleta_id: pap.id,
+        orden: i,
+        origen: r.origen ?? 'papeleta',
+        solicitud_cliente: (esSinPapeleta || r.origen === 'adicional') ? null : (observaciones[i]?.descripcion ?? null),
+        solicitud_ambiente: observaciones[i]?.ambiente ?? null,
+        ambiente: ambienteFinal(r) || null,
+        observacion: r.observacion.trim() || null,
+        partida_afectada: r.partida || null,
+        causa: r.causa || null,
+        estado: r.estado,
+      }));
+
+      const { data: hijos, error: errHijos } = await supabase.from(T_BORRADOR)
+        .insert(filas).select('id, orden');
+
+      if (errHijos || !hijos) { setSaveState('error'); return; }
+
+      const idPorOrden = new Map<number, string>(hijos.map((h: any) => [h.orden, h.id]));
+      setRev(prev => prev.map((r, i) => ({ ...r, id: idPorOrden.get(i) })));
+      setPapeletaId(pap.id);
+      setSaveState('saved');
+    } catch {
+      setSaveState('error');
+    }
+  };
+
+  // Inserta una fila nueva en el borrador (obs derivada / adicional) y devuelve su id.
+  const insertarFilaBorrador = async (rObs: ObservacionPdf, r: RevisionObs, orden: number): Promise<string | null> => {
+    const pid = papeletaIdRef.current;
+    if (!pid) return null;
+    const { data, error } = await supabase.from(T_BORRADOR).insert({
+      papeleta_id: pid,
+      orden,
+      origen: r.origen ?? 'adicional',
+      solicitud_cliente: (sinPapeleta || r.origen === 'adicional') ? null : (rObs.descripcion ?? null),
+      solicitud_ambiente: rObs.ambiente ?? null,
+      ambiente: ambienteFinal(r) || null,
+      observacion: r.observacion.trim() || null,
+      partida_afectada: r.partida || null,
+      causa: r.causa || null,
+      estado: r.estado,
+    }).select('id').maybeSingle();
+    if (error || !data) { setSaveState('error'); return null; }
+    return data.id;
+  };
+
+  const guardarReceptorDebounced = (nombre: string, rut: string) => {
+    const pid = papeletaIdRef.current;
+    if (!pid) return;
+    clearTimeout(receptorTimer.current);
+    receptorTimer.current = setTimeout(async () => {
+      setSaveState('saving');
+      const { error } = await supabase.from(T_PAPELETA)
+        .update({ receptor_nombre: nombre.trim() || null, receptor_rut: rut.trim() || null, updated_at: new Date().toISOString() })
+        .eq('id', pid);
+      setSaveState(error ? 'error' : 'saved');
+    }, 700);
+  };
+
+  // Reconstruye ambienteSel / ambienteLibre a partir del ambiente guardado.
+  const reconstruirAmbiente = (guardado: string | null, catalogo: Catalogo[]) => {
+    const val = (guardado ?? '').trim();
+    if (!val) return { sel: '', libre: '' };
+    const match = catalogo.find(a => norm(a.nombre) === norm(val));
+    return match ? { sel: match.nombre, libre: '' } : { sel: OTRO, libre: val };
+  };
+
+  // Reanuda un borrador EN_PROGRESO: hidrata datos, obs, rev y receptor.
+  const hidratarBorrador = async (pid: string, catalogo: Catalogo[]) => {
+    setReanudando(true);
+    try {
+      const { data: pap } = await supabase.from(T_PAPELETA).select('*').eq('id', pid).maybeSingle();
+      if (!pap) { sessionStorage.removeItem(RESUME_KEY); setReanudando(false); return; }
+      // Una visita ya cerrada no se reabre para editar (evita reinsertar en BD).
+      if (pap.estado === 'COMPLETADA') { sessionStorage.removeItem(RESUME_KEY); setReanudando(false); return; }
+
+      const { data: hijos } = await supabase.from(T_BORRADOR)
+        .select('*').eq('papeleta_id', pid)
+        .order('orden', { ascending: true }).order('created_at', { ascending: true });
+      const filas = hijos ?? [];
+
+      setSinPapeleta(!!pap.sin_papeleta);
+      setDatos({
+        condominio: pap.condominio ?? '', depto: pap.depto_numero ?? '', torre: pap.torre_codigo ?? '',
+        requerimiento: pap.n_requerimiento ?? '', fechaRegistro: pap.fecha_registro ?? '',
+        fechaAtencion: pap.fecha_atencion ?? '', horaAtencion: pap.hora_atencion ?? '',
+      });
+      setRecNombre(pap.receptor_nombre ?? '');
+      setRecRut(pap.receptor_rut ?? '');
+      setPapeletaId(pid);
+
+      setObs(filas.map((h: any, i: number) => ({
+        numero: String(i + 1),
+        ambiente: h.solicitud_ambiente ?? '',
+        descripcion: h.solicitud_cliente ?? '',
+      } as ObservacionPdf)));
+
+      setRev(filas.map((h: any) => {
+        const a = reconstruirAmbiente(h.ambiente, catalogo);
+        return {
+          id: h.id,
+          ambienteSel: a.sel, ambienteLibre: a.libre,
+          observacion: h.observacion ?? '',
+          partida: h.partida_afectada ?? '',
+          causa: h.causa ?? '',
+          estado: (h.estado ?? 'SOLUCIONADO') as RevisionObs['estado'],
+          fotoAntes: h.foto_antes ?? null,
+          fotoDespues: h.foto_despues ?? null,
+          origen: (h.origen ?? 'papeleta') as RevisionObs['origen'],
+        } as RevisionObs;
+      }));
+
+      setAbierta(0);
+      setPaso('revision');
+      setSaveState('saved');
+    } catch {
+      setSaveState('error');
+    }
+    sessionStorage.removeItem(RESUME_KEY);
+    setReanudando(false);
+  };
+
   const seleccionarFoto = async (idx: number, tipo: 'antes' | 'despues', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const campo = tipo === 'antes' ? 'fotoAntes' : 'fotoDespues';
+    let dataUrl: string;
     try {
-      setCampo(idx, campo, await blobToDataUrl(await comprimirImagen(file)));
+      dataUrl = await blobToDataUrl(await comprimirImagen(file));
     } catch {
-      setCampo(idx, campo, await blobToDataUrl(file));
+      dataUrl = await blobToDataUrl(file);
     }
+    await setFotoYGuardar(idx, tipo, dataUrl);
   };
 
   const confirmarAnotacion = async (blob: Blob) => {
     if (!anotando) return;
     const { idx, tipo } = anotando;
     setAnotando(null);
-    const campo = tipo === 'antes' ? 'fotoAntes' : 'fotoDespues';
+    let dataUrl: string;
     try {
       const f = new File([blob], 'foto.jpg', { type: 'image/jpeg' });
-      setCampo(idx, campo, await blobToDataUrl(await comprimirImagen(f)));
+      dataUrl = await blobToDataUrl(await comprimirImagen(f));
     } catch {
-      setCampo(idx, campo, await blobToDataUrl(blob));
+      dataUrl = await blobToDataUrl(blob);
     }
+    await setFotoYGuardar(idx, tipo, dataUrl);
   };
 
   // Una observación queda lista con ambiente + comentario del inspector.
@@ -542,6 +848,9 @@ const PostVenta: React.FC = () => {
 
     setGuardando(true); setError('');
     try {
+      // Asegura que lo último tecleado quede persistido antes de cerrar.
+      await flushGuardadoFilas();
+
       const { data: sess } = await supabase.auth.getSession();
       const user = sess?.session?.user;
       if (!user?.id) throw new Error('No se pudo identificar el usuario');
@@ -607,6 +916,11 @@ const PostVenta: React.FC = () => {
       const { error: insErr } = await supabase.from('observacionesinformepv').insert(filas);
       if (insErr) throw new Error(insErr.message);
 
+      // Las fotos pueden estar como URL de Storage (visita reanudada) o como
+      // data URL (recién tomadas). jsPDF necesita base64, así que convertimos.
+      const fotosAntes = await Promise.all(rev.map(r => (r.fotoAntes ? urlADataUrl(r.fotoAntes) : Promise.resolve(undefined))));
+      const fotosDespues = await Promise.all(rev.map(r => (r.fotoDespues ? urlADataUrl(r.fotoDespues) : Promise.resolve(undefined))));
+
       const pdfBlob = await generatePdfPostventa({
         proyecto: proyecto.nombre || datos.condominio,
         torre: torre.nombre,
@@ -625,8 +939,8 @@ const PostVenta: React.FC = () => {
           partida: rev[i].partida || undefined,
           causa: rev[i].causa || undefined,
           estado: rev[i].estado,
-          fotoAntes: rev[i].fotoAntes ?? undefined,
-          fotoDespues: rev[i].fotoDespues ?? undefined,
+          fotoAntes: fotosAntes[i],
+          fotoDespues: fotosDespues[i],
         })),
         firmaDataUrl: firmaDataUrl,
         fecha: fechaVisita,
@@ -634,6 +948,20 @@ const PostVenta: React.FC = () => {
 
       const fileName = `PostVenta_${torre.nombre}_${depto.numero}_${datos.requerimiento || Date.now()}.pdf`;
       await guardarPdfBlob(pdfBlob, fileName, `Post venta · Torre ${torre.nombre} · Depto ${depto.numero}`);
+
+      // Cierra el borrador: la visita queda COMPLETADA y deja de aparecer como
+      // "en progreso" en DetalleDepto. Los datos definitivos ya están en
+      // observacionesinformepv (INSERT de arriba).
+      if (papeletaId) {
+        await supabase.from(T_PAPELETA).update({
+          estado: 'COMPLETADA',
+          fecha_completada: new Date().toISOString(),
+          receptor_nombre: recNombre.trim() || null,
+          receptor_rut: recRut.trim() || null,
+          receptor_firma_url: firmaUrl,
+          updated_at: new Date().toISOString(),
+        }).eq('id', papeletaId);
+      }
 
       setListo(true);
       setTimeout(() => { setListo(false); reiniciar(); }, 2000);
@@ -698,7 +1026,6 @@ const PostVenta: React.FC = () => {
 
   const fotoSlot = (idx: number, tipo: 'antes' | 'despues') => {
     const src = tipo === 'antes' ? rev[idx].fotoAntes : rev[idx].fotoDespues;
-    const campo = tipo === 'antes' ? 'fotoAntes' : 'fotoDespues';
     return (
       <div style={{ flex: 1 }}>
         <label style={labelStyle}>{tipo === 'antes' ? 'antes' : 'después'}</label>
@@ -707,7 +1034,7 @@ const PostVenta: React.FC = () => {
             <img src={src} style={{ width: '100%', borderRadius: 12, maxHeight: 160, objectFit: 'cover', display: 'block' }} />
             <button onClick={() => setAnotando({ idx, tipo, src })}
               style={{ position: 'absolute', top: 6, right: 40, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 13, cursor: 'pointer' }}>✏️</button>
-            <button onClick={() => setCampo(idx, campo, null)}
+            <button onClick={() => setFotoYGuardar(idx, tipo, null)}
               style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 15, cursor: 'pointer' }}>×</button>
           </div>
         ) : (
@@ -781,7 +1108,13 @@ const PostVenta: React.FC = () => {
           <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>
             POST VENTA · TORRE {torre?.nombre} · {depto?.numero}
           </IonTitle>
-          <div slot="end" style={{ paddingRight: 14 }}>
+          <div slot="end" style={{ paddingRight: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {(paso === 'revision' || paso === 'firma') && saveState !== 'idle' && (
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+                color: saveState === 'error' ? '#fca5a5' : 'rgba(255,255,255,0.72)' }}>
+                {saveState === 'saving' ? 'Guardando…' : saveState === 'saved' ? 'Guardado ✓' : 'Sin guardar'}
+              </span>
+            )}
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
           </div>
         </IonToolbar>
@@ -793,7 +1126,12 @@ const PostVenta: React.FC = () => {
           {/* ============ PASO 1 · CARGA ============ */}
           {paso === 'carga' && (
             loading ? (
-              <div style={{ textAlign: 'center', marginTop: 80 }}><IonSpinner name="crescent" /></div>
+              <div style={{ textAlign: 'center', marginTop: 80 }}>
+                <IonSpinner name="crescent" />
+                {reanudando && (
+                  <div style={{ fontSize: 12, color: textMuted, marginTop: 12 }}>Reanudando visita…</div>
+                )}
+              </div>
             ) : (
               <>
                 {tarjetaDepto}
@@ -868,6 +1206,18 @@ const PostVenta: React.FC = () => {
                   {metaChip('horario', datos.horaAtencion)}
                 </div>
               )}
+
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: dark ? 'rgba(74,222,128,0.05)' : '#f0fdf4',
+                border: `0.5px solid ${dark ? 'rgba(74,222,128,0.15)' : '#bbf7d0'}`,
+                borderRadius: 10, padding: '8px 12px', marginBottom: 16,
+                fontSize: 11, color: dark ? '#4ade80' : '#15803d', lineHeight: 1.4,
+              }}>
+                <span style={{ fontSize: 14 }}>💾</span>
+                Esta visita se guarda sola. Puedes cerrar la app y retomarla más
+                tarde desde el detalle del departamento.
+              </div>
 
               <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>
                 {sinPapeleta ? 'Observaciones' : 'Requerimientos del cliente'}
@@ -1039,10 +1389,12 @@ const PostVenta: React.FC = () => {
                 )}
 
                 <label style={labelStyle}>nombre *</label>
-                <input value={recNombre} onChange={e => setRecNombre(e.target.value.toUpperCase())}
+                <input value={recNombre}
+                  onChange={e => { const v = e.target.value.toUpperCase(); setRecNombre(v); guardarReceptorDebounced(v, recRut); }}
                   placeholder="EJ: JUAN PEDRO PEREZ" style={inputStyle} />
                 <label style={labelStyle}>RUT *</label>
-                <input value={recRut} onChange={e => setRecRut(formatRut(e.target.value))}
+                <input value={recRut}
+                  onChange={e => { const v = formatRut(e.target.value); setRecRut(v); guardarReceptorDebounced(recNombre, v); }}
                   inputMode="text" maxLength={12} placeholder="Ej: 12.345.678-9" style={inputStyle} />
               </div>
 

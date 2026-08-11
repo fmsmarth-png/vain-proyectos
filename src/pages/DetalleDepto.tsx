@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
+import VisitasPostVenta from '../components/VisitasPostVenta';
 import {
   Building2, CheckCircle2, FileText, Check, Eye, ClipboardList, Info, MoreVertical, Home, User, Phone, Calendar, Edit
 } from 'lucide-react';
@@ -648,29 +649,13 @@ const DetalleDepto: React.FC = () => {
               <span style={{ fontSize: 18 }}>›</span>
             </button>
 
-            <button
-              onClick={() => history.push(`/post-venta/${depto.id}`, { depto, torre, proyecto })}
-              style={{
-                width: '100%', height: 56, borderRadius: 12,
-                background: card, border: `0.5px solid ${border}`,
-                color: dark ? '#4ade80' : '#15803d',
-                fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 10,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 16, paddingRight: 16
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <ClipboardList size={20} strokeWidth={1.5} />
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>Post Venta</div>
-                  <div style={{ fontSize: 10, color: textMuted }}>
-                    {obsPostVenta > 0
-                      ? `Cargar papeleta · ${obsPostVenta} obs registradas`
-                      : 'Cargar papeleta del cliente'}
-                  </div>
-                </div>
-              </div>
-              <span style={{ fontSize: 18 }}>›</span>
-            </button>
+            <VisitasPostVenta
+              proyecto={proyecto}
+              torre={torre}
+              depto={depto}
+              dark={dark}
+              obsCount={obsPostVenta}
+            />
 
             <button
               onClick={() => {

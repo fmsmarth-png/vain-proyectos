@@ -49,6 +49,27 @@ const TEXT_SEC = '#a9adb3';
 const TEXT_MUTED = '#75797f';
 const ACCENT = '#4c86e6';
 
+// Formatear fecha/hora en zona horaria de Chile Continental (CLT)
+const formatFechaChile = (fecha: string) => {
+  return new Date(fecha).toLocaleString('es-CL', {
+    timeZone: 'America/Santiago',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const formatFechaChileCorta = (fecha: string) => {
+  return new Date(fecha).toLocaleDateString('es-CL', {
+    timeZone: 'America/Santiago',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
 const AdminNotificaciones: React.FC = () => {
   const { notificaciones, cargando } = useNotificacionesAdmin();
   const [form, setForm] = useState<FormNotificacion>(FORM_INICIAL);
@@ -299,9 +320,7 @@ const AdminNotificaciones: React.FC = () => {
                               {notif.visto_en && (
                                 <span style={{ color: TEXT_MUTED, fontWeight: 400 }}>
                                   {' · '}
-                                  {new Date(notif.visto_en).toLocaleString('es-CL', {
-                                    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-                                  })}
+                                  {formatFechaChile(notif.visto_en)}
                                 </span>
                               )}
                             </span>
@@ -346,7 +365,7 @@ const AdminNotificaciones: React.FC = () => {
 
                       {/* Fecha creación */}
                       <div style={{ fontSize: 10, color: '#4a4d52', marginTop: 10, textAlign: 'right' }}>
-                        Creada {new Date(notif.creado_en).toLocaleDateString('es-CL')}
+                        Creada {formatFechaChileCorta(notif.creado_en)}
                       </div>
                     </div>
                   </div>
