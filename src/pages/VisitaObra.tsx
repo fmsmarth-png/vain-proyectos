@@ -191,7 +191,22 @@ const VisitaObra: React.FC = () => {
   const [obsTorre, setObsTorre]                 = useState('');
   const [obsDepto, setObsDepto]                 = useState('');
   const [actividadReal, setActividadReal]       = useState('');
-  const [pantalla, setPantalla]                 = useState<'inicio'|'torres'|'torre'|'depto'>('inicio');
+  const [pantalla, setPantalla]                 = useState<'inicio'|'torres'|'torre'|'depto'|'historial'|'detalleVisita'>('inicio');
+  // ── Reanudación / historial ────────────────────────────────────────────────
+  const [visitaActivaPendiente, setVisitaActivaPendiente] = useState<any>(null); // visita 'activa' a retomar (detectada al abrir)
+  const [visitasHistorial, setVisitasHistorial]           = useState<any[]>([]);
+  const [cargandoHistorial, setCargandoHistorial]         = useState(false);
+  const [detalleVisita, setDetalleVisita]                 = useState<any>(null);  // visita seleccionada en el historial
+  const [obsDetalle, setObsDetalle]                       = useState<any[]>([]);
+  const [cargandoDetalle, setCargandoDetalle]             = useState(false);
+  const [fotoAmpliadaDetalle, setFotoAmpliadaDetalle]     = useState<string | null>(null);
+  const [editandoObsId, setEditandoObsId]                 = useState<string | null>(null);
+  const [editObs, setEditObs]                             = useState<{ observacion: string; actividad_real: string; desfase_dias: string }>({ observacion: '', actividad_real: '', desfase_dias: '' });
+  const [guardandoObs, setGuardandoObs]                   = useState(false);
+  const [errorEdit, setErrorEdit]                         = useState('');
+  const [generandoDocId, setGenerandoDocId]               = useState<string | null>(null);
+  const [mensajeDoc, setMensajeDoc]                       = useState<'ok'|'error'|''>('');
+  const [historialTitulo, setHistorialTitulo]             = useState<string>('');
   const [showAlertTerminar, setShowAlertTerminar] = useState(false);
   const [generandoPDF, setGenerandoPDF]         = useState(false);
   const [showActividadSheet, setShowActividadSheet] = useState(false);
@@ -224,6 +239,22 @@ const VisitaObra: React.FC = () => {
     }
     setProyectos(proy);
     await cargarActividades();
+
+    // ── Reanudación: ¿este usuario dejó una visita 'activa' sin terminar? ──
+    // (esto es lo que evita perder la visita al cerrar la app)
+    const { data: activa } = await supabase
+      .from('visitas_obra')
+      .select('*')
+      .eq('creado_por', user.id)
+      .eq('estado', 'activa')
+      .order('iniciada_en', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (activa) {
+      const { data: proyActiva } = await supabase
+        .from('proyectos').select('*').eq('id', activa.proyecto_id).maybeSingle();
+      setVisitaActivaPendiente({ ...activa, _proyecto: proyActiva });
+    }
   };
 
   const cargarActividades = async () => {
@@ -243,6 +274,149 @@ const VisitaObra: React.FC = () => {
     setTorres(t || []);
     setLoading(false);
     setPantalla('inicio');
+  };
+
+  // ── Retomar una visita 'activa' (reconstruye estado + motor sin re-tipear) ──
+  const retomarVisita = async (v: any) => {
+    setLoading(true);
+    const proy = v._proyecto
+      ?? (await supabase.from('proyectos').select('*').eq('id', v.proyecto_id).maybeSingle()).data;
+    setProyectoSel(proy);
+    setLineaSel(proy?.linea ?? '');
+    setVisita(v);
+    const { data: t } = await supabase.from('torres').select('*').eq('proyecto_id', v.proyecto_id).order('nombre');
+    setTorres(t || []);
+    // Recalcular el motor desde el frente guardado en BD (no se vuelve a tipear)
+    if (v.frente_moldaje && actividades.length > 0) {
+      const f = normalizarFrente(v.frente_moldaje);
+      setFrenteMoldaje(f);
+      setResultadoCalculo(calcularPosiciones(f, actividades));
+    }
+    setVisitaActivaPendiente(null);
+    setLoading(false);
+    setPantalla('inicio');
+  };
+
+  // ── Carga el historial para una lista de proyectos (1 = proyecto, varios = línea) ──
+  const cargarHistorial = async (proyectoIds: string[], titulo: string) => {
+    setHistorialTitulo(titulo);
+    setVisitasHistorial([]);
+    setCargandoHistorial(true);
+    setPantalla('historial');
+    if (proyectoIds.length === 0) { setCargandoHistorial(false); return; }
+    let q = supabase.from('v_visitas_obra').select('*');
+    q = proyectoIds.length === 1 ? q.eq('proyecto_id', proyectoIds[0]) : q.in('proyecto_id', proyectoIds);
+    const { data } = await q.order('iniciada_en', { ascending: false });
+    setVisitasHistorial(data || []);
+    setCargandoHistorial(false);
+  };
+
+  // ── Historial de un proyecto puntual ──
+  const abrirHistorial = (proy: any) => {
+    if (!proy) return;
+    setProyectoSel(proy);
+    cargarHistorial([proy.id], proy.nombre);
+  };
+
+  // ── Historial de TODA una línea (todas las obras de esa línea) ──
+  const abrirHistorialLinea = (linea: string) => {
+    const ids = proyectos.filter(p => p.linea === linea).map(p => p.id);
+    const label = lineaConfig[linea]?.label ?? linea;
+    cargarHistorial(ids, `Línea ${label}`);
+  };
+
+  // ── Ver obs + fotos de una visita del historial ──
+  const verDetalleVisita = async (v: any) => {
+    // En modo línea, aseguramos que proyectoSel sea el proyecto de ESTA visita
+    // (lo usa el encabezado y la generación del documento).
+    const proy = proyectos.find(p => p.id === v.proyecto_id)
+      ?? (await supabase.from('proyectos').select('*').eq('id', v.proyecto_id).maybeSingle()).data;
+    if (proy) setProyectoSel(proy);
+    setDetalleVisita(v);
+    setObsDetalle([]);
+    setMensajeDoc('');
+    setCargandoDetalle(true);
+    setPantalla('detalleVisita');
+    const { data } = await supabase
+      .from('visita_observaciones')
+      .select('*, torres ( nombre ), departamentos ( numero, id_obra, piso )')
+      .eq('visita_id', v.id)
+      .order('creado_en');
+    setObsDetalle(data || []);
+    setCargandoDetalle(false);
+  };
+
+  // ── Edición de observaciones desde el detalle (visitas antiguas) ──
+  const iniciarEdicionObs = (o: any) => {
+    setEditandoObsId(o.id);
+    setErrorEdit('');
+    setEditObs({
+      observacion: o.observacion ?? '',
+      actividad_real: o.actividad_real ?? '',
+      desfase_dias: (o.desfase_dias === null || o.desfase_dias === undefined) ? '' : String(o.desfase_dias),
+    });
+  };
+
+  const cancelarEdicionObs = () => { setEditandoObsId(null); setErrorEdit(''); };
+
+  const guardarEdicionObs = async (o: any) => {
+    setGuardandoObs(true);
+    setErrorEdit('');
+
+    const updateData: any = { observacion: editObs.observacion.trim() };
+    if (o.nivel === 'departamento') {
+      updateData.actividad_real = editObs.actividad_real.trim() || null;
+      const d = editObs.desfase_dias.trim();
+      const n = parseInt(d, 10);
+      updateData.desfase_dias = d === '' || isNaN(n) ? null : n;
+    }
+
+    // 1) Validar que la fila existe
+    const { data: existe, error: eEx } = await supabase
+      .from('visita_observaciones').select('id').eq('id', o.id).maybeSingle();
+    if (eEx || !existe) {
+      setErrorEdit('No se encontró la observación.');
+      setGuardandoObs(false);
+      return;
+    }
+
+    // 2) UPDATE (no silenciar errores)
+    const { error: eUpd } = await supabase
+      .from('visita_observaciones').update(updateData).eq('id', o.id);
+    if (eUpd) {
+      setErrorEdit('Error al guardar: ' + eUpd.message);
+      setGuardandoObs(false);
+      return;
+    }
+
+    // 3) Confirmar que realmente cambió (detecta RLS que bloquea en silencio)
+    const { data: after } = await supabase
+      .from('visita_observaciones').select('observacion').eq('id', o.id).maybeSingle();
+    if (!after || (after.observacion ?? '') !== updateData.observacion) {
+      setErrorEdit('No se pudo guardar. Puede faltar permiso de edición (política RLS de UPDATE).');
+      setGuardandoObs(false);
+      return;
+    }
+
+    // 4) Reflejar en el estado local
+    setObsDetalle(prev => prev.map(x => x.id === o.id ? { ...x, ...updateData } : x));
+    setEditandoObsId(null);
+    setGuardandoObs(false);
+  };
+
+  // ── Generar (o regenerar) el documento de cualquier visita — reintentable ──
+  const generarDocVisita = async (v: any) => {
+    setGenerandoDocId(v.id);
+    setMensajeDoc('');
+    try {
+      const nombre = proyectoSel?.nombre ?? v._proyecto?.nombre ?? 'Proyecto';
+      await generarDOCVisita(v.id, nombre, v.frente_moldaje || undefined);
+      setMensajeDoc('ok');
+    } catch (e) {
+      console.error('[VisitaObra] Error generando documento:', e);
+      setMensajeDoc('error');
+    }
+    setGenerandoDocId(null);
   };
 
   const guardarObs = async (nivel: string, extra: any = {}) => {
@@ -270,12 +444,23 @@ const VisitaObra: React.FC = () => {
     setShowAlertTerminar(false);
     setGenerandoPDF(true);
     await supabase.from('visitas_obra').update({ estado: 'terminada', terminada_en: new Date().toISOString() }).eq('id', visita.id);
+    let docOk = true;
     try {
       await generarDOCVisita(visita.id, proyectoSel?.nombre ?? 'Proyecto', resultadoCalculo ? frenteMoldaje : undefined);
-    } catch (e) { console.error('Error generando PDF:', e); }
+    } catch (e) {
+      docOk = false;
+      console.error('[VisitaObra] Error generando documento:', e);
+    }
     setGenerandoPDF(false);
-    setVisita(null); setPantalla('inicio'); setProyectoSel(null);
+    // La visita YA quedó guardada (obs + fotos + estado='terminada'). Si el documento
+    // falló, NO se pierde nada: queda en "Ver visitas anteriores" y se regenera desde ahí.
+    setVisita(null); setProyectoSel(null); setLineaSel('');
     setTorreSel(null); setDeptoSel(null); setFrenteMoldaje(''); setResultadoCalculo(null);
+    setVisitaActivaPendiente(null);
+    setPantalla('inicio');
+    if (!docOk) {
+      alert('La visita se guardó correctamente, pero el documento no se pudo generar.\n\nPuedes generarlo cuando quieras desde:\nProyecto → "Ver visitas anteriores" → esa visita → "Generar documento".');
+    }
   };
 
   const cuadrillasEnTorre = () => {
@@ -414,6 +599,24 @@ const VisitaObra: React.FC = () => {
 
           {!visita ? (
             <>
+              {/* Tarjeta de reanudación — visita 'activa' sin terminar */}
+              {visitaActivaPendiente && (
+                <div style={{ background: dark ? 'linear-gradient(135deg, #2a1e05, #3d2c08)' : 'linear-gradient(135deg, #fffbeb, #fef3c7)', border: `0.5px solid ${dark ? 'rgba(245,158,11,0.4)' : '#fcd34d'}`, borderRadius: 16, padding: 16, marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
+                    <div style={{ fontSize: 9, fontWeight: 700, color: dark ? '#fbbf24' : '#b45309', textTransform: 'uppercase', letterSpacing: '1.5px' }}>Visita sin terminar</div>
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: textPrimary, marginBottom: 2 }}>{visitaActivaPendiente._proyecto?.nombre ?? 'Proyecto'}</div>
+                  <div style={{ fontSize: 12, color: textSecondary, marginBottom: 12 }}>
+                    Iniciada {visitaActivaPendiente.iniciada_en ? new Date(visitaActivaPendiente.iniciada_en).toLocaleString('es-CL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                    {visitaActivaPendiente.frente_moldaje ? ` · Moldaje ${visitaActivaPendiente.frente_moldaje}` : ''}
+                  </div>
+                  <button onClick={() => retomarVisita(visitaActivaPendiente)} disabled={loading} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #d97706, #f59e0b)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: loading ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    {loading ? <IonSpinner name="crescent" style={{ color: '#fff' }} /> : '▸ Continuar esta visita'}
+                  </button>
+                </div>
+              )}
+
               {/* Selector de línea */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ ...labelStyle, marginBottom: 10 }}>Línea de producción</div>
@@ -430,6 +633,13 @@ const VisitaObra: React.FC = () => {
                   })}
                 </div>
               </div>
+
+              {/* Ver todas las visitas de la línea seleccionada */}
+              {lineaSel && (
+                <button onClick={() => abrirHistorialLinea(lineaSel)} style={{ width: '100%', height: 44, borderRadius: 12, marginBottom: 12, background: `${lineaConfig[lineaSel]?.color ?? '#1e3a5f'}14`, border: `0.5px solid ${lineaConfig[lineaSel]?.color ?? '#1e3a5f'}`, color: lineaConfig[lineaSel]?.color ?? textSecondary, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  🗂️ Ver visitas de línea {lineaConfig[lineaSel]?.label ?? lineaSel}
+                </button>
+              )}
 
               {/* Selector de proyecto */}
               {lineaSel && (
@@ -454,6 +664,13 @@ const VisitaObra: React.FC = () => {
               >
                 {loading ? <IonSpinner name="crescent" style={{ color: '#fff' }} /> : '+ Iniciar visita'}
               </button>
+
+              {/* Acceso al historial del proyecto seleccionado */}
+              {proyectoSel && (
+                <button onClick={() => abrirHistorial(proyectoSel)} style={{ width: '100%', height: 44, borderRadius: 12, marginTop: 10, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 13, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  🗂️ Ver visitas anteriores de {proyectoSel.nombre}
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -481,6 +698,203 @@ const VisitaObra: React.FC = () => {
       </IonContent>
     </IonPage>
   );
+
+  // ─── PANTALLA: HISTORIAL DE VISITAS ───────────────────────────────────────
+  if (pantalla === 'historial') return (
+    <IonPage>
+      <IonHeader>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
+          <button slot="start" onClick={() => setPantalla('inicio')} style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
+          <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>Visitas · {historialTitulo}</IonTitle>
+        </IonToolbar>
+      </IonHeader>
+      <IonContent style={{ '--background': bg }}>
+        <div style={{ padding: '16px 16px 100px' }}>
+          {cargandoHistorial ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><IonSpinner name="crescent" style={{ color: '#1e3a5f' }} /></div>
+          ) : visitasHistorial.length === 0 ? (
+            <div style={{ textAlign: 'center', color: textMuted, fontSize: 14, padding: 40 }}>Este proyecto aún no tiene visitas registradas.</div>
+          ) : (
+            visitasHistorial.map(v => {
+              const activa = v.estado === 'activa';
+              return (
+                <div key={v.id} onClick={() => verDetalleVisita(v)} style={{ background: cardGrad, borderRadius: 14, border: `0.5px solid ${activa ? (dark ? 'rgba(245,158,11,0.4)' : '#fcd34d') : border}`, padding: '14px 16px', marginBottom: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {proyectos.find(p => p.id === v.proyecto_id)?.nombre ?? 'Proyecto'}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', padding: '2px 7px', borderRadius: 6, background: activa ? (dark ? 'rgba(245,158,11,0.15)' : '#fef3c7') : (dark ? 'rgba(34,197,94,0.12)' : '#dcfce7'), color: activa ? (dark ? '#fbbf24' : '#b45309') : (dark ? '#4ade80' : '#16a34a') }}>{activa ? 'Sin terminar' : 'Terminada'}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: textSecondary }}>
+                        {v.iniciada_en ? new Date(v.iniciada_en).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: textSecondary }}>
+                      {v.obs_total ?? 0} obs · {v.fotos_total ?? 0} foto{(v.fotos_total ?? 0) === 1 ? '' : 's'}
+                      {v.frente_moldaje ? ` · Moldaje ${v.frente_moldaje}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 20, color: dark ? '#2a2a2a' : '#bfdbfe' }}>›</div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </IonContent>
+    </IonPage>
+  );
+
+  // ─── PANTALLA: DETALLE DE VISITA (obs + fotos + regenerar doc) ─────────────
+  if (pantalla === 'detalleVisita') {
+    const v = detalleVisita;
+    const activa = v?.estado === 'activa';
+    const generalesD = obsDetalle.filter(o => o.nivel === 'proyecto' || o.nivel === 'torre');
+    const deptoObsD  = obsDetalle.filter(o => o.nivel === 'departamento');
+    const generando  = generandoDocId === v?.id;
+
+    const labelMini: React.CSSProperties = { fontSize: 9, fontWeight: 700, color: dark ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 };
+    const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: 9, border: `0.5px solid ${border}`, background: dark ? '#1a1a1a' : '#fff', color: textPrimary, fontSize: 14, outline: 'none' };
+    const desfaseTxt = (dias: any): string => {
+      if (dias === null || dias === undefined) return '';
+      if (dias === 0) return 'En programa';
+      if (dias < 0) return `Atraso ${Math.abs(dias)} día${Math.abs(dias) > 1 ? 's' : ''}`;
+      return `Adelanto ${dias} día${dias > 1 ? 's' : ''}`;
+    };
+
+    // Función (no componente) para preservar el foco del textarea al editar
+    const renderObs = (o: any) => {
+      const editando = editandoObsId === o.id;
+      const nivelLabel = o.nivel === 'proyecto' ? 'Proyecto'
+        : o.nivel === 'torre' ? `Torre ${o.torres?.nombre ?? ''}`
+        : `Depto ${o.departamentos?.numero ?? o.departamentos?.id_obra ?? ''}`;
+
+      return (
+        <div key={o.id} style={{ background: cardGrad, borderRadius: 14, border: `0.5px solid ${editando ? (dark ? '#2563eb' : '#93c5fd') : border}`, padding: 14, marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: dark ? '#4a7ab5' : '#1e3a5f', textTransform: 'uppercase', letterSpacing: '1px' }}>{nivelLabel}</div>
+            {!editando && (
+              <button onClick={() => iniciarEdicionObs(o)} style={{ background: 'transparent', border: 'none', color: dark ? '#4a7ab5' : '#2563eb', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '2px 6px' }}>✎ Editar</button>
+            )}
+          </div>
+
+          {editando ? (
+            <div>
+              {o.nivel === 'departamento' && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  <div style={{ flex: 2 }}>
+                    <div style={labelMini}>Actividad real</div>
+                    <input value={editObs.actividad_real} onChange={e => setEditObs(s => ({ ...s, actividad_real: e.target.value }))} style={inputStyle} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={labelMini}>Desfase (días)</div>
+                    <input type="number" inputMode="numeric" value={editObs.desfase_dias} onChange={e => setEditObs(s => ({ ...s, desfase_dias: e.target.value }))} placeholder="0" style={inputStyle} />
+                  </div>
+                </div>
+              )}
+              <div style={labelMini}>Observación</div>
+              <textarea value={editObs.observacion} onChange={e => setEditObs(s => ({ ...s, observacion: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'vertical', minHeight: 74, lineHeight: 1.4 }} />
+              {o.nivel === 'departamento' && (
+                <div style={{ fontSize: 11, color: textMuted, marginTop: 6 }}>
+                  {editObs.desfase_dias.trim() === '' ? 'Sin estado de programa' : desfaseTxt(parseInt(editObs.desfase_dias, 10))}
+                </div>
+              )}
+              {errorEdit && <div style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{errorEdit}</div>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button onClick={() => guardarEdicionObs(o)} disabled={guardandoObs} style={{ flex: 1, height: 42, borderRadius: 10, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: guardandoObs ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  {guardandoObs ? <IonSpinner name="crescent" style={{ width: 16, height: 16, color: '#fff' }} /> : 'Guardar cambios'}
+                </button>
+                <button onClick={cancelarEdicionObs} disabled={guardandoObs} style={{ flex: 1, height: 42, borderRadius: 10, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 13, fontWeight: 600, cursor: guardandoObs ? 'default' : 'pointer' }}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {o.nivel === 'departamento' && (o.actividad_real || (o.desfase_dias !== null && o.desfase_dias !== undefined)) && (
+                <div style={{ fontSize: 12, color: textSecondary, marginBottom: o.observacion ? 8 : 0 }}>
+                  {o.actividad_real || ''}{o.actividad_real && desfaseTxt(o.desfase_dias) ? ' · ' : ''}{desfaseTxt(o.desfase_dias)}
+                </div>
+              )}
+              {o.observacion && <div style={{ fontSize: 14, color: textPrimary, marginBottom: (o.fotos_urls?.length ? 10 : 0) }}>{o.observacion}</div>}
+              {Array.isArray(o.fotos_urls) && o.fotos_urls.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none' }}>
+                  {o.fotos_urls.map((url: string, i: number) => (
+                    <img key={i} src={url} alt={`Foto ${i + 1}`} onClick={() => setFotoAmpliadaDetalle(url)} style={{ width: 76, height: 76, borderRadius: 10, objectFit: 'cover', flexShrink: 0, border: `0.5px solid ${border}`, cursor: 'pointer' }} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <IonPage>
+        <IonHeader>
+          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
+            <button slot="start" onClick={() => setPantalla('historial')} style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
+            <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>Detalle de visita</IonTitle>
+          </IonToolbar>
+        </IonHeader>
+        <IonContent style={{ '--background': bg }}>
+          <div style={{ padding: '16px 16px 100px' }}>
+            {/* Encabezado */}
+            <div style={{ background: cardGrad, borderRadius: 16, border: `0.5px solid ${border}`, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>{proyectoSel?.nombre}</div>
+              <div style={{ fontSize: 12, color: textSecondary }}>
+                {v?.iniciada_en ? new Date(v.iniciada_en).toLocaleString('es-CL', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                {v?.frente_moldaje ? ` · Moldaje ${v.frente_moldaje}` : ''}
+              </div>
+            </div>
+
+            {/* Acciones */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {activa && (
+                <button onClick={() => retomarVisita(v)} disabled={loading} style={{ flex: 1, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #d97706, #f59e0b)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: loading ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  {loading ? <IonSpinner name="crescent" style={{ color: '#fff' }} /> : '▸ Retomar'}
+                </button>
+              )}
+              <button onClick={() => generarDocVisita(v)} disabled={generando} style={{ flex: 1, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: generando ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {generando ? <><IonSpinner name="crescent" style={{ width: 16, height: 16, color: '#fff' }} /> Generando…</> : '📄 Generar documento'}
+              </button>
+            </div>
+
+            {mensajeDoc === 'ok' && <div style={{ fontSize: 13, color: dark ? '#4ade80' : '#16a34a', textAlign: 'center', marginBottom: 12 }}>✓ Documento generado. Revisa el diálogo para compartir o guardar.</div>}
+            {mensajeDoc === 'error' && <div style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', marginBottom: 12 }}>No se pudo generar el documento. Revisa tu conexión e inténtalo otra vez.</div>}
+
+            {cargandoDetalle ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><IonSpinner name="crescent" style={{ color: '#1e3a5f' }} /></div>
+            ) : obsDetalle.length === 0 ? (
+              <div style={{ textAlign: 'center', color: textMuted, fontSize: 14, padding: 40 }}>Esta visita no tiene observaciones registradas.</div>
+            ) : (
+              <>
+                {generalesD.length > 0 && (
+                  <>
+                    <div style={{ ...labelStyle, marginBottom: 10 }}>Generales ({generalesD.length})</div>
+                    {generalesD.map(renderObs)}
+                  </>
+                )}
+                {deptoObsD.length > 0 && (
+                  <>
+                    <div style={{ ...labelStyle, margin: '14px 0 10px' }}>Por departamento ({deptoObsD.length})</div>
+                    {deptoObsD.map(renderObs)}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+          {/* Foto ampliada */}
+          <IonModal isOpen={!!fotoAmpliadaDetalle} onDidDismiss={() => setFotoAmpliadaDetalle(null)}>
+            <div onClick={() => setFotoAmpliadaDetalle(null)} style={{ background: '#000', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {fotoAmpliadaDetalle && <img src={fotoAmpliadaDetalle} alt="Vista ampliada" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
+              <button onClick={() => setFotoAmpliadaDetalle(null)} style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 20, color: '#fff', fontSize: 16, width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+          </IonModal>
+        </IonContent>
+      </IonPage>
+    );
+  }
 
   // ─── PANTALLA: TORRES ─────────────────────────────────────────────────────
   if (pantalla === 'torres') return (

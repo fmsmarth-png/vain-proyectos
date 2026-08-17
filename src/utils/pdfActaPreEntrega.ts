@@ -144,7 +144,10 @@ export const generarActaPreEntrega = (p: ActaParams): jsPDF => {
   pdf.setFontSize(7.5);
   pdf.text(`CONDOMINIO ${p.nombreInmobiliaria.replace(/^CONDOMINIO\s+/i, '')}`, infoX, headerTop + 7);
   pdf.text(p.direccion, infoX, headerTop + 10.5);
-  pdf.text(`Fono: ${p.telefono}`, infoX, headerTop + 14);
+  // Teléfono: solo se escribe si existe, pero se reserva el espacio (queda en blanco si no hay)
+  if (p.telefono) {
+    pdf.text(`Fono: ${p.telefono}`, infoX, headerTop + 14);
+  }
   pdf.text(`Email: ${p.email}`, infoX, headerTop + 17.5);
   // Web fija
   setItalic();

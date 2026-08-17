@@ -41,6 +41,7 @@ import RevisionOGDetalle from '../pages/RevisionOGDetalle';
 import RevisionOGAmbiente from '../pages/RevisionOGAmbiente';
 import RevisionOGResumen from '../pages/RevisionOGResumen';
 import ReporteOG from '../pages/ReporteOG';
+import ReporteVisualOG from '../pages/ReporteVisualOG';
 import CalibradorPlano from '../pages/CalibradorPlano';
 import CalibradorElementos from '../pages/Calibradorelementos';
 import GenerarVale from '../pages/GenerarVale';
@@ -176,6 +177,11 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
         {/* Reporte OG (analítico · autofiltro estilo Excel) */}
         <Route exact path="/reporte-og" render={() =>
           tienePermiso('og_ver') ? <ReporteOG /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Reporte Visual OG (cascada Proyecto ▸ Torre ▸ Piso ▸ Depto → plano) */}
+        <Route exact path="/reporte-visual-og" render={() =>
+          tienePermiso('og_ver') ? <ReporteVisualOG /> : <Redirect to="/dashboard" />
         } />
 
         {/* Calibradores OG */}

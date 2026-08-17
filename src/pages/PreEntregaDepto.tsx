@@ -125,6 +125,7 @@ const PreEntregaDepto: React.FC = () => {
   const dibujandoRef   = useRef(false);
   const mountedRef     = useRef(false);
   const inputFotoRef   = useRef<HTMLInputElement | null>(null);
+  const fotoWorkerRef  = useRef(false); // evita que el worker de subida corra dos veces a la vez
 
   const resolveNavState = () => {
     if (location.state?.depto) return location.state;
@@ -241,6 +242,9 @@ const PreEntregaDepto: React.FC = () => {
       mountedRef.current = true;
       resetFormulario();
       cargar(currentState.depto);
+      // Reintenta subir fotos que quedaron pendientes de una sesión anterior
+      // (cierre de app / señal caída durante la subida en segundo plano).
+      reintentarFotosPendientes();
     }
   });
 
@@ -418,75 +422,124 @@ const PreEntregaDepto: React.FC = () => {
     } catch {}
   };
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Subida de fotos en SEGUNDO PLANO (no bloquea el registro de la obs).
+  // La foto se persiste en localStorage → sobrevive a un cierre de app y se
+  // reintenta al volver a entrar a la pantalla. La obs se inserta al toque con
+  // foto_url=null; cuando la imagen sube, se hace UPDATE de foto_url por id.
+  // ────────────────────────────────────────────────────────────────────────
+  const FOTOS_PEND_KEY = 'pre_entrega_fotos_pendientes';
+
+  const blobToDataURL = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onloadend = () => resolve(r.result as string);
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+
+  const leerFotosPendientes = (): any[] => {
+    try { return JSON.parse(localStorage.getItem(FOTOS_PEND_KEY) || '[]'); } catch { return []; }
+  };
+  const guardarFotosPendientes = (arr: any[]) => {
+    try { localStorage.setItem(FOTOS_PEND_KEY, JSON.stringify(arr)); } catch {}
+  };
+
+  // Sube UNA foto (subida + update de foto_url por id). Devuelve true si lo logró.
+  const subirUnaFoto = async (item: any): Promise<boolean> => {
+    try {
+      const blob = await (await fetch(item.base64)).blob();
+      const fileName = `pre-entrega/${item.proyectoId}/${item.deptoId}/${item.obsId}.jpg`;
+      const { error: upErr } = await supabase.storage
+        .from('fotos-registros')
+        .upload(fileName, blob, { upsert: true, contentType: 'image/jpeg' });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
+      const { error: updErr } = await supabase
+        .from('observacionesinformepv')
+        .update({ foto_url: publicUrl })
+        .eq('id', item.obsId);
+      if (updErr) throw updErr;
+      return true;
+    } catch (e) {
+      console.warn('[PreEntrega] Foto no subió, se reintentará:', e);
+      return false;
+    }
+  };
+
+  // WORKER: procesa la cola de fotos DE A UNA (en serie). Con red lenta, subir
+  // en paralelo es contraproducente (compiten por el ancho de banda); en serie
+  // cada foto usa todo el ancho y una falla no arrastra a las demás. Un flag
+  // impide que el worker corra dos veces a la vez aunque se registren varias obs
+  // seguidas. Las que fallan se reintentan con backoff (2s, 4s, 8s... máx 30s).
+  const procesarColaFotos = async () => {
+    if (fotoWorkerRef.current) return;      // ya hay un worker corriendo
+    if (!online) return;
+    fotoWorkerRef.current = true;
+    try {
+      let fallosSeguidos = 0;
+      while (online) {
+        const cola = leerFotosPendientes();
+        if (cola.length === 0) break;
+        const item = cola[0];
+        const ok = await subirUnaFoto(item);
+        if (ok) {
+          guardarFotosPendientes(leerFotosPendientes().filter((f: any) => f.obsId !== item.obsId));
+          fallosSeguidos = 0;
+        } else {
+          fallosSeguidos++;
+          if (fallosSeguidos >= 5) break; // cortar: se reintenta al reentrar o al recuperar señal
+          const delay = Math.min(2000 * Math.pow(2, fallosSeguidos - 1), 30000);
+          await new Promise(res => setTimeout(res, delay));
+        }
+      }
+    } finally {
+      fotoWorkerRef.current = false;
+    }
+  };
+
+  // Encola la foto (persistida) y despierta al worker sin bloquear.
+  const encolarFotoPendiente = async (obsId: string, fotoBlob: File | Blob) => {
+    try {
+      const base64 = await blobToDataURL(fotoBlob);
+      const arr = leerFotosPendientes();
+      arr.push({ obsId, proyectoId: proyecto.id, deptoId: depto.id, base64 });
+      guardarFotosPendientes(arr);
+      void procesarColaFotos();
+    } catch (e) {
+      console.warn('[PreEntrega] No se pudo encolar la foto:', e);
+    }
+  };
+
+  // Reintenta la cola (al entrar a la pantalla / recuperar señal).
+  const reintentarFotosPendientes = () => {
+    void procesarColaFotos();
+  };
+
   const guardar = async () => {
     if (!ambienteId || !partidaId || !observacion.trim()) { setError('Ambiente, partida y observación son obligatorios'); return; }
     setGuardando(true); setError(''); setGuardadoOk(false);
     try {
-      let userId = userIdRef.current || localStorage.getItem('detalles_user_id') || '';
-      let userEmail = '';
-      
-      if (online) {
-        try { 
-          const { data: { user } } = await Promise.race([
-            supabase.auth.getUser(), 
-            new Promise<any>((_, r) => setTimeout(() => r('timeout'), 3000))
-          ]); 
-          if (user?.id) { 
-            userId = user.id; 
-            userEmail = user.email || ''; 
-            userIdRef.current = user.id; 
-            localStorage.setItem('detalles_user_id', user.id); 
-            localStorage.setItem('detalles_user_email', userEmail); 
-          } 
-        } catch {}
-      }
-      
-      if (!userEmail) {
-        userEmail = localStorage.getItem('detalles_user_email') || '';
-      }
-      
+      // userId/email desde ref/localStorage: ya se resolvieron en cargar().
+      // Evitamos el getUser() bloqueante (timeout 3s) en cada obs.
+      const userId = userIdRef.current || localStorage.getItem('detalles_user_id') || '';
+      const userEmail = localStorage.getItem('detalles_user_email') || '';
       if (!userId) { setError('No se pudo identificar el usuario'); setGuardando(false); return; }
 
-      const { data: ambienteData } = await supabase.from('ambientes').select('nombre').eq('id', ambienteId).maybeSingle();
-      const { data: partidaData } = await supabase.from('partidas').select('nombre').eq('id', partidaId).maybeSingle();
-      const ambienteName = ambienteData?.nombre || '';
-      const partidaName = partidaData?.nombre || '';
+      // Nombres resueltos EN MEMORIA (ya cargados en los <select>): sin ir a la red.
+      const ambienteName = ambientes.find(a => a.id === ambienteId)?.nombre || '';
+      const partidaName  = partidas.find(p => p.id === partidaId)?.nombre || '';
 
       const semanaCreacion = nombreSemanaActual();
       if (!semanaCreacion) {
         console.warn('Hoy quedó fuera del calendario de semanas VAIN: hay que extender la tabla');
       }
 
-      // Subir foto a Storage si existe
-      let fotoUrl = null;
-      if (foto && online) {
-        try {
-          const timestamp = Date.now();
-          const fileName = `pre-entrega/${proyecto.id}/${depto.id}/${timestamp}.jpg`;
-          
-          // Comprimir imagen antes de subir
-          const comprimida = await comprimirImagen(foto);
-          
-          const { error: uploadError } = await supabase.storage
-            .from('fotos-registros')
-            .upload(fileName, comprimida, { upsert: false });
-          
-          if (uploadError) throw uploadError;
-          
-          const { data: { publicUrl } } = supabase.storage
-            .from('fotos-registros')
-            .getPublicUrl(fileName);
-          
-          fotoUrl = publicUrl;
-        } catch (e: any) {
-          console.error('Error subiendo foto:', e);
-          setError('Error al subir foto: ' + e.message);
-          setGuardando(false);
-          return;
-        }
-      }
+      // id de fila generado en cliente → insert idempotente + enlace de la foto.
+      const obsId = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       const datosObservacion = {
+        id: obsId,
         proyecto_id: proyecto.id,
         proyecto_codigo: proyecto.codigo || '',
         torre_codigo: torre.nombre || torre.codigo || '',
@@ -503,21 +556,42 @@ const PreEntregaDepto: React.FC = () => {
         usuario_nombre: userNombreRef.current || null,
         fecha_creacion: new Date().toISOString(),
         semana_creacion: semanaCreacion,
-        foto_url: fotoUrl, // ✅ NUEVA: Agregar URL de foto
+        foto_url: null, // la foto sube en segundo plano y luego actualiza esta fila
       };
 
+      // Capturamos la foto antes de limpiar el formulario.
+      const fotoActual = foto;
+
       if (online) {
-        try {
-          const { error } = await supabase.from('observacionesinformepv').insert(datosObservacion);
-          if (error) throw new Error(error.message);
-        } catch (e: any) {
-          console.error('Error al guardar:', e);
-          setError('Error: ' + e.message);
+        // Carrera contra 2s: si la red RESPONDE rápido, guardado normal (confirmado
+        // al toque). Si tarda más, NO bloqueamos al inspector: la obs va a la cola
+        // offline, que la sincroniza cuando pueda. Como es upsert idempotente por id,
+        // aunque el insert lento sí llegue tarde, la cola no lo duplica.
+        const resultado = await Promise.race([
+          supabase
+            .from('observacionesinformepv')
+            .upsert(datosObservacion, { onConflict: 'id', ignoreDuplicates: true })
+            .then(r => (r.error ? { estado: 'error' as const, msg: r.error.message } : { estado: 'ok' as const })),
+          new Promise<{ estado: 'timeout' }>(res => setTimeout(() => res({ estado: 'timeout' }), 2000)),
+        ]);
+
+        if (resultado.estado === 'error') {
+          console.error('Error al guardar:', resultado.msg);
+          setError('Error: ' + resultado.msg);
           setGuardando(false);
           return;
         }
+
+        if (resultado.estado === 'timeout') {
+          // Red lenta → a la cola (misma obs con id; el OfflineContext hace upsert).
+          await agregarPendientePreEntrega(datosObservacion, fotoActual ?? undefined);
+        } else {
+          // Insert rápido OK → la foto va en segundo plano (worker en serie).
+          if (fotoActual) void encolarFotoPendiente(obsId, fotoActual);
+        }
       } else {
-        await agregarPendientePreEntrega(datosObservacion, foto ?? undefined);
+        // Offline: la cola del OfflineContext maneja obs + foto (ya idempotente por id).
+        await agregarPendientePreEntrega(datosObservacion, fotoActual ?? undefined);
       }
 
       setObservacion(''); setAmbienteId(''); setPartidaId('');
@@ -583,7 +657,8 @@ const PreEntregaDepto: React.FC = () => {
     if (!proyecto.acta_nombre_inmobiliaria) { setErrorActa('Error: Nombre inmobiliaria no configurado en Admin'); return; }
     if (!proyecto.acta_direccion) { setErrorActa('Error: Dirección no configurada en Admin'); return; }
     if (!proyecto.acta_ciudad) { setErrorActa('Error: Ciudad no configurada en Admin'); return; }
-    if (!proyecto.acta_telefono) { setErrorActa('Error: Teléfono no configurado en Admin'); return; }
+    // Teléfono es opcional: muchos proyectos no tienen número asociado.
+    // El PDF ya lo omite si viene vacío (ver pdfActaPreEntrega.ts).
     if (!proyecto.acta_email) { setErrorActa('Error: Email no configurado en Admin'); return; }
     if (!proyecto.acta_nombre_legal) { setErrorActa('Error: Nombre legal no configurado en Admin'); return; }
 

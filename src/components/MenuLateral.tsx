@@ -16,6 +16,7 @@ import {
   Ruler,
   BarChart3,
   Grid3x3,
+  Map,
   Users,
   Wifi,
   WifiOff,
@@ -140,6 +141,7 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
       items: [
         { icon: Ruler, label: 'Revisión OG', ruta: '/revision-og', permiso: puedeOG },
         { icon: BarChart3, label: 'Reporte OG', ruta: '/reporte-og', permiso: puedeOG },
+        { icon: Map, label: 'Reporte Visual OG', ruta: '/reporte-visual-og', permiso: puedeOG },
       ],
     },
     {

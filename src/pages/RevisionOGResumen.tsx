@@ -7,7 +7,7 @@
 //   NO llega por location.state (se perdía al volver atrás → blanco / dashboard).
 //   Se lee desde sessionStorage ('og_seleccion'), que deja seteada RevisionOG.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent,
   IonButtons, useIonViewDidEnter,
@@ -32,7 +32,40 @@ interface OgRegistro {
   foto_url: string | null;
   creado_en: string;
   usuarios: { nombre: string }[] | null;
+  accion: string | null; // reparación (desde og_reparaciones), cruzada por id
 }
+
+// ─── Vistas por tipo de reparación (FIX ago-2026) ─────────────────────────────
+// General = todas · Albañilería = picado/puntereo · Copa = copa · Yeso = yeso.
+// 'por definir' solo se ve en General.
+type Vista = 'general' | 'albanileria' | 'copa' | 'yeso';
+
+const VISTAS: { key: Vista; label: string }[] = [
+  { key: 'general',     label: 'General' },
+  { key: 'albanileria', label: 'Albañilería' },
+  { key: 'copa',        label: 'Copa' },
+  { key: 'yeso',        label: 'Yeso' },
+];
+
+// Clasifica una obs según su accion. Robusto a variantes de nombre.
+const obsEnVista = (accion: string | null, vista: Vista): boolean => {
+  if (vista === 'general') return true;
+  const a = (accion || '').toLowerCase();
+  if (vista === 'copa')        return a === 'copa';
+  if (vista === 'yeso')        return a === 'yeso';
+  // albañilería: picado o puntereo (contiene 'albañileria'/'albanileria'), sin copa
+  return (a.includes('albañiler') || a.includes('albaniler')) && a !== 'copa';
+};
+
+// Etiqueta + color para el chip de reparación en la tabla de fallas.
+const chipReparacion = (accion: string | null, dark: boolean) => {
+  const a = (accion || 'por definir').toLowerCase();
+  if (a.includes('picado'))    return { label: 'Picado',   color: dark ? '#f87171' : '#b91c1c', bg: dark ? 'rgba(239,68,68,0.12)' : '#fef2f2' };
+  if (a.includes('puntereo'))  return { label: 'Puntereo', color: dark ? '#60a5fa' : '#1d4ed8', bg: dark ? 'rgba(96,165,250,0.12)' : '#eff6ff' };
+  if (a === 'copa')            return { label: 'Copa',     color: dark ? '#fbbf24' : '#a16207', bg: dark ? 'rgba(251,191,36,0.12)' : '#fffbeb' };
+  if (a === 'yeso')            return { label: 'Yeso',     color: dark ? '#c084fc' : '#7c3aed', bg: dark ? 'rgba(192,132,252,0.12)' : '#f5f3ff' };
+  return { label: 'Por definir', color: dark ? '#6b7280' : '#6b7280', bg: dark ? 'rgba(107,114,128,0.12)' : '#f3f4f6' };
+};
 
 interface AmbientePlano {
   titulo: string;
@@ -187,7 +220,22 @@ const RevisionOGResumen: React.FC = () => {
           .eq('activo', true),
       ]);
 
-      const registros = (obsData ?? []) as unknown as OgRegistro[];
+      const registrosBase = (obsData ?? []) as unknown as OgRegistro[];
+
+      // Reparación (accion) por registro — se cruza por id con og_registros.
+      // Se consulta por los ids del depto (la vista tiene 'id'; puede no tener
+      // departamento_id), evitando supuestos sobre su esquema.
+      const idsDepto = registrosBase.map(r => r.id);
+      const accionMap = new Map<string, string | null>();
+      if (idsDepto.length > 0) {
+        const { data: repData } = await supabase
+          .from('og_reparaciones')
+          .select('id, accion')
+          .in('id', idsDepto);
+        (repData ?? []).forEach((r: any) => { accionMap.set(r.id, r.accion ?? null); });
+      }
+
+      const registros = registrosBase.map(r => ({ ...r, accion: accionMap.get(r.id) ?? null }));
       setObs(registros);
       setPlanoUrl((planoData as any)?.plano_url ?? null);
       setAmbientesPlano((ambPlanoData ?? []) as AmbientePlano[]);
@@ -286,10 +334,16 @@ const RevisionOGResumen: React.FC = () => {
     return () => ro.disconnect();
   }, [cargando]);
 
+  // ── Vista activa (General / Albañilería / Copa / Yeso) ─────────────────────
+  const [vista, setVista] = useState<Vista>('general');
+
+  // Obs visibles según la vista (base para métricas, heatmap, tabla y tarjetas)
+  const obsVista = obs.filter(r => obsEnVista(r.accion, vista));
+
   // ── Métricas ──────────────────────────────────────────────────────────────
-  const totalObs       = obs.length;
-  const ambientesUnicos = [...new Set(obs.map(r => r.ambiente))];
-  const criticos       = ambientesUnicos.filter(a => obs.filter(r => r.ambiente === a).length >= 5).length;
+  const totalObs        = obsVista.length;
+  const ambientesUnicos = [...new Set(obsVista.map(r => r.ambiente))];
+  const criticos        = ambientesUnicos.filter(a => obsVista.filter(r => r.ambiente === a).length >= 5).length;
 
   // ── Escala para plano horizontal ──────────────────────────────────────────
   // El plano original es PLANO_W(674) × PLANO_H(961), orientación vertical.
@@ -310,18 +364,21 @@ const RevisionOGResumen: React.FC = () => {
   height: a.ancho_base * escalaPlano,
 });
 
-  // Obs por ambiente_cod para colorear el heatmap
+  // Obs por ambiente_cod para colorear el heatmap (según la vista)
   const obsPorCod = new Map<string, number>();
   ambientesPlano.forEach(a => {
-    const count = obs.filter(r => r.ambiente.toLowerCase() === a.titulo.toLowerCase()).length;
+    const count = obsVista.filter(r => r.ambiente.toLowerCase() === a.titulo.toLowerCase()).length;
     obsPorCod.set(a.ambiente_cod, count);
   });
 
   // ── Tabla resumen ─────────────────────────────────────────────────────────
   const resumenTabla = ambientesUnicos
-    .map(a => ({ ambiente: a, count: obs.filter(r => r.ambiente === a).length }))
+    .map(a => ({ ambiente: a, count: obsVista.filter(r => r.ambiente === a).length }))
     .sort((a, b) => b.count - a.count);
   const maxObs = resumenTabla[0]?.count ?? 1;
+
+  // Detalles visibles: solo ambientes con al menos 1 obs en la vista activa
+  const detallesVista = detalles.filter(d => d.obs.some(o => obsEnVista(o.accion, vista)));
 
   // ── Guard sin depto ───────────────────────────────────────────────────────
   if (!depto) {
@@ -379,6 +436,31 @@ const RevisionOGResumen: React.FC = () => {
             </div>
           ) : (
             <>
+              {/* ── Selector de vista (General / Albañilería / Copa / Yeso) ── */}
+              <div style={{
+                display: 'flex', gap: 6, marginBottom: 10,
+                background: cardGrad, borderRadius: 12,
+                border: `0.5px solid ${border}`, padding: 4,
+              }}>
+                {VISTAS.map(v => {
+                  const activo = vista === v.key;
+                  return (
+                    <button
+                      key={v.key}
+                      onClick={() => setVista(v.key)}
+                      style={{
+                        flex: 1, padding: '8px 4px', borderRadius: 9,
+                        border: 'none', cursor: 'pointer',
+                        fontSize: 12, fontWeight: activo ? 700 : 500,
+                        background: activo ? (dark ? '#1e3a5f' : '#1e3a5f') : 'transparent',
+                        color: activo ? '#ffffff' : textSecondary,
+                        transition: 'all 0.15s',
+                      }}
+                    >{v.label}</button>
+                  );
+                })}
+              </div>
+
               {/* ── Métricas ───────────────────────────────────────────────── */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
                 {[
@@ -539,11 +621,12 @@ const RevisionOGResumen: React.FC = () => {
                 </div>
               )}
 
-              {/* ── Detalle por ambiente ────────────────────────────────────── */}
-              {detalles.map((det, idx) => (
+              {/* ── Detalle por ambiente (filtrado por vista) ───────────────── */}
+              {detallesVista.map((det, idx) => (
                 <AmbienteCard
                   key={det.ambiente_cod || idx}
                   det={det}
+                  vista={vista}
                   dark={dark}
                   sCard={sCard}
                   sSecLabel={sSecLabel}
@@ -556,7 +639,9 @@ const RevisionOGResumen: React.FC = () => {
 
               {totalObs === 0 && (
                 <div style={{ ...sCard, textAlign: 'center', padding: 32, color: textSecondary, fontSize: 14 }}>
-                  Sin observaciones registradas para este departamento
+                  {vista === 'general'
+                    ? 'Sin observaciones registradas para este departamento'
+                    : `Sin observaciones de ${VISTAS.find(v => v.key === vista)?.label.toLowerCase()} en este departamento`}
                 </div>
               )}
             </>
@@ -571,6 +656,7 @@ const RevisionOGResumen: React.FC = () => {
 interface AmbienteCardProps {
   det: AmbienteDetalle;
   dark: boolean;
+  vista: Vista;
   sCard: React.CSSProperties;
   sSecLabel: React.CSSProperties;
   border: string;
@@ -580,31 +666,48 @@ interface AmbienteCardProps {
 }
 
 const AmbienteCard: React.FC<AmbienteCardProps> = ({
-  det, dark, sCard, sSecLabel, border, textPrimary, textSecondary, textMuted,
+  det, vista, dark, sCard, sSecLabel, border, textPrimary, textSecondary, textMuted,
 }) => {
+  // ── FIX ago-2026: mismo método de render que RevisionOGAmbiente (registro) ──
+  //   El registro posiciona bien porque: altura del contenedor = aspecto exacto
+  //   de la imagen, <img objectFit:'fill'>, y hotspots escalados directo por
+  //   ancho_orig/alto_orig (sin letterbox, sin estado imgH separado). Aquí se
+  //   replica idéntico. Un solo estado medido (contenedorW); la altura se deriva
+  //   en el render. Se mide en el ResizeObserver y también al cargar la imagen.
   const imgRef = useRef<HTMLDivElement>(null);
-  const [imgW, setImgW] = useState(0);
-  const [imgH, setImgH] = useState(0);
+  const [contenedorW, setContenedorW] = useState(0);
+
+  const medir = useCallback(() => {
+    const el = imgRef.current;
+    if (!el) return;
+    const w = el.getBoundingClientRect().width || el.offsetWidth;
+    if (w > 0) setContenedorW(w);
+  }, []);
 
   useEffect(() => {
     if (!imgRef.current) return;
     const ro = new ResizeObserver(entries => {
       const cw = entries[0]?.contentRect.width;
-      if (!cw) return;
-      const { ancho_orig, alto_orig } = det;
-      if (ancho_orig && alto_orig) {
-        setImgW(cw);
-        setImgH(cw * (alto_orig / ancho_orig));
-      } else {
-        setImgW(cw);
-        setImgH(cw * 0.7);
-      }
+      if (cw > 0) setContenedorW(cw);
     });
     ro.observe(imgRef.current);
     return () => ro.disconnect();
-  }, [det.ancho_orig, det.alto_orig]);
+  }, []);
 
-  const badge = estadoBadge(det.obs.length, dark);
+  // Altura de la imagen derivada EN EL RENDER (idéntico al registro)
+  const alturaImagen = det.ancho_orig > 0 && contenedorW > 0
+    ? (det.alto_orig / det.ancho_orig) * contenedorW
+    : 0;
+
+  const escalar = (v: number, orig: number, rendered: number) =>
+    orig > 0 ? (v / orig) * rendered : 0;
+
+  // Obs y elementos filtrados por la vista activa
+  const obsVista = det.obs.filter(o => obsEnVista(o.accion, vista));
+  const nombresVista = new Set(obsVista.map(o => o.elemento));
+  const elementosVista = det.elementos.filter(el => nombresVista.has(el.elemento));
+
+  const badge = estadoBadge(obsVista.length, dark);
 
   return (
     <div style={sCard}>
@@ -614,7 +717,7 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
         <span style={{
           fontSize: 11, fontWeight: 600, padding: '2px 10px',
           borderRadius: 20, background: badge.bg, color: badge.color,
-        }}>{det.obs.length} obs.</span>
+        }}>{obsVista.length} obs.</span>
       </div>
 
       {/* Imagen del ambiente + hotspots */}
@@ -623,7 +726,8 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
         style={{
           position: 'relative',
           width: '100%',
-          height: imgH || 180,
+          height: alturaImagen > 0 ? alturaImagen : 'auto',
+          minHeight: alturaImagen > 0 ? undefined : 180,
           borderRadius: 10,
           overflow: 'hidden',
           background: dark ? '#0a0a0a' : '#f1f5f9',
@@ -635,7 +739,13 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
           <img
             src={det.imagen_url}
             alt={`Plano ${det.titulo}`}
-            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+            onLoad={medir}
+            style={{
+              width: '100%',
+              height: alturaImagen > 0 ? '100%' : 'auto',
+              objectFit: 'fill', display: 'block',
+              userSelect: 'none', WebkitUserSelect: 'none',
+            }}
           />
         ) : (
           <div style={{
@@ -647,28 +757,12 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
           </div>
         )}
 
-        {/* Hotspots — solo elementos con obs, con cálculo de letterbox */}
-        {imgW > 0 && det.elementos.map((el, i) => {
-          const imgAspect = det.ancho_orig / det.alto_orig;
-          const cntAspect = imgW / imgH;
-          let renderW: number, renderH: number, offsetX: number, offsetY: number;
-          if (imgAspect > cntAspect) {
-            renderW = imgW;
-            renderH = imgW / imgAspect;
-            offsetX = 0;
-            offsetY = (imgH - renderH) / 2;
-          } else {
-            renderH = imgH;
-            renderW = imgH * imgAspect;
-            offsetX = (imgW - renderW) / 2;
-            offsetY = 0;
-          }
-          const sx     = renderW / det.ancho_orig;
-          const sy     = renderH / det.alto_orig;
-          const left   = offsetX + el.pos_x * sx;
-          const top    = offsetY + el.pos_y * sy;
-          const width  = el.ancho * sx;
-          const height = el.alto  * sy;
+        {/* Hotspots — escalado directo, idéntico al registro (sin letterbox) */}
+        {contenedorW > 0 && alturaImagen > 0 && elementosVista.map((el, i) => {
+          const left   = escalar(el.pos_x, det.ancho_orig, contenedorW);
+          const top    = escalar(el.pos_y, det.alto_orig,  alturaImagen);
+          const width  = escalar(el.ancho, det.ancho_orig, contenedorW);
+          const height = escalar(el.alto,  det.alto_orig,  alturaImagen);
 
           return (
             <div
@@ -676,8 +770,9 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
               style={{
                 position: 'absolute',
                 left, top, width, height,
-                border: `2px solid ${dark ? '#f87171' : '#b91c1c'}`,
-                background: dark ? 'rgba(248,113,113,0.2)' : 'rgba(185,28,28,0.12)',
+                border: '2.5px solid #06b6d4',
+                background: 'rgba(6,182,212,0.28)',
+                boxShadow: '0 0 0 1px rgba(0,0,0,0.35), 0 0 6px rgba(6,182,212,0.6)',
                 borderRadius: 3,
                 boxSizing: 'border-box',
               }}
@@ -686,9 +781,9 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
                 position: 'absolute',
                 bottom: '100%', left: 0,
                 fontSize: 9, fontWeight: 700,
-                color: dark ? '#f87171' : '#b91c1c',
-                background: dark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)',
-                padding: '1px 3px', borderRadius: 2,
+                color: '#ffffff',
+                background: '#0891b2',
+                padding: '1px 4px', borderRadius: 2,
                 whiteSpace: 'nowrap', maxWidth: 120,
                 overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2,
               }}>
@@ -704,7 +799,7 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr>
-            {['#', 'Elemento', 'Tipo', 'Tolerancia', 'Comentario'].map(h => (
+            {['#', 'Elemento', 'Tipo', 'Tolerancia', 'Reparación', 'Comentario'].map(h => (
               <th key={h} style={{
                 textAlign: 'left', fontSize: 10, fontWeight: 600,
                 color: textMuted, padding: '4px 5px 6px',
@@ -715,12 +810,24 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
           </tr>
         </thead>
         <tbody>
-          {det.obs.map((ob, i) => (
+          {obsVista.map((ob, i) => (
             <tr key={ob.id} style={{ borderBottom: `0.5px solid ${border}` }}>
               <td style={{ padding: '7px 5px', color: textMuted, fontSize: 11 }}>{i + 1}</td>
               <td style={{ padding: '7px 5px', color: textPrimary, fontSize: 12 }}>{ob.elemento}</td>
               <td style={{ padding: '7px 5px', color: textSecondary, fontSize: 11 }}>{ob.tipo_revision}</td>
               <td style={{ padding: '7px 5px', color: textPrimary, fontSize: 12 }}>{ob.tolerancia}</td>
+              <td style={{ padding: '7px 5px' }}>
+                {(() => {
+                  const c = chipReparacion(ob.accion, dark);
+                  return (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap',
+                      padding: '2px 8px', borderRadius: 20,
+                      background: c.bg, color: c.color,
+                    }}>{c.label}</span>
+                  );
+                })()}
+              </td>
               <td style={{ padding: '7px 5px', color: textSecondary, fontSize: 11 }}>
                 {ob.comentario || '—'}
               </td>

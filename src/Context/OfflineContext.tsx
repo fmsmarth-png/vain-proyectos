@@ -257,9 +257,12 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.error('[OfflineContext] Error comprimiendo foto:', e);
       }
     }
+    // 🔑 UUID de fila para insert idempotente en reintentos (ver Pre Entrega).
+    const obsId = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     const registro: RegistroPendiente = {
       id: `obs_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      datos,
+      datos: { ...datos, id: obsId },
       foto_base64,
       foto_nombre,
       timestamp: Date.now(),
@@ -290,7 +293,10 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const guardarColaPreEntrega = (cola: RegistroPendiente[]) => {
     try {
       localStorage.setItem(STORAGE_KEY_PRE_ENTREGA, JSON.stringify(cola));
-      setPendientes(prev => prev + 1); // Incluir en contador total
+      // FIX: reflejar el tamaño real de la cola. Antes hacía prev+1, pero
+      // esta función también se llama dentro del loop de sync, así que el
+      // contador se inflaba en cada guardado en vez de mostrar los pendientes.
+      setPendientes(cola.length);
     } catch (e) {
       console.error('[OfflineContext] Error guardando cola Pre Entrega:', e);
     }
@@ -307,9 +313,14 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.error('[OfflineContext] Error comprimiendo foto Pre Entrega:', e);
       }
     }
+    // 🔑 UUID determinístico para la FILA de la BD (distinto del id de cola).
+    // Viaja DENTRO de datos y se reusa en cada reintento → el upsert lo ignora
+    // si ya se insertó, evitando duplicados por respuesta perdida (timeout/señal).
+    const obsId = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     const registro: RegistroPendiente = {
       id: `pv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      datos,
+      datos: { ...datos, id: obsId },
       foto_base64,
       foto_nombre,
       timestamp: Date.now(),
@@ -372,9 +383,11 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         }
 
+        // upsert idempotente por id (evita duplicar si el reintento reenvía
+        // una fila cuya respuesta se perdió).
         const { error } = await supabase
           .from('registros')
-          .insert([{ ...reg.datos, foto_url, creado_por: userId }]);
+          .upsert([{ ...reg.datos, foto_url, creado_por: userId }], { onConflict: 'id', ignoreDuplicates: true });
 
         if (error) throw new Error(error.message);
 
@@ -450,9 +463,12 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const datosConFoto = { ...reg.datos };
         if (foto_url) datosConFoto.foto_url = foto_url;
 
+        // upsert idempotente: si el id ya se insertó en un intento cuya respuesta
+        // se perdió, la BD lo ignora en vez de duplicar. Dos obs legítimas
+        // distintas (ids distintos) sí conviven.
         const { error } = await supabase
           .from('observacionesinformepv')
-          .insert([datosConFoto]);
+          .upsert([datosConFoto], { onConflict: 'id', ignoreDuplicates: true });
 
         if (error) throw new Error(error.message);
 
@@ -518,9 +534,12 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.error('[OfflineContext] Error comprimiendo foto ZC:', e);
       }
     }
+    // 🔑 UUID de fila para insert idempotente en reintentos (ver Pre Entrega).
+    const obsId = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     const registro: RegistroZCPendiente = {
       id: `zc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      datos,
+      datos: { ...datos, id: obsId },
       foto_base64,
       foto_nombre,
       timestamp: Date.now(),
@@ -575,9 +594,11 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         }
 
+        // upsert idempotente por id (evita duplicar si el reintento reenvía
+        // una fila cuya respuesta se perdió).
         const { error } = await supabase
           .from('registros_zonas_comunes')
-          .insert([{ ...reg.datos, foto_url, creado_por: userId }]);
+          .upsert([{ ...reg.datos, foto_url, creado_por: userId }], { onConflict: 'id', ignoreDuplicates: true });
 
         if (error) throw new Error(error.message);
 

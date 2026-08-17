@@ -1,7 +1,8 @@
 import {
   IonContent, IonPage, IonHeader, IonToolbar, IonTitle,
   IonSpinner, IonModal, IonMenuButton,
-  IonRefresher, IonRefresherContent
+  IonRefresher, IonRefresherContent,
+  IonSegment, IonSegmentButton, IonLabel
 } from '@ionic/react';
 import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
@@ -10,6 +11,8 @@ import { useTheme } from '../Context/ThemeContext';
 import { useOffline } from '../Context/OfflineContext';
 import useAppFocus from '../hooks/useAppFocus';
 import { lineaConfig } from '../utils/lineas';
+import { usePreferenciasDashboard, AreaDashboard } from '../hooks/usePreferenciasDashboard';
+import DashboardOG from './DashboardOG';
 
 
 // ─── Componente PerfilStats (reutilizable) ────────────────────────────────────
@@ -86,11 +89,27 @@ const PerfilStats: React.FC<PerfilStatsProps> = ({
   );
 };
 
+// ─── Etiquetas de área (para el selector) ─────────────────────────────────────
+const ETIQUETA_AREA: Record<AreaDashboard, string> = {
+  general: 'Terminaciones finas',
+  og:      'Obra gruesa',
+  'pre-e': 'Pre entrega',
+  pv:      'Post venta',
+  vo:      'Visita de obra',
+};
+
 const Dashboard: React.FC = () => {
   const history  = useHistory();
   const { theme } = useTheme();
   const { online, pendientes } = useOffline();
   const dark = theme === 'dark';
+
+  // Áreas disponibles en el dashboard.
+  // AJUSTA esta regla a tu modelo de permisos (RBAC). Hoy: todos ven General + Obra gruesa.
+  // Para que un profesional de OG NO vea terminaciones finas, deja aquí solo ['og']
+  // según su rol/permiso (p.ej. usuario.rol === 'prof_obra_gruesa' -> ['og']).
+  const areasPermitidas: AreaDashboard[] = ['general', 'og'];
+  const { area, setArea, config, setOrdenTarjetas } = usePreferenciasDashboard(areasPermitidas);
 
   const [usuario, setUsuario]                     = useState<any>(null);
   const [proyectos, setProyectos]                 = useState<any[]>([]);
@@ -132,7 +151,7 @@ const Dashboard: React.FC = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: perfil } = await supabase.from('usuarios').select('*').eq('id', user.id).single();
+      const { data: perfil } = await supabase.from('usuarios').select('*').eq('id', user.id).maybeSingle();
       setUsuario(perfil);
       let proy: any[] = [];
       if (perfil?.rol === 'administrador') {
@@ -149,11 +168,11 @@ const Dashboard: React.FC = () => {
       setProyectos(proy);
       let principal: any = null;
       if (perfil?.rol === 'administrador') {
-        const { data: upAdmin } = await supabase.from('usuario_proyectos').select('proyecto_id').eq('usuario_id', user.id).eq('es_principal', true).single();
+        const { data: upAdmin } = await supabase.from('usuario_proyectos').select('proyecto_id').eq('usuario_id', user.id).eq('es_principal', true).maybeSingle();
         if (upAdmin) principal = proy.find(p => p.id === upAdmin.proyecto_id) ?? proy[0] ?? null;
         else principal = proy[0] ?? null;
       } else {
-        const { data: up } = await supabase.from('usuario_proyectos').select('proyecto_id, es_principal').eq('usuario_id', user.id).eq('es_principal', true).single();
+        const { data: up } = await supabase.from('usuario_proyectos').select('proyecto_id, es_principal').eq('usuario_id', user.id).eq('es_principal', true).maybeSingle();
         if (up) principal = proy.find(p => p.id === up.proyecto_id) ?? proy[0] ?? null;
         else principal = proy[0] ?? null;
       }
@@ -168,9 +187,9 @@ const Dashboard: React.FC = () => {
       const { data: ultimaObs } = await supabase
         .from('registros')
         .select('creado_en, creado_por, departamento_id, departamentos(id, numero, id_obra), torres(id, nombre, frente)')
-        .eq('proyecto_id', proyId).order('creado_en', { ascending: false }).limit(1).single();
+        .eq('proyecto_id', proyId).order('creado_en', { ascending: false }).limit(1).maybeSingle();
       if (ultimaObs?.creado_por) {
-        const { data: usuCreador } = await supabase.from('usuarios').select('nombre').eq('id', ultimaObs.creado_por).single();
+        const { data: usuCreador } = await supabase.from('usuarios').select('nombre').eq('id', ultimaObs.creado_por).maybeSingle();
         setUltimoDepto({ ...ultimaObs, usuarios: { nombre: usuCreador?.nombre ?? 'desconocido' } });
       } else { setUltimoDepto(ultimaObs ?? null); }
 
@@ -252,6 +271,29 @@ const Dashboard: React.FC = () => {
         </IonRefresher>
 
         <div style={{ padding: '16px 16px 100px' }}>
+
+          {/* Selector de área */}
+          {areasPermitidas.length > 1 && (
+            <IonSegment value={area} onIonChange={(e) => setArea(e.detail.value as AreaDashboard)} style={{ marginBottom: 18 }}>
+              {areasPermitidas.map((a) => (
+                <IonSegmentButton key={a} value={a}>
+                  <IonLabel>{ETIQUETA_AREA[a]}</IonLabel>
+                </IonSegmentButton>
+              ))}
+            </IonSegment>
+          )}
+
+          {/* ÁREA: Obra gruesa */}
+          {area === 'og' && (
+            <DashboardOG
+              proyectoPrincipal={proyectoPrincipal}
+              dark={dark}
+            />
+          )}
+
+          {/* ÁREA: Terminaciones finas (dashboard original, intacto) */}
+          {area === 'general' && (
+          <>
 
           {/* Banner proyecto principal */}
           {proyectoPrincipal && (
@@ -395,6 +437,9 @@ const Dashboard: React.FC = () => {
               })}
             </>
           )}
+
+          </>
+          )}
         </div>
 
         {/* Bottom bar */}
@@ -446,4 +491,4 @@ const Dashboard: React.FC = () => {
   );
 };
 
-export default Dashboard;   
+export default Dashboard;
