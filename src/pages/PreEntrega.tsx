@@ -188,26 +188,77 @@ const PreEntregaDashboard: React.FC = () => {
   useEffect(() => {
     const cargarProyectos = async () => {
       try {
-        const { data } = await supabase
-          .from('proyectos')
-          .select('id, nombre, codigo, etapa')
-          .eq('etapa', 'pre_entrega_postventa')
-          .order('nombre');
-        
-        setProyectos(data || []);
-        
+        setLoading(true);
+
+        // Obtener email del usuario
+        const { data: { session } } = await supabase.auth.getSession();
+        const userEmail = session?.user?.email?.toLowerCase();
+
+        if (!userEmail) {
+          console.warn('[PreEntrega] No hay sesión activa');
+          setProyectos([]);
+          setLoading(false);
+          return;
+        }
+
+        console.log('[PreEntrega] Cargando proyectos para:', userEmail);
+
+        // Obtener usuario_id desde email
+        const { data: usuarioData, error: errUsuario } = await supabase
+          .from('usuarios')
+          .select('id')
+          .eq('email', userEmail)
+          .maybeSingle();
+
+        if (errUsuario || !usuarioData) {
+          console.error('[PreEntrega] Error obteniendo usuario:', errUsuario);
+          setProyectos([]);
+          setLoading(false);
+          return;
+        }
+
+        const usuarioId = usuarioData.id;
+        console.log('[PreEntrega] Usuario ID:', usuarioId);
+
+        // Hacer join: usuario_proyectos → proyectos
+        const { data: asignaciones, error: errAsig } = await supabase
+          .from('usuario_proyectos')
+          .select('proyecto_id, proyectos(id, nombre, codigo, etapa)')
+          .eq('usuario_id', usuarioId);
+
+        if (errAsig) {
+          console.error('[PreEntrega] Error leyendo usuario_proyectos:', errAsig);
+          setProyectos([]);
+          setLoading(false);
+          return;
+        }
+
+        // Extraer proyectos y filtrar por etapa
+        const proyectosData = (asignaciones
+          ?.map((a: any) => a.proyectos as any)
+          .filter((p: any) => p !== null && p.etapa === 'pre_entrega_postventa')
+          .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre)) || []) as any[];
+
+        console.log('[PreEntrega] Proyectos asignados:', proyectosData.length);
+        setProyectos(proyectosData);
+
+        // Seleccionar proyecto: preferencia guardada o el primero
         const proyectoGuardado = sessionStorage.getItem('preentrega_proyecto_id');
         
-        if (proyectoGuardado && data?.some(p => p.id === proyectoGuardado)) {
+        if (proyectoGuardado && proyectosData.some(p => p.id === proyectoGuardado)) {
           setProyectoId(proyectoGuardado);
-        } else if (data && data.length > 0) {
-          setProyectoId(data[0].id);
-          sessionStorage.setItem('preentrega_proyecto_id', data[0].id);
+        } else if (proyectosData.length > 0) {
+          setProyectoId(proyectosData[0].id);
+          sessionStorage.setItem('preentrega_proyecto_id', proyectosData[0].id);
         }
       } catch (err) {
-        console.error('Error:', err);
+        console.error('[PreEntrega] Error:', err);
+        setProyectos([]);
+      } finally {
+        setLoading(false);
       }
     };
+
     cargarProyectos();
   }, []);
 

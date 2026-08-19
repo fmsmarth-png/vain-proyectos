@@ -250,7 +250,7 @@ const PreEntregaDepto: React.FC = () => {
 
   const salir = () => {
     sessionStorage.removeItem(SESSION_KEY);
-    history.push('/pre-entrega');
+    history.goBack();
   };
 
   const resetFormulario = () => {

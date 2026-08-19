@@ -9,6 +9,7 @@ import { useOffline } from '../Context/OfflineContext';
 import { cache } from '../Context/CacheContext';
 import { useLocation } from 'react-router-dom';
 import useAppFocus from '../hooks/useAppFocus';
+import { generarPDFObservacionesPreEntrega } from '../utils/generarPDFObservacionesPreEntrega';
 
 const estadoLabel: Record<string, string> = {
   pendiente:   'Pendiente',
@@ -97,6 +98,10 @@ const Revision: React.FC = () => {
   const [fotoModal, setFotoModal]         = useState('');
   const [filtro, setFiltro]               = useState<'todos' | 'pendiente' | 'solucionado' | 'aprobado' | 'rechazado'>('todos');
   const [filtroEtapa, setFiltroEtapa]     = useState<'todas' | 'obra' | 'pre_entrega' | 'postventa'>('todas');
+
+  // PDF de observaciones Pre Entrega
+  const [generandoPDF, setGenerandoPDF]   = useState(false);
+  const [progresoPDF, setProgresoPDF]     = useState('');
 
   const [modalEntregaInmob, setModalEntregaInmob]           = useState(false);
   const [comentarioEntregaInmob, setComentarioEntregaInmob] = useState('');
@@ -585,6 +590,56 @@ const Revision: React.FC = () => {
   const puedeRecibirInmob = ['vendedor_inmobiliaria', 'administrador'].includes(usuario?.rol);
   const puedeEntregarProp = ['vendedor_inmobiliaria', 'administrador'].includes(usuario?.rol);
 
+  // Generar PDF de observaciones Pre Entrega
+  const generarPDFObservaciones = async () => {
+    if (!deptoId || !proyectoId) return;
+    const proyectoObj = proyectos.find((p: any) => p.id === proyectoId);
+    const torreObj = torres.find((t: any) => t.id === torreId);
+    const deptoObj = deptos.find((d: any) => d.id === deptoId);
+    if (!proyectoObj || !torreObj || !deptoObj) return;
+
+    setGenerandoPDF(true);
+    setProgresoPDF('Cargando observaciones...');
+
+    try {
+      const obsParaPDF = observacionesInforme
+        .filter((o: any) => o.tipo === 'PRE-E')
+        .map((obs: any, idx: number) => ({
+          id: obs.id,
+          numero: idx + 1,
+          ambiente: obs.ambiente || '—',
+          observacion: obs.observacion || obs.descripcion || '—',
+          partida_afectada: obs.partida_afectada || '',
+          foto_url: obs.foto_url || null,
+          fecha_creacion: obs.fecha_creacion || obs.creado_en || '',
+        }));
+
+      if (obsParaPDF.length === 0) {
+        alert('No hay observaciones Pre Entrega para generar PDF');
+        return;
+      }
+
+      await generarPDFObservacionesPreEntrega({
+        proyectoNombre: proyectoObj.nombre || '',
+        torreName: torreObj.nombre || '',
+        deptoNumero: deptoObj.numero || '',
+        torreFrente: torreObj.frente,
+        deptoId_obra: deptoObj.id_obra,
+        observaciones: obsParaPDF,
+        dark,
+        onProgreso: (msg: string, pct: number) => {
+          setProgresoPDF(msg);
+        },
+      });
+    } catch (error: any) {
+      console.error('[Revision] Error generando PDF:', error);
+      alert('Error al generar PDF: ' + error.message);
+    } finally {
+      setGenerandoPDF(false);
+      setProgresoPDF('');
+    }
+  };
+
   // 🆕 LÓGICA DE MEZCLA: Combinar registros (obra) + observacionesInforme (PRE-E/PV)
   let registrosFiltradosPorEtapa: any[] = [];
   let conteos: any = { pendiente: 0, solucionado: 0, aprobado: 0, rechazado: 0 };
@@ -981,6 +1036,19 @@ const Revision: React.FC = () => {
                   </div>
                 </>
               )}
+              {filtroEtapa === 'pre_entrega' && registrosFiltradosPorEtapa.length > 0 && (
+                <button onClick={generarPDFObservaciones} disabled={generandoPDF} style={{
+                  width: '100%', height: 42, borderRadius: 10, marginBottom: 14,
+                  background: dark ? 'rgba(59,130,246,0.08)' : '#eff6ff',
+                  border: dark ? '0.5px solid rgba(59,130,246,0.2)' : '0.5px solid #bfdbfe',
+                  color: dark ? '#60a5fa' : '#1d4ed8',
+                  fontSize: 12, fontWeight: 600, cursor: generandoPDF ? 'not-allowed' : 'pointer',
+                  opacity: generandoPDF ? 0.6 : 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                }}>
+                  {generandoPDF ? `⏳ ${progresoPDF || 'Generando...'}` : `📄 Descargar PDF (${registrosFiltradosPorEtapa.length} obs)`}
+                </button>
+              )}
               {cargandoRegs ? (
                 <div style={{ textAlign: 'center', marginTop: 40 }}><IonSpinner name="crescent" /></div>
               ) : deptoId && registrosFiltradosPorEtapa.length === 0 ? (
@@ -991,13 +1059,6 @@ const Revision: React.FC = () => {
               ) : registrosFiltrados.map((r: any, idx: number) => renderRegistro(r, idx) as React.ReactNode)}
               {deptoId && online && (
                 <>
-                  {puedeRecibirInmob && deptoData?.estado_entrega === 'pre_entrega' && (
-                    <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 16, marginTop: 8, border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe' }}>
-                      <div style={{ fontSize: 11, color: dark ? '#60a5fa' : '#1d4ed8', marginBottom: 6, fontWeight: 600 }}>🏢 Registrar entrega a inmobiliaria</div>
-                      <div style={{ fontSize: 11, color: textSecondary, marginBottom: 12 }}>Al confirmar, se registrará la fecha y tu usuario como receptor.</div>
-                      <button onClick={() => { setErrorEntrega(''); setComentarioEntregaInmob(''); setModalEntregaInmob(true); }} style={{ width: '100%', height: 42, borderRadius: 10, background: dark ? 'rgba(96,165,250,0.08)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>🏢 Confirmar recepción inmobiliaria</button>
-                    </div>
-                  )}
                   {puedeEntregarProp && deptoData?.estado_entrega === 'entregado_inmobiliaria' && (
                     <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 16, marginTop: 8, border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0' }}>
                       <div style={{ fontSize: 11, color: dark ? '#4ade80' : '#15803d', marginBottom: 6, fontWeight: 600 }}>🔑 Registrar entrega al propietario</div>

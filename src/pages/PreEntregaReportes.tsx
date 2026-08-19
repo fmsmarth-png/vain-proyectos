@@ -61,16 +61,45 @@ export const PreEntregaReportes: React.FC = () => {
   const cargarDatos = async () => {
     try {
       setCargando(true);
-      const { data } = await supabase.auth.getSession();
-      const sesion = data?.session;
-      if (!sesion?.user) { history.push('/login'); return; }
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.user) { 
+        history.push('/login'); 
+        return; 
+      }
+
+      const userEmail = session.user.email?.toLowerCase();
+      if (!userEmail) {
+        setCargando(false);
+        return;
+      }
+
+      // Obtener usuario_id desde email
+      const { data: usuarioData, error: errUsuario } = await supabase
+        .from('usuarios')
+        .select('id')
+        .eq('email', userEmail)
+        .maybeSingle();
+
+      if (errUsuario || !usuarioData) {
+        console.error('Error obteniendo usuario:', errUsuario);
+        setProyectos([]);
+        setCargando(false);
+        return;
+      }
+
+      const usuarioId = usuarioData.id;
 
       const { data: userProyectos } = await supabase
         .from('usuario_proyectos')
         .select('proyecto_id')
-        .eq('usuario_id', sesion.user.id);
+        .eq('usuario_id', usuarioId);
 
-      if (!userProyectos || userProyectos.length === 0) { setProyectos([]); setCargando(false); return; }
+      if (!userProyectos || userProyectos.length === 0) { 
+        setProyectos([]); 
+        setCargando(false); 
+        return; 
+      }
 
       const proyectosIds = userProyectos.map((up: any) => up.proyecto_id);
       const { data: proy } = await supabase
