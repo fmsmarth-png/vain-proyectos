@@ -193,7 +193,14 @@ const InspeccionDepto: React.FC = () => {
           setCausasTerceros(causas.data.filter(c => c.tipo === 'tercero').map(c => c.nombre));
           setNombresTerceros(causas.data.filter(c => c.tipo === 'nombre_tercero').map(c => c.nombre));
         }
-      } catch {}
+      } catch {
+        // Si falla y no había nada en cache, la pantalla quedaría vacía sin
+        // explicación (el usuario vería los selectores de ambiente/partida
+        // sin opciones y pensaría que no hay datos). Avisamos en ese caso.
+        if (ambCache.length === 0 && partCache.length === 0) {
+          setError('No se pudieron cargar los datos. Revisa tu conexión y vuelve a intentar.');
+        }
+      }
       try { const { count } = await supabase.from('registros').select('id', { count: 'exact' }).eq('departamento_id', deptoActual.id); if (count !== null) setRegistrosDepto(count); } catch {}
       try { const { data: { user } } = await supabase.auth.getUser(); if (user?.id) { userIdRef.current = user.id; localStorage.setItem('detalles_user_id', user.id); } } catch {}
     }
@@ -242,7 +249,12 @@ const InspeccionDepto: React.FC = () => {
     const { error: uploadError } = await supabase.storage
       .from('fotos-registros')
       .upload(fileName, file, { contentType: 'image/jpeg' });
-    if (uploadError) return null;
+    // Importante: si falla la subida, lanzamos el error en vez de devolver null.
+    // Antes, devolver null hacía que el registro se guardara igual pero SIN foto,
+    // mostrando "Guardado ✓" y perdiendo la foto para siempre. Ahora el error
+    // propaga al catch de guardar(), que encola el registro (con foto) en la
+    // cola offline para reintentar más tarde, en vez de descartar la foto.
+    if (uploadError) throw new Error('No se pudo subir la foto: ' + uploadError.message);
     const { data: urlData } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
     return urlData.publicUrl;
   };

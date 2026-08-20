@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { IonIcon, IonModal } from '@ionic/react';
-import { home, search, barChart, ellipsisVertical, chevronDown } from 'ionicons/icons';
+import { homeOutline, searchOutline, barChartOutline, ellipsisHorizontalOutline, documentTextOutline } from 'ionicons/icons';
 
 interface BottomNavBarProps {
   activeTab: 'inicio' | 'buscar' | 'informes' | 'reportes' | 'mas';
@@ -23,12 +23,12 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const bg = dark ? '#000000' : '#f5f5f5';
-  const card = dark ? '#0e0e0e' : '#ffffff';
-  const border = dark ? '#1e1e1e' : '#f0f0f0';
-  const textPrimary = dark ? '#f9fafb' : '#000000';
+  const bg = dark ? '#0B1220' : '#f5f5f5';
+  const card = dark ? '#16233B' : '#ffffff';
+  const border = dark ? '#243550' : '#f0f0f0';
+  const textPrimary = dark ? '#f9fafb' : '#0B1220';
   const textSecondary = dark ? '#6b7280' : '#666666';
-  const textMuted = dark ? '#444444' : '#999999';
+  const textMuted = dark ? '#5D728F' : '#999999';
 
   // Estado del modal
   const [modalBusqueda, setModalBusqueda] = useState(false);
@@ -141,35 +141,35 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         zIndex: 100
       }}>
         <NavButton
-          icon={home}
+          icon={homeOutline}
           label="Inicio"
           isActive={activeTab === 'inicio'}
           onClick={() => history.push('/pre-entrega')}
         />
 
         <NavButton
-          icon={search}
+          icon={searchOutline}
           label="Buscar"
           isActive={activeTab === 'buscar'}
           onClick={abrirModalBusqueda}
         />
 
         <NavButton
-          icon={barChart}
+          icon={barChartOutline}
           label="Informes"
           isActive={activeTab === 'informes'}
           onClick={() => history.push('/informe-pv', { proyecto })}
         />
 
         <NavButton
-          icon={chevronDown}
+          icon={documentTextOutline}
           label="Reportes"
           isActive={activeTab === 'reportes'}
           onClick={handleClickReportes}
         />
 
         <NavButton
-          icon={ellipsisVertical}
+          icon={ellipsisHorizontalOutline}
           label="Más"
           isActive={activeTab === 'mas'}
           onClick={() => {}}
@@ -199,7 +199,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
               borderRadius: 12,
               border: `0.5px solid ${border}`,
               padding: '0 12px',
-              background: dark ? '#111111' : '#f9f9f9',
+              background: dark ? '#1B2C48' : '#f9f9f9',
               color: textPrimary,
               fontSize: 16,
               marginBottom: 20,
@@ -219,8 +219,8 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
                 {deptosResultado.map(depto => {
                   const isCompleted = depto.preentrega_estado === 5;
                   const colorBg = isCompleted
-                    ? (dark ? 'linear-gradient(135deg, #0a1a0e, #111)' : '#f0fdf4')
-                    : (dark ? 'linear-gradient(135deg, #111, #161616)' : '#f8fafc');
+                    ? (dark ? 'linear-gradient(135deg, #0a1a0e, #16233B)' : '#f0fdf4')
+                    : (dark ? 'linear-gradient(135deg, #16233B, #1E2E4A)' : '#f8fafc');
                   const colorBorde = isCompleted
                     ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0')
                     : border;
@@ -309,7 +309,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
                       border: `0.5px solid ${isSelected ? '#2563eb' : border}`,
                       background: isSelected
                         ? (dark ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : 'linear-gradient(135deg, #dbeafe, #3b82f6)')
-                        : (dark ? '#111111' : '#f9f9f9'),
+                        : (dark ? '#1B2C48' : '#f9f9f9'),
                       color: isSelected ? '#fff' : textPrimary,
                       fontSize: 16,
                       fontWeight: 700,
@@ -318,12 +318,12 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
                     }}
                     onMouseEnter={(e) => {
                       if (!isSelected) {
-                        e.currentTarget.style.background = dark ? '#1a1a1a' : '#f0f0f0';
+                        e.currentTarget.style.background = dark ? '#1E2E4A' : '#f0f0f0';
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!isSelected) {
-                        e.currentTarget.style.background = dark ? '#111111' : '#f9f9f9';
+                        e.currentTarget.style.background = dark ? '#1B2C48' : '#f9f9f9';
                       }
                     }}
                   >
@@ -344,8 +344,8 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
                 {deptosResultado.map(depto => {
                   const isCompleted = depto.preentrega_estado === 5;
                   const colorBg = isCompleted
-                    ? (dark ? 'linear-gradient(135deg, #0a1a0e, #111)' : '#f0fdf4')
-                    : (dark ? 'linear-gradient(135deg, #111, #161616)' : '#f8fafc');
+                    ? (dark ? 'linear-gradient(135deg, #0a1a0e, #16233B)' : '#f0fdf4')
+                    : (dark ? 'linear-gradient(135deg, #16233B, #1E2E4A)' : '#f8fafc');
                   const colorBorde = isCompleted
                     ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0')
                     : border;
@@ -422,4 +422,4 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   );
 };
 
-export default BottomNavBar;
+export default BottomNavBar;  

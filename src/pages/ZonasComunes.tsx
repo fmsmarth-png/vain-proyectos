@@ -196,7 +196,13 @@ const ZonasComunes: React.FC = () => {
       } else {
         mostrarPendientesLocales(torreActual);
       }
-    } catch (e) { console.error('Error general en cargar():', e); }
+    } catch (e) {
+      // Antes solo se logueaba en consola: el usuario veía la pantalla vacía
+      // (sin ambientes, partidas ni registros) sin ninguna pista de que algo
+      // había fallado, y podía confundirlo con "no hay datos".
+      console.error('Error general en cargar():', e);
+      setError('No se pudieron cargar los datos de la zona común. Revisa tu conexión y vuelve a intentar.');
+    }
   };
 
   const mostrarPendientesLocales = (torreData?: any) => {
@@ -309,7 +315,10 @@ const ZonasComunes: React.FC = () => {
     const { error } = await supabase.storage
       .from('fotos-registros')
       .upload(fileName, file, { contentType: 'image/jpeg' });
-    if (error) return null;
+    // Si falla la subida, lanzamos el error (en vez de devolver null) para que
+    // el catch de guardarObs() encole el registro con la foto en la cola
+    // offline, en vez de guardarlo sin foto mostrando éxito.
+    if (error) throw new Error('No se pudo subir la foto: ' + error.message);
     const { data } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
     return data.publicUrl;
   };

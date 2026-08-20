@@ -725,25 +725,41 @@ const PreEntregaDepto: React.FC = () => {
       const fileName = `Acta_PreEntrega_Depto_${depto.numero}_${Date.now()}.pdf`;
       await guardarPdf(pdf, fileName, depto.numero);
 
+      // La firma ya quedó embebida en el PDF (se generó arriba con
+      // firmaDataUrl), así que el propietario se lleva su acta firmada aunque
+      // esto falle. Pero si esta subida falla, `firma_propietario_url` queda
+      // en null en la base de datos mientras `fecha_firma` se guarda igual,
+      // como si todo hubiera salido bien — cualquiera que revise el registro
+      // después vería "firmado" sin poder ver la firma. Por eso reintentamos
+      // un par de veces antes de darnos por vencidos, y si aun así falla,
+      // avisamos explícitamente en vez de guardar silenciosamente.
       let firmaUrl: string | null = null;
+      let firmaFallo = false;
       try {
         const firmaBlob = await fetch(firmaDataUrl).then(r => r.blob());
         if (firmaBlob.size > 0) {
           const firmaFileName = `firma_depto_${depto.id}_${Date.now()}.png`;
           const firmaFile = new File([firmaBlob], firmaFileName, { type: 'image/png' });
-          
-          const { error: fErr } = await supabase.storage
-            .from('fotos-registros')
-            .upload(`firmas/${firmaFileName}`, firmaFile, { upsert: true });
-          
-          if (!fErr) {
-            const { data } = supabase.storage
+
+          let subida = false;
+          for (let intento = 0; intento < 3 && !subida; intento++) {
+            if (intento > 0) await new Promise(res => setTimeout(res, 1000 * intento));
+            const { error: fErr } = await supabase.storage
               .from('fotos-registros')
-              .getPublicUrl(`firmas/${firmaFileName}`);
-            firmaUrl = data.publicUrl;
+              .upload(`firmas/${firmaFileName}`, firmaFile, { upsert: true });
+            if (!fErr) {
+              const { data } = supabase.storage
+                .from('fotos-registros')
+                .getPublicUrl(`firmas/${firmaFileName}`);
+              firmaUrl = data.publicUrl;
+              subida = true;
+            }
           }
+          if (!subida) firmaFallo = true;
         }
-      } catch {}
+      } catch {
+        firmaFallo = true;
+      }
 
       // El RUT va solo a acta_propietario_rut. Antes también se escribía en
       // propietario_contacto, que es donde vive el teléfono, y lo destruía.
@@ -762,12 +778,22 @@ const PreEntregaDepto: React.FC = () => {
 
       try { localStorage.removeItem(datosKey(depto.id)); } catch {}
 
-      setActaGenerada(true);
-      setTimeout(() => { 
-        setModalTerminar(false); 
-        setActaGenerada(false); 
-        salir(); 
-      }, 1800);
+      if (firmaFallo) {
+        // El acta en PDF ya se generó y descargó/compartió con la firma
+        // incluida, así que no bloqueamos eso. Pero avisamos que el enlace de
+        // la firma no quedó guardado en el sistema, para que alguien lo
+        // resuelva manualmente (volviendo a generar el acta con conexión).
+        // Mantenemos el formulario visible (no la pantalla de éxito) para
+        // que el aviso se vea, y no cerramos el modal ni salimos solos.
+        setErrorActa('El acta se generó y descargó correctamente, pero no se pudo guardar la firma en el sistema (revisa tu conexión). El PDF ya tiene la firma incluida.');
+      } else {
+        setActaGenerada(true);
+        setTimeout(() => {
+          setModalTerminar(false);
+          setActaGenerada(false);
+          salir();
+        }, 1800);
+      }
 
     } catch (e: any) {
       setErrorActa('Error: ' + e.message);

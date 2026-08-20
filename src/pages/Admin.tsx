@@ -347,18 +347,23 @@ const Admin: React.FC = () => {
     if (!usuarioPermisos) return;
     const esDefault = permisosRolUsuario.includes(permisoId);
     const deseado = !estadoEfectivoUsuario(permisoId);
+    // Antes se descartaba el resultado de estas escrituras: si fallaban (red,
+    // política RLS, etc.) el admin veía el toggle "volver" a su estado
+    // anterior al refrescar, sin ninguna explicación de por qué no se guardó.
+    let error;
     if (deseado === esDefault) {
       // Vuelve al comportamiento por defecto del rol -> se borra el override
-      await supabase.from('usuario_permisos').delete()
+      ({ error } = await supabase.from('usuario_permisos').delete()
         .eq('usuario_id', usuarioPermisos.id)
-        .eq('permiso_id', permisoId);
+        .eq('permiso_id', permisoId));
     } else {
       // Override explícito: grant (deseado true, rol no lo da) o revoke (deseado false, rol sí lo da)
-      await supabase.from('usuario_permisos').upsert(
+      ({ error } = await supabase.from('usuario_permisos').upsert(
         { usuario_id: usuarioPermisos.id, permiso_id: permisoId, concedido: deseado },
         { onConflict: 'usuario_id,permiso_id' },
-      );
+      ));
     }
+    if (error) setError('No se pudo guardar el permiso: ' + error.message);
     await abrirModalPermisos(usuarioPermisos);
   };
 
@@ -396,11 +401,16 @@ const Admin: React.FC = () => {
   const togglePermisoRol = async (permisoId: string) => {
     if (!rolSel) return;
     const tiene = permisosRolSel.includes(permisoId);
+    // Este permiso aplica a TODOS los usuarios con este rol: un fallo
+    // silencioso aquí es más delicado que en el override individual de
+    // arriba, por eso también avisamos si algo sale mal.
+    let error;
     if (tiene) {
-      await supabase.from('rol_permisos').delete().eq('rol_id', rolSel.id).eq('permiso_id', permisoId);
+      ({ error } = await supabase.from('rol_permisos').delete().eq('rol_id', rolSel.id).eq('permiso_id', permisoId));
     } else {
-      await supabase.from('rol_permisos').insert({ rol_id: rolSel.id, permiso_id: permisoId });
+      ({ error } = await supabase.from('rol_permisos').insert({ rol_id: rolSel.id, permiso_id: permisoId }));
     }
+    if (error) setError('No se pudo guardar el permiso del rol: ' + error.message);
     const { data } = await supabase.from('rol_permisos').select('permiso_id').eq('rol_id', rolSel.id);
     setPermisosRolSel(data?.map(x => x.permiso_id) ?? []);
   };
@@ -419,7 +429,11 @@ const Admin: React.FC = () => {
     } catch (e: any) { setError('Error de conexión: ' + e.message); }
   };
 
-  const aprobarUsuario  = async (u: any) => { await supabase.from('usuarios').update({ estado: 'activo' }).eq('id', u.id); cargar(); };
+  const aprobarUsuario  = async (u: any) => {
+    const { error } = await supabase.from('usuarios').update({ estado: 'activo' }).eq('id', u.id);
+    if (error) setError('No se pudo aprobar al usuario: ' + error.message);
+    cargar();
+  };
   const rechazarUsuario = async () => { if (!usuarioRechazar) return; await eliminarUsuario(usuarioRechazar); setUsuarioRechazar(null); };
 
   const cambiarRol = async (usuario: any, nuevoRol: string) => {
@@ -501,9 +515,24 @@ const Admin: React.FC = () => {
   const guardarAsignacion = async () => {
     if (proyectosSel.length > 0 && !proyectoPrincipal) { setError('Debes marcar un proyecto principal'); return; }
     setGuardando(true); setError('');
-    await supabase.from('usuario_proyectos').delete().eq('usuario_id', usuarioSel.id);
+    // Este delete+insert reemplaza TODAS las asignaciones del usuario. Antes
+    // no se revisaba ningún error: si el delete funcionaba pero el insert
+    // fallaba después (ej. se corta la red a mitad de camino), el usuario
+    // quedaba sin ningún proyecto asignado, sin aviso, y el modal se cerraba
+    // igual como si hubiera funcionado.
+    const { error: delError } = await supabase.from('usuario_proyectos').delete().eq('usuario_id', usuarioSel.id);
+    if (delError) {
+      setError('No se pudo actualizar la asignación: ' + delError.message);
+      setGuardando(false);
+      return;
+    }
     if (proyectosSel.length > 0) {
-      await supabase.from('usuario_proyectos').insert(proyectosSel.map(pid => ({ usuario_id: usuarioSel.id, proyecto_id: pid, es_principal: pid === proyectoPrincipal })));
+      const { error: insError } = await supabase.from('usuario_proyectos').insert(proyectosSel.map(pid => ({ usuario_id: usuarioSel.id, proyecto_id: pid, es_principal: pid === proyectoPrincipal })));
+      if (insError) {
+        setError('Se borraron las asignaciones anteriores pero no se pudieron guardar las nuevas: ' + insError.message + '. Vuelve a intentar antes de cerrar.');
+        setGuardando(false);
+        return;
+      }
     }
     setModalAsignar(false); cargar(); setGuardando(false);
   };
@@ -1329,4 +1358,3 @@ const Admin: React.FC = () => {
 };
 
 export default Admin;
-

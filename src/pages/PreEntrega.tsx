@@ -7,8 +7,9 @@ import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
-import { 
-  square, alert, checkmark, folder, person, build
+import {
+  businessOutline, alertCircleOutline, checkmarkCircleOutline,
+  folderOutline, personOutline, buildOutline, listOutline
 } from 'ionicons/icons';
 import BottomNavBar from '../components/BottomNavBar';
 
@@ -17,13 +18,13 @@ const PreEntregaDashboard: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const bg = dark ? '#000000' : '#f0f4f8';
-  const card = dark ? '#0e0e0e' : '#ffffff';
-  const border = dark ? '#1e1e1e' : '#e2e8f0';
+  const bg = dark ? '#0B1220' : '#f0f4f8';
+  const card = dark ? '#16233B' : '#ffffff';
+  const border = dark ? '#243550' : '#e2e8f0';
   const textPrimary = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted = dark ? '#444444' : '#94a3b8';
-  const toolbar = dark ? '#000000' : '#1e3a5f';
+  const textMuted = dark ? '#5D728F' : '#94a3b8';
+  const toolbar = dark ? '#0E1728' : '#1e3a5f';
 
   const tablaSemanas = [
     { num: 1, mes: 'ENERO', semana: 1, lunes: '2025-12-15', viernes: '2025-12-19' },
@@ -423,7 +424,7 @@ const PreEntregaDashboard: React.FC = () => {
       onClick={onClick}
       style={{
         background: dark
-          ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)'
+          ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)'
           : 'linear-gradient(135deg, #ffffff, #f8fafc)',
         border: `0.5px solid ${border}`,
         borderRadius: 16,
@@ -469,7 +470,7 @@ const PreEntregaDashboard: React.FC = () => {
     return (
       <IonPage style={{ '--background': bg } as any}>
         <IonHeader>
-          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
+          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
             <IonMenuButton slot="start" />
             <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Pre Entrega / Post Venta</IonTitle>
           </IonToolbar>
@@ -486,7 +487,7 @@ const PreEntregaDashboard: React.FC = () => {
   return (
     <IonPage style={{ '--background': bg } as any}>
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
           <IonMenuButton slot="start" />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Pre Entrega / Post Venta</IonTitle>
         </IonToolbar>
@@ -505,12 +506,12 @@ const PreEntregaDashboard: React.FC = () => {
               onClick={() => setModalProyecto(true)}
               style={{
                 background: dark
-                  ? 'linear-gradient(135deg, #111 0%, #1a1a1a 50%, #111 100%)'
+                  ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 50%, #16233B 100%)'
                   : 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
                 borderRadius: 16,
                 padding: '24px 20px',
                 marginBottom: 20,
-                border: dark ? '0.5px solid #2a2a2a' : 'none',
+                border: dark ? '0.5px solid #2E4468' : 'none',
                 position: 'relative',
                 overflow: 'hidden',
                 cursor: 'pointer',
@@ -527,13 +528,13 @@ const PreEntregaDashboard: React.FC = () => {
             >
               <div style={{ position: 'absolute', top: -40, right: -40, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
               <div style={{ position: 'relative', zIndex: 1 }}>
-                <div style={{ fontSize: 11, color: dark ? '#555' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: dark ? '#6E86A6' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
                   Proyecto Actual • Click para cambiar
                 </div>
                 <div style={{ fontSize: 26, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
                   {proyectoSel.nombre}
                 </div>
-                <div style={{ fontSize: 12, color: dark ? '#777' : 'rgba(255,255,255,0.7)' }}>
+                <div style={{ fontSize: 12, color: dark ? '#8296B0' : 'rgba(255,255,255,0.7)' }}>
                   Código: {proyectoSel.codigo || '—'}
                 </div>
               </div>
@@ -566,14 +567,14 @@ const PreEntregaDashboard: React.FC = () => {
           </div>
 
           {/* SEPARADOR VISUAL */}
-          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
+          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
 
           {/* KPI GRID 2x3 + 1 */}
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 9, color: textMuted, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>Estado de Deptos</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
               <KPICard
-                icon={square}
+                icon={businessOutline}
                 color="#3b82f6"
                 label="Deptos. Totales"
                 value={kpis.totalDeptos}
@@ -584,7 +585,7 @@ const PreEntregaDashboard: React.FC = () => {
                 }}
               />
               <KPICard
-                icon={alert}
+                icon={alertCircleOutline}
                 color="#ef4444"
                 label="Sin Pre Entrega"
                 value={kpis.sinPreE}
@@ -595,7 +596,7 @@ const PreEntregaDashboard: React.FC = () => {
                 }}
               />
               <KPICard
-                icon={build}
+                icon={buildOutline}
                 color="#f59e0b"
                 label="En Proceso"
                 value={kpis.enProceso}
@@ -606,7 +607,7 @@ const PreEntregaDashboard: React.FC = () => {
                 }}
               />
               <KPICard
-                icon={alert}
+                icon={listOutline}
                 color="#8b5cf6"
                 label="Obs. Promedio"
                 value={kpis.conObs}
@@ -614,7 +615,7 @@ const PreEntregaDashboard: React.FC = () => {
                 onClick={() => {}}
               />
               <KPICard
-                icon={checkmark}
+                icon={checkmarkCircleOutline}
                 color="#22c55e"
                 label="Listo Para Entregar"
                 value={kpis.obsResueltas}
@@ -625,7 +626,7 @@ const PreEntregaDashboard: React.FC = () => {
                 }}
               />
               <KPICard
-                icon={folder}
+                icon={folderOutline}
                 color="#06b6d4"
                 label="Entregados Inmob."
                 value={kpis.entregadosInmobiliaria}
@@ -639,7 +640,7 @@ const PreEntregaDashboard: React.FC = () => {
 
             {/* Séptimo KPI - Full width */}
             <KPICard
-              icon={person}
+              icon={personOutline}
               color="#ec4899"
               label="Entregados a Propietario"
               value={kpis.entregadosPropietario}
@@ -652,17 +653,17 @@ const PreEntregaDashboard: React.FC = () => {
           </div>
 
           {/* SEPARADOR VISUAL */}
-          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
+          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
 
           {/* SEPARADOR VISUAL */}
-          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
+          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
 
           {/* ANTIGÜEDAD PRE ENTREGA - TÍTULO ARRIBA */}
           <div style={{ fontSize: 9, color: textMuted, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>Observaciones Pre Entrega por Antigüedad</div>
 
           {/* ANTIGÜEDAD PRE ENTREGA */}
           <div style={{ marginBottom: 20 }}>
-            <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)', border: `0.5px solid ${border}`, borderRadius: 16, padding: 16 }}>
+            <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)', border: `0.5px solid ${border}`, borderRadius: 16, padding: 16 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
                 {[
                   { label: 'Menos de 7 días', obs: kpis.antiguedad.hasta7, deptos: deptosPorAntiguedad.menos7, color: '#ef4444', textColor: '#f87171', tipo: 'antiguedad_menos7' },
@@ -677,7 +678,7 @@ const PreEntregaDashboard: React.FC = () => {
                       history.push('/deptos-filtrados', { tipo: item.tipo, proyectoId, proyectoNombre: proyectoSel?.nombre });
                     }}
                     style={{ 
-                      background: dark ? '#111' : '#f8fafc', 
+                      background: dark ? '#16233B' : '#f8fafc', 
                       borderRadius: 12, 
                       padding: 12, 
                       textAlign: 'center', 
@@ -710,12 +711,12 @@ const PreEntregaDashboard: React.FC = () => {
           </div>
 
           {/* SEPARADOR VISUAL */}
-          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
+          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
 
           {/* ANTIGÜEDAD POST VENTA */}
           <div>
             <div style={{ fontSize: 9, color: textMuted, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>Observaciones Post Venta por Antigüedad</div>
-            <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)', border: `0.5px solid ${border}`, borderRadius: 16, padding: 16 }}>
+            <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)', border: `0.5px solid ${border}`, borderRadius: 16, padding: 16 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
                 {[
                   { label: 'Menos de 7 días', count: 0, color: '#ef4444' },
@@ -723,7 +724,7 @@ const PreEntregaDashboard: React.FC = () => {
                   { label: '15 a 30 días', count: 0, color: '#8b5cf6' },
                   { label: 'Más de 30 días', count: 0, color: '#6b7280' }
                 ].map((item, idx) => (
-                  <div key={idx} style={{ background: dark ? '#111' : '#f8fafc', borderRadius: 12, padding: 12, textAlign: 'center', border: `0.5px solid ${border}` }}>
+                  <div key={idx} style={{ background: dark ? '#16233B' : '#f8fafc', borderRadius: 12, padding: 12, textAlign: 'center', border: `0.5px solid ${border}` }}>
                     <div style={{ fontSize: 24, fontWeight: 800, color: item.color, marginBottom: 8, lineHeight: 1 }}>
                       {item.count}
                     </div>

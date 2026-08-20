@@ -1,8 +1,7 @@
 import {
   IonContent, IonPage, IonHeader, IonToolbar, IonTitle,
   IonSpinner, IonModal, IonMenuButton,
-  IonRefresher, IonRefresherContent,
-  IonSegment, IonSegmentButton, IonLabel
+  IonRefresher, IonRefresherContent
 } from '@ionic/react';
 import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
@@ -63,7 +62,7 @@ const PerfilStats: React.FC<PerfilStatsProps> = ({
           { icon: '📋', valor: stats?.total ?? 0, label: 'Obs registradas', color: dark ? '#60a5fa' : '#2563eb' },
           { icon: '🏠', valor: stats?.deptosUnicos ?? 0, label: 'Deptos', color: dark ? '#4ade80' : '#15803d' },
         ].map(s => (
-          <div key={s.label} style={{ flex: 1, background: dark ? '#111' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
+          <div key={s.label} style={{ flex: 1, background: dark ? '#16233B' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
             <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
             <div style={{ fontSize: 28, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.valor}</div>
             <div style={{ fontSize: 10, color: textMuted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.8px' }}>{s.label}</div>
@@ -73,7 +72,7 @@ const PerfilStats: React.FC<PerfilStatsProps> = ({
       {stats?.partidaTop ? (
         <>
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 10 }}>Partida más observada</div>
-          <div style={{ background: dark ? '#111' : '#f8fafc', borderRadius: 14, padding: '14px 16px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ background: dark ? '#16233B' : '#f8fafc', borderRadius: 14, padding: '14px 16px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: dark ? 'rgba(251,191,36,0.08)' : '#fffbeb', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔧</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{stats.partidaTop.nombre}</div>
@@ -122,21 +121,21 @@ const Dashboard: React.FC = () => {
   const [deptoAccionData, setDeptoAccionData]     = useState<any>(null);
   const [modalPerfil, setModalPerfil]             = useState(false);
 
-  const bg          = dark ? '#000000' : '#f0f4f8';
-  const card        = dark ? '#0e0e0e'  : '#ffffff';
-  const border      = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg          = dark ? '#0B1220' : '#f0f4f8';
+  const card        = dark ? '#16233B'  : '#ffffff';
+  const border      = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
 
-  const kpiCardBg     = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #181818 100%)' : '#ffffff';
-  const kpiCardBorder = dark ? '#1e1e1e' : '#e2e8f0';
-  const kpiSepBorder  = dark ? '#1a1a1a' : '#f1f5f9';
+  const kpiCardBg     = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const kpiCardBorder = dark ? '#243550' : '#e2e8f0';
+  const kpiSepBorder  = dark ? '#1E2E4A' : '#f1f5f9';
   const kpiNumColor   = dark ? '#f9fafb' : '#0f172a';
-  const kpiSubColor   = dark ? '#444'    : '#94a3b8';
-  const kpiInfoColor  = dark ? '#555'    : '#94a3b8';
-  const donutTrack    = dark ? '#1a1a1a' : '#f0fdf4';
+  const kpiSubColor   = dark ? '#5D728F'    : '#94a3b8';
+  const kpiInfoColor  = dark ? '#6E86A6'    : '#94a3b8';
+  const donutTrack    = dark ? '#1E2E4A' : '#f0fdf4';
 
   useEffect(() => {
     cargarDatos(true);
@@ -255,8 +254,8 @@ const Dashboard: React.FC = () => {
   return (
     <IonPage>
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.6)' }} />
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.6)' }} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Inicio</IonTitle>
           <div slot="end" style={{ display: 'flex', alignItems: 'center', gap: 10, paddingRight: 14 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
@@ -272,15 +271,60 @@ const Dashboard: React.FC = () => {
 
         <div style={{ padding: '16px 16px 100px' }}>
 
-          {/* Selector de área */}
+          {/* Selector de área — pastillas deslizables */}
           {areasPermitidas.length > 1 && (
-            <IonSegment value={area} onIonChange={(e) => setArea(e.detail.value as AreaDashboard)} style={{ marginBottom: 18 }}>
-              {areasPermitidas.map((a) => (
-                <IonSegmentButton key={a} value={a}>
-                  <IonLabel>{ETIQUETA_AREA[a]}</IonLabel>
-                </IonSegmentButton>
-              ))}
-            </IonSegment>
+            <div style={{
+              position: 'relative',
+              display: 'flex',
+              background: card,
+              border: `1px solid ${border}`,
+              borderRadius: 999,
+              padding: 4,
+              marginBottom: 18
+            }}>
+              {/* Píldora deslizante */}
+              <div style={{
+                position: 'absolute',
+                top: 4,
+                bottom: 4,
+                left: 4,
+                width: `calc((100% - 8px) / ${areasPermitidas.length})`,
+                transform: `translateX(${areasPermitidas.indexOf(area) * 100}%)`,
+                background: 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+                borderRadius: 999,
+                transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: dark ? '0 2px 8px rgba(37,99,235,0.35)' : '0 2px 8px rgba(30,58,95,0.25)',
+                zIndex: 0
+              }} />
+              {areasPermitidas.map((a) => {
+                const activo = a === area;
+                return (
+                  <button
+                    key={a}
+                    onClick={() => setArea(a)}
+                    style={{
+                      flex: 1,
+                      position: 'relative',
+                      zIndex: 1,
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: 999,
+                      padding: '9px 8px',
+                      fontSize: 12.5,
+                      fontWeight: activo ? 700 : 600,
+                      color: activo ? '#fff' : textSecondary,
+                      cursor: 'pointer',
+                      transition: 'color 0.2s',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}
+                  >
+                    {ETIQUETA_AREA[a]}
+                  </button>
+                );
+              })}
+            </div>
           )}
 
           {/* ÁREA: Obra gruesa */}
@@ -299,16 +343,16 @@ const Dashboard: React.FC = () => {
           {proyectoPrincipal && (
             <div onClick={() => history.push(`/proyectos/${proyectoPrincipal.id}`)} style={{
               background: dark
-                ? 'linear-gradient(135deg, #111 0%, #1a1a1a 50%, #111 100%)'
+                ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 50%, #16233B 100%)'
                 : 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
               borderRadius: 16, padding: '16px 18px', marginBottom: 20,
-              border: dark ? '0.5px solid #2a2a2a' : 'none',
+              border: dark ? '0.5px solid #2E4468' : 'none',
               position: 'relative', overflow: 'hidden', cursor: 'pointer'
             }}>
               <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                 <span style={{ fontSize: 12 }}>⭐</span>
-                <span style={{ fontSize: 9, color: dark ? '#555' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600 }}>Proyecto Principal</span>
+                <span style={{ fontSize: 9, color: dark ? '#6E86A6' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600 }}>Proyecto Principal</span>
                 {lcPrincipal && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 4 }}>
                     <div style={{ width: 7, height: 7, borderRadius: '50%', background: lcPrincipal.color, flexShrink: 0 }} />
@@ -317,8 +361,8 @@ const Dashboard: React.FC = () => {
                 )}
               </div>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', letterSpacing: '-0.5px' }}>{proyectoPrincipal.nombre}</div>
-              {proyectoPrincipal.direccion && <div style={{ fontSize: 11, color: dark ? '#444' : 'rgba(255,255,255,0.4)', marginTop: 4 }}>📍 {proyectoPrincipal.direccion}</div>}
-              <div style={{ position: 'absolute', bottom: 14, right: 18, fontSize: 18, color: dark ? '#2a2a2a' : 'rgba(255,255,255,0.3)' }}>›</div>
+              {proyectoPrincipal.direccion && <div style={{ fontSize: 11, color: dark ? '#5D728F' : 'rgba(255,255,255,0.4)', marginTop: 4 }}>📍 {proyectoPrincipal.direccion}</div>}
+              <div style={{ position: 'absolute', bottom: 14, right: 18, fontSize: 18, color: dark ? '#2E4468' : 'rgba(255,255,255,0.3)' }}>›</div>
             </div>
           )}
 
@@ -340,7 +384,7 @@ const Dashboard: React.FC = () => {
                       {ultimoDepto.torres?.frente} · {ultimoDepto.departamentos?.id_obra}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#eff6ff', border: dark ? '0.5px solid #2a2a2a' : '0.5px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: dark ? '#777' : '#2563eb', fontWeight: 700 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#eff6ff', border: dark ? '0.5px solid #2E4468' : '0.5px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: dark ? '#8296B0' : '#2563eb', fontWeight: 700 }}>
                         {iniciales(ultimoDepto.usuarios?.nombre ?? '')}
                       </div>
                       <span style={{ fontSize: 12, color: textSecondary }}>{ultimoDepto.usuarios?.nombre ?? 'desconocido'}</span>
@@ -362,7 +406,7 @@ const Dashboard: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
               <div onClick={() => deptoMasObs && irARevision(deptoMasObs.info.departamentos?.id, deptoMasObs.info.torres?.id)}
                 style={{ background: kpiCardBg, borderRadius: 16, padding: 16, border: `0.5px solid ${kpiCardBorder}`, cursor: deptoMasObs ? 'pointer' : 'default', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', bottom: -10, right: -10, width: 60, height: 60, borderRadius: '50%', background: dark ? 'radial-gradient(circle, #1f1a0a 0%, transparent 70%)' : '#fffbeb' }} />
+                <div style={{ position: 'absolute', bottom: -10, right: -10, width: 60, height: 60, borderRadius: '50%', background: dark ? 'radial-gradient(circle, rgba(217,119,6,0.12) 0%, transparent 70%)' : '#fffbeb' }} />
                 <div style={{ fontSize: 9, color: '#d97706', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>⚠ Más obs</div>
                 <div style={{ fontSize: 40, fontWeight: 800, color: kpiNumColor, lineHeight: 1, marginBottom: 3 }}>{deptoMasObs?.count ?? '—'}</div>
                 <div style={{ fontSize: 11, color: kpiSubColor }}>obs activas</div>
@@ -376,7 +420,7 @@ const Dashboard: React.FC = () => {
 
               <div onClick={() => proyectoPrincipal && history.push(`/proyectos/${proyectoPrincipal.id}`)}
                 style={{ background: kpiCardBg, borderRadius: 16, padding: 16, border: `0.5px solid ${kpiCardBorder}`, cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', bottom: -10, right: -10, width: 60, height: 60, borderRadius: '50%', background: dark ? 'radial-gradient(circle, #0a1a0e 0%, transparent 70%)' : '#f0fdf4' }} />
+                <div style={{ position: 'absolute', bottom: -10, right: -10, width: 60, height: 60, borderRadius: '50%', background: dark ? 'radial-gradient(circle, rgba(34,197,94,0.12) 0%, transparent 70%)' : '#f0fdf4' }} />
                 <div style={{ fontSize: 9, color: dark ? '#4ade80' : '#16a34a', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>📊 Avance</div>
                 <div style={{ position: 'relative', width: 64, height: 64, margin: '0 auto 10px' }}>
                   <svg width="64" height="64" viewBox="0 0 64 64">
@@ -394,7 +438,7 @@ const Dashboard: React.FC = () => {
 
           {/* Separador */}
           {proyectos.length > 0 && (
-            <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 18 }} />
+            <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 18 }} />
           )}
 
           {/* Proyectos activos */}
@@ -407,15 +451,15 @@ const Dashboard: React.FC = () => {
                 return (
                   <div key={p.id} onClick={() => history.push(`/proyectos/${p.id}`)} style={{
                     background: dark
-                      ? (esPrincipal ? 'linear-gradient(135deg, #111 0%, #1a1a1a 50%, #111 100%)' : 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)')
+                      ? (esPrincipal ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 50%, #16233B 100%)' : 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)')
                       : (esPrincipal ? 'linear-gradient(135deg, #eff6ff, #fff)' : '#fff'),
                     borderRadius: 14, padding: '14px 16px', marginBottom: 8,
                     border: dark
-                      ? (esPrincipal ? '0.5px solid #2a2a2a' : '0.5px solid #1a1a1a')
+                      ? (esPrincipal ? '0.5px solid #2E4468' : '0.5px solid #1E2E4A')
                       : (esPrincipal ? '0.5px solid #bfdbfe' : '0.5px solid #e2e8f0'),
                     display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer'
                   }}>
-                    <div style={{ width: 42, height: 42, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : (esPrincipal ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : '#f8fafc'), border: dark ? '0.5px solid #2a2a2a' : (esPrincipal ? 'none' : '0.5px solid #e2e8f0'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: dark ? '#666' : (esPrincipal ? '#fff' : '#64748b'), flexShrink: 0 }}>
+                    <div style={{ width: 42, height: 42, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : (esPrincipal ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : '#f8fafc'), border: dark ? '0.5px solid #2E4468' : (esPrincipal ? 'none' : '0.5px solid #e2e8f0'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: dark ? '#6E86A6' : (esPrincipal ? '#fff' : '#64748b'), flexShrink: 0 }}>
                       {p.codigo ? p.codigo.toUpperCase() : p.nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -431,7 +475,7 @@ const Dashboard: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    <div style={{ fontSize: 18, color: dark ? '#2a2a2a' : '#bfdbfe' }}>›</div>
+                    <div style={{ fontSize: 18, color: dark ? '#2E4468' : '#bfdbfe' }}>›</div>
                   </div>
                 );
               })}
@@ -443,7 +487,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Bottom bar */}
-        <div style={{ position: 'sticky', bottom: 0, background: dark ? 'linear-gradient(180deg, transparent 0%, #000 40%)' : 'linear-gradient(180deg, transparent 0%, #f0f4f8 40%)', padding: '20px 20px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ position: 'sticky', bottom: 0, background: dark ? 'linear-gradient(180deg, transparent 0%, #0B1220 40%)' : 'linear-gradient(180deg, transparent 0%, #f0f4f8 40%)', padding: '20px 20px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 5, height: 5, borderRadius: '50%', background: online ? '#22c55e' : '#fbbf24' }} />
           <span style={{ fontSize: 12, color: textMuted }}>
             {online ? (pendientes > 0 ? `Sincronizando ${pendientes} registro(s)...` : 'Sincronizado') : `Sin conexión${pendientes > 0 ? ` · ${pendientes} en cola` : ''}`}
@@ -466,7 +510,7 @@ const Dashboard: React.FC = () => {
           <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto' }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
-              <div style={{ width: 52, height: 52, borderRadius: 14, flexShrink: 0, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: dark ? '#666' : '#fff' }}>
+              <div style={{ width: 52, height: 52, borderRadius: 14, flexShrink: 0, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: dark ? '#6E86A6' : '#fff' }}>
                 {iniciales(usuario?.nombre ?? '')}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>

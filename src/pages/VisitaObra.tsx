@@ -73,10 +73,16 @@ const useFotos = () => {
     setFotos(prev => { URL.revokeObjectURL(prev[idx].preview); return prev.filter((_, i) => i !== idx); });
   }, []);
 
+  // Sube las fotos pendientes y devuelve sus URLs. Si alguna falla, lanza un
+  // error en vez de omitirla en silencio: antes, una foto que fallaba al subir
+  // simplemente no entraba en `urls`, y el llamador guardaba la observación
+  // como exitosa e igualmente vaciaba las fotos locales (resetFotos), perdiendo
+  // esa foto para siempre sin que el usuario se enterara.
   const subirFotos = useCallback(async (visitaId: string, nivel: string): Promise<string[]> => {
     if (fotos.length === 0) return [];
     setSubiendo(true);
     const urls: string[] = [];
+    const fallidas: string[] = [];
     for (let i = 0; i < fotos.length; i++) {
       const f = fotos[i];
       if (f.subida && f.url) { urls.push(f.url); continue; }
@@ -88,10 +94,17 @@ const useFotos = () => {
         if (pub?.publicUrl) {
           urls.push(pub.publicUrl);
           setFotos(prev => prev.map((pf, idx) => idx === i ? { ...pf, subida: true, url: pub.publicUrl } : pf));
+        } else {
+          fallidas.push(f.file.name);
         }
+      } else {
+        fallidas.push(f.file.name);
       }
     }
     setSubiendo(false);
+    if (fallidas.length > 0) {
+      throw new Error(`No se pudieron subir ${fallidas.length} foto(s). Revisa tu conexión e inténtalo de nuevo.`);
+    }
     return urls;
   }, [fotos]);
 
@@ -190,6 +203,9 @@ const VisitaObra: React.FC = () => {
   const [obsProyecto, setObsProyecto]           = useState('');
   const [obsTorre, setObsTorre]                 = useState('');
   const [obsDepto, setObsDepto]                 = useState('');
+  const [errorObsProyecto, setErrorObsProyecto] = useState('');
+  const [errorObsTorre, setErrorObsTorre]       = useState('');
+  const [errorObsDepto, setErrorObsDepto]       = useState('');
   const [actividadReal, setActividadReal]       = useState('');
   const [pantalla, setPantalla]                 = useState<'inicio'|'torres'|'torre'|'depto'|'historial'|'detalleVisita'>('inicio');
   // ── Reanudación / historial ────────────────────────────────────────────────
@@ -421,7 +437,11 @@ const VisitaObra: React.FC = () => {
 
   const guardarObs = async (nivel: string, extra: any = {}) => {
     if (!visita) return;
-    await supabase.from('visita_observaciones').insert({ visita_id: visita.id, nivel, ...extra });
+    const { error } = await supabase.from('visita_observaciones').insert({ visita_id: visita.id, nivel, ...extra });
+    // Antes no se revisaba `error`: si el insert fallaba (red, RLS, etc.) la
+    // observación y las fotos ya subidas se perdían sin ningún aviso, y el
+    // formulario se limpiaba igual como si se hubiera guardado con éxito.
+    if (error) throw new Error('No se pudo guardar la observación: ' + error.message);
   };
 
   const aplicarMoldaje = () => {
@@ -498,32 +518,52 @@ const VisitaObra: React.FC = () => {
     return { tipo: 'sin_teorico', titulo: 'Sin datos teóricos para comparar', subtitulo: actual ? `Real: ${actReal} · Teórico: ${actual.actividad}` : `${actReal} no tiene programa definido para este frente`, desfaseDias: null };
   };
 
+  // Nota general: antes estas tres funciones limpiaban el formulario (texto y
+  // fotos) sin importar si la subida de fotos o el guardado en la base de
+  // datos fallaban. Ahora, si algo falla, se muestra un error y NO se limpia
+  // nada, para que el usuario pueda reintentar sin perder lo que escribió o
+  // las fotos que tomó.
   const guardarObsProyecto = async () => {
     if (!obsProyecto.trim() && fotosProyecto.fotos.length === 0) return;
-    const urls = await fotosProyecto.subirFotos(visita.id, 'proyecto');
-    await guardarObs('proyecto', { observacion: obsProyecto || null, fotos_urls: urls });
-    setObsProyecto(''); fotosProyecto.resetFotos();
+    setErrorObsProyecto('');
+    try {
+      const urls = await fotosProyecto.subirFotos(visita.id, 'proyecto');
+      await guardarObs('proyecto', { observacion: obsProyecto || null, fotos_urls: urls });
+      setObsProyecto(''); fotosProyecto.resetFotos();
+    } catch (e: any) {
+      setErrorObsProyecto(e.message ?? 'Error al guardar la observación');
+    }
   };
 
   const guardarObsTorre = async () => {
     if (!obsTorre.trim() && fotosTorre.fotos.length === 0) return;
-    const urls = await fotosTorre.subirFotos(visita.id, 'torre');
-    await guardarObs('torre', { torre_id: torreSel?.id, observacion: obsTorre || null, fotos_urls: urls });
-    setObsTorre(''); fotosTorre.resetFotos();
+    setErrorObsTorre('');
+    try {
+      const urls = await fotosTorre.subirFotos(visita.id, 'torre');
+      await guardarObs('torre', { torre_id: torreSel?.id, observacion: obsTorre || null, fotos_urls: urls });
+      setObsTorre(''); fotosTorre.resetFotos();
+    } catch (e: any) {
+      setErrorObsTorre(e.message ?? 'Error al guardar la observación');
+    }
   };
 
   const guardarObsDepto = async () => {
-    const info   = infoDepto() ?? { actual: null, antes: [], despues: [] };
-    const actual = info.actual;
-    const badge  = calcularBadge(actividadReal, actual, deptoSel?.frente_depto, resultadoCalculo?.diaObra);
-    const urls   = await fotosDepto.subirFotos(visita.id, 'depto');
-    await guardarObs('departamento', {
-      torre_id: torreSel?.id, departamento_id: deptoSel?.id,
-      observacion: obsDepto || null, frente_depto: deptoSel?.frente_depto,
-      actividad_teorica: actual?.actividad ?? null, cuadrilla_teorica: actual?.cuadrilla ?? null,
-      actividad_real: actividadReal || null, desfase_dias: badge?.desfaseDias ?? null, fotos_urls: urls,
-    });
-    setObsDepto(''); setActividadReal(''); fotosDepto.resetFotos(); setPantalla('torre');
+    setErrorObsDepto('');
+    try {
+      const info   = infoDepto() ?? { actual: null, antes: [], despues: [] };
+      const actual = info.actual;
+      const badge  = calcularBadge(actividadReal, actual, deptoSel?.frente_depto, resultadoCalculo?.diaObra);
+      const urls   = await fotosDepto.subirFotos(visita.id, 'depto');
+      await guardarObs('departamento', {
+        torre_id: torreSel?.id, departamento_id: deptoSel?.id,
+        observacion: obsDepto || null, frente_depto: deptoSel?.frente_depto,
+        actividad_teorica: actual?.actividad ?? null, cuadrilla_teorica: actual?.cuadrilla ?? null,
+        actividad_real: actividadReal || null, desfase_dias: badge?.desfaseDias ?? null, fotos_urls: urls,
+      });
+      setObsDepto(''); setActividadReal(''); fotosDepto.resetFotos(); setPantalla('torre');
+    } catch (e: any) {
+      setErrorObsDepto(e.message ?? 'Error al guardar la observación');
+    }
   };
 
   const cuadrillasAgrupadas = agruparPorCuadrilla(actividades);
@@ -686,6 +726,7 @@ const VisitaObra: React.FC = () => {
                   style={{ width: '100%', height: 44, borderRadius: 10, marginTop: 10, background: (obsProyecto.trim() || fotosProyecto.fotos.length > 0) ? 'rgba(59,130,246,0.08)' : 'transparent', border: `0.5px solid ${(obsProyecto.trim() || fotosProyecto.fotos.length > 0) ? 'rgba(59,130,246,0.3)' : border}`, color: (obsProyecto.trim() || fotosProyecto.fotos.length > 0) ? '#3b82f6' : textMuted, fontSize: 14, fontWeight: 500, cursor: (obsProyecto.trim() || fotosProyecto.fotos.length > 0) ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                   {fotosProyecto.subiendo ? <><IonSpinner name="crescent" style={{ width: 16, height: 16 }} /> Subiendo fotos...</> : '✓ Guardar observación'}
                 </button>
+                {errorObsProyecto && <div style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{errorObsProyecto}</div>}
               </div>
 
               <button onClick={() => setPantalla('torres')} style={{ width: '100%', height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
@@ -1086,6 +1127,7 @@ const VisitaObra: React.FC = () => {
               style={{ width: '100%', height: 44, borderRadius: 10, marginTop: 10, background: (obsTorre.trim() || fotosTorre.fotos.length > 0) ? 'rgba(59,130,246,0.08)' : 'transparent', border: `0.5px solid ${(obsTorre.trim() || fotosTorre.fotos.length > 0) ? 'rgba(59,130,246,0.3)' : border}`, color: (obsTorre.trim() || fotosTorre.fotos.length > 0) ? '#3b82f6' : textMuted, fontSize: 14, fontWeight: 500, cursor: (obsTorre.trim() || fotosTorre.fotos.length > 0) ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               {fotosTorre.subiendo ? <><IonSpinner name="crescent" style={{ width: 16, height: 16 }} /> Subiendo fotos...</> : '✓ Guardar observación'}
             </button>
+            {errorObsTorre && <div style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{errorObsTorre}</div>}
           </div>
         </div>
         <ModalTerminar />
@@ -1241,6 +1283,7 @@ const VisitaObra: React.FC = () => {
                 style={{ width: '100%', height: 44, borderRadius: 10, marginTop: 10, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: fotosDepto.subiendo ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 {fotosDepto.subiendo ? <><IonSpinner name="crescent" style={{ width: 16, height: 16 }} /> Subiendo fotos...</> : '✓ Guardar y volver'}
               </button>
+              {errorObsDepto && <div style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{errorObsDepto}</div>}
             </div>
           </div>
           <ModalTerminar />
