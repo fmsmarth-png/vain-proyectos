@@ -200,9 +200,15 @@ const GenerarVale: React.FC = () => {
     const { data: torresData } = await supabase
       .from('torres')
       .select('id, nombre, frente')
-      .eq('proyecto_id', proy.id)
-      .order('nombre');
-    if (torresData) setTorres(torresData as Torre[]);
+      .eq('proyecto_id', proy.id);
+    if (torresData) {
+      // Se ordena por número de frente (orden de construcción), no por la
+      // letra definitiva de venta — pueden no coincidir. Comparación
+      // numérica real para que "10" no quede antes que "2".
+      const ordenadas = (torresData as Torre[]).slice().sort((a, b) =>
+        a.frente.localeCompare(b.frente, undefined, { numeric: true }));
+      setTorres(ordenadas);
+    }
 
     const { data: actividadesData } = await supabase
       .from('bodega_actividades')
@@ -262,6 +268,21 @@ const GenerarVale: React.FC = () => {
     setDeptosSeleccionados(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // Selecciona o deselecciona TODOS los departamentos de un frente de una vez.
+  // Si ya están todos seleccionados, el clic los quita a todos (toggle);
+  // si falta alguno, el clic completa el grupo. La selección individual de
+  // cada departamento sigue disponible debajo, por si se necesita pedir
+  // solo uno de los dos.
+  const toggleFrenteCompleto = (deptosDelFrente: Departamento[]) => {
+    const ids = deptosDelFrente.map(d => d.id);
+    const todosSeleccionados = ids.every(id => deptosSeleccionados.has(id));
+    setDeptosSeleccionados(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => (todosSeleccionados ? next.delete(id) : next.add(id)));
       return next;
     });
   };
@@ -523,21 +544,49 @@ const GenerarVale: React.FC = () => {
 
                 {mostrarDeptos && (
                   <div style={{ border: `0.5px solid ${border}`, borderRadius: 10, marginTop: 4, padding: 10, background: inputBg, position: 'absolute', zIndex: 10, width: '100%', maxHeight: 280, overflowY: 'auto', boxSizing: 'border-box' }}>
-                    {deptosPorFrente.map(([frente, deptos]) => (
-                      <div key={frente} style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 12, color: textMuted, marginBottom: 4 }}>Frente {frente}</div>
-                        {deptos.map(d => (
-                          <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: textPrimary, padding: '4px 0' }}>
+                    {deptosPorFrente.map(([frente, deptos]) => {
+                      const idsGrupo = deptos.map(d => d.id);
+                      const todosSeleccionados = idsGrupo.every(id => deptosSeleccionados.has(id));
+                      const algunoSeleccionado = idsGrupo.some(id => deptosSeleccionados.has(id));
+                      return (
+                        <div key={frente} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 2px', borderBottom: `0.5px solid ${border}` }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 600, color: textPrimary, cursor: 'pointer', flexShrink: 0 }}>
                             <input
                               type="checkbox"
-                              checked={deptosSeleccionados.has(d.id)}
-                              onChange={() => toggleDepto(d.id)}
+                              checked={todosSeleccionados}
+                              ref={el => { if (el) el.indeterminate = !todosSeleccionados && algunoSeleccionado; }}
+                              onChange={() => toggleFrenteCompleto(deptos)}
+                              style={{ width: 18, height: 18 }}
                             />
-                            {d.id_obra} <span style={{ color: textMuted, fontSize: 12 }}>(depto {d.numero})</span>
+                            {frente}
                           </label>
-                        ))}
-                      </div>
-                    ))}
+
+                          {/* Deptos individuales: acción secundaria, para pedir
+                              solo uno del frente en vez del frente completo */}
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            {deptos.map(d => {
+                              const marcado = deptosSeleccionados.has(d.id);
+                              const sufijo = d.id_obra.includes('.') ? d.id_obra.split('.').pop() : d.numero;
+                              return (
+                                <span
+                                  key={d.id}
+                                  onClick={() => toggleDepto(d.id)}
+                                  title={`${d.id_obra} (depto ${d.numero})`}
+                                  style={{
+                                    fontSize: 11, padding: '3px 8px', borderRadius: 8, cursor: 'pointer',
+                                    border: `0.5px solid ${marcado ? azul : border}`,
+                                    background: marcado ? azulBg : 'transparent',
+                                    color: marcado ? azul : textMuted,
+                                  }}
+                                >
+                                  .{sufijo}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                     {departamentos.length === 0 && (
                       <div style={{ fontSize: 13, color: textMuted }}>Esta torre no tiene departamentos cargados.</div>
                     )}

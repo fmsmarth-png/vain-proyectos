@@ -1,8 +1,9 @@
 import { IonContent, IonHeader, IonMenuButton, IonPage, IonToolbar, IonTitle, IonToast } from '@ionic/react';
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useIonViewDidEnter } from '@ionic/react';
 import { useTheme } from '../Context/ThemeContext';
+import { usePermiso } from '../Context/usePermiso';
 import { supabase } from '../supabase';
 
 // ============================================================
@@ -32,7 +33,9 @@ interface Vale {
   codigo: string;
   retira_nombre: string;
   fecha_emision: string;
-  torres: { nombre: string } | null;
+  emitido_por: string | null;
+  usuarios: { nombre: string | null } | null;
+  torres: { nombre: string; frente: string } | null;
   vales_bodega_deptos: DeptoVale[];
   vales_bodega_items: ItemVale[];
 }
@@ -90,9 +93,13 @@ const AprobacionBodega: React.FC = () => {
     return { bg: amarilloBg, color: amarillo, border: amarilloBord, label: 'Pendiente' };
   };
 
+  const { tienePermiso } = usePermiso();
+  const puedeAprobar = tienePermiso('bodega_aprobar');
+
   // ── estado ─────────────────────────────────────────────────────────────
   const [proyecto, setProyecto] = useState<Proyecto | null>(location.state?.proyecto ?? null);
   const [vales, setVales] = useState<Vale[]>([]);
+  const [filtroEmisor, setFiltroEmisor] = useState('');
   const [expandidoId, setExpandidoId] = useState<string | null>(null);
   const [rechazoAbierto, setRechazoAbierto] = useState<Record<string, boolean>>({});
   const [motivos, setMotivos] = useState<Record<string, string>>({});
@@ -108,14 +115,15 @@ const AprobacionBodega: React.FC = () => {
     const { data, error } = await supabase
       .from('vales_bodega')
       .select(`
-        id, codigo, retira_nombre, fecha_emision,
-        torres ( nombre ),
+        id, codigo, retira_nombre, fecha_emision, emitido_por,
+        usuarios ( nombre ),
+        torres ( nombre, frente ),
         vales_bodega_deptos ( departamentos ( id_obra, frente_depto ) ),
         vales_bodega_items ( id, material_id, cantidad_solicitada, cantidad_entregada, estado, motivo_rechazo, observacion, bodega_materiales ( nombre, unidad ) )
       `)
       .eq('proyecto_id', proyectoId)
       .order('fecha_emision', { ascending: false })
-      .limit(50);
+      .limit(300);
     if (!error && data) setVales(data as unknown as Vale[]);
   }, []);
 
@@ -184,6 +192,43 @@ const AprobacionBodega: React.FC = () => {
     v.vales_bodega_deptos.forEach(d => { if (d.departamentos?.frente_depto) set.add(d.departamentos.frente_depto); });
     return Array.from(set).join(', ');
   };
+
+  // ── filtro por emisor + agrupación por día ──────────────────────────────
+  // Se agrupa por ID de usuario (emitido_por), no por nombre — dos cuentas
+  // distintas pueden compartir el mismo nombre, y agrupar por texto las
+  // colapsaría en una sola opción del filtro.
+  const emisores = useMemo(() => {
+    const mapa = new Map<string, string>();
+    vales.forEach(v => {
+      if (v.emitido_por) mapa.set(v.emitido_por, v.usuarios?.nombre ?? 'Sin nombre');
+    });
+    return Array.from(mapa.entries())
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [vales]);
+
+  const valesFiltrados = useMemo(() => {
+    if (!filtroEmisor) return vales;
+    return vales.filter(v => v.emitido_por === filtroEmisor);
+  }, [vales, filtroEmisor]);
+
+  const fmtDia = (fechaISO: string) => {
+    const d = new Date(fechaISO);
+    return d.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
+  // Agrupa los vales ya filtrados por día calendario, conservando el orden
+  // descendente que ya trae la consulta (más reciente primero).
+  const gruposPorDia = useMemo(() => {
+    const grupos: { dia: string; vales: Vale[] }[] = [];
+    for (const v of valesFiltrados) {
+      const dia = fmtDia(v.fecha_emision);
+      const ultimo = grupos[grupos.length - 1];
+      if (ultimo && ultimo.dia === dia) ultimo.vales.push(v);
+      else grupos.push({ dia, vales: [v] });
+    }
+    return grupos;
+  }, [valesFiltrados]);
 
   // ── acciones ───────────────────────────────────────────────────────────
   const aprobarItem = async (itemId: string) => {
@@ -279,13 +324,46 @@ const AprobacionBodega: React.FC = () => {
             </div>
           )}
 
+          {vales.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: textMuted }}>
+                {valesFiltrados.length} de {vales.length} vale{vales.length === 1 ? '' : 's'}
+              </div>
+              {emisores.length > 1 && (
+                <select
+                  value={filtroEmisor}
+                  onChange={e => setFiltroEmisor(e.target.value)}
+                  style={{
+                    border: `0.5px solid ${inputBorder}`, borderRadius: 8, padding: '5px 8px',
+                    fontSize: 12, background: inputBg, color: textPrimary, outline: 'none',
+                  }}
+                >
+                  <option value="">Todos los emisores</option>
+                  {emisores.map(({ id, nombre }) => {
+                    const repetido = emisores.filter(e => e.nombre === nombre).length > 1;
+                    return (
+                      <option key={id} value={id}>
+                        {nombre}{repetido ? ` (${id.slice(0, 6)})` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </div>
+          )}
+
           {vales.length === 0 && (
             <div style={{ fontSize: 13, color: textMuted, textAlign: 'center', padding: '40px 0' }}>
               No hay solicitudes todavía. Aparecerán aquí automáticamente cuando un jefe de terreno emita un vale.
             </div>
           )}
 
-          {vales.map(v => {
+          {gruposPorDia.map(grupo => (
+            <div key={grupo.dia}>
+              <div style={{ fontSize: 11, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, margin: '14px 0 8px' }}>
+                {grupo.dia}
+              </div>
+              {grupo.vales.map(v => {
             const resumen = resumenVale(v);
             const colores = estadoColores(resumen.estado);
             const abierto = expandidoId === v.id;
@@ -298,7 +376,7 @@ const AprobacionBodega: React.FC = () => {
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 500, color: textPrimary }}>{v.retira_nombre}</div>
                     <div style={{ fontSize: 12, color: textMuted, marginTop: 2 }}>
-                      {v.codigo} · {v.torres ? `Torre ${v.torres.nombre}` : 'Exteriores'}{frentesVale(v) ? ` · ${frentesVale(v)}` : ''}
+                      {v.codigo} · {v.torres ? `Torre ${v.torres.frente}` : 'Exteriores'}{frentesVale(v) ? ` · ${frentesVale(v)}` : ''}
                     </div>
                   </div>
                   <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 10, background: colores.bg, color: colores.color, border: `0.5px solid ${colores.border}` }}>
@@ -327,21 +405,25 @@ const AprobacionBodega: React.FC = () => {
                           </div>
 
                           {item.estado === 'pendiente' ? (
-                            <div style={{ display: 'flex', gap: 12 }}>
-                              <span
-                                onClick={() => abrirRechazo(item.id)}
-                                style={{ color: rojo, fontSize: 19, cursor: 'pointer', opacity: procesando[item.id] ? 0.4 : 1 }}
-                              >✕</span>
-                              <span
-                                onClick={() => abrirAprobarConObs(item.id, item.cantidad_solicitada)}
-                                style={{ color: amarillo, fontSize: 17, cursor: 'pointer', opacity: procesando[item.id] ? 0.4 : 1 }}
-                                title="Aprobar con observación"
-                              >✎</span>
-                              <span
-                                onClick={() => !procesando[item.id] && aprobarItem(item.id)}
-                                style={{ color: verde, fontSize: 19, cursor: 'pointer', opacity: procesando[item.id] ? 0.4 : 1 }}
-                              >✓</span>
-                            </div>
+                            puedeAprobar ? (
+                              <div style={{ display: 'flex', gap: 12 }}>
+                                <span
+                                  onClick={() => abrirRechazo(item.id)}
+                                  style={{ color: rojo, fontSize: 19, cursor: 'pointer', opacity: procesando[item.id] ? 0.4 : 1 }}
+                                >✕</span>
+                                <span
+                                  onClick={() => abrirAprobarConObs(item.id, item.cantidad_solicitada)}
+                                  style={{ color: amarillo, fontSize: 17, cursor: 'pointer', opacity: procesando[item.id] ? 0.4 : 1 }}
+                                  title="Aprobar con observación"
+                                >✎</span>
+                                <span
+                                  onClick={() => !procesando[item.id] && aprobarItem(item.id)}
+                                  style={{ color: verde, fontSize: 19, cursor: 'pointer', opacity: procesando[item.id] ? 0.4 : 1 }}
+                                >✓</span>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 12, fontWeight: 500, color: amarillo }}>Pendiente</span>
+                            )
                           ) : (
                             <span style={{ fontSize: 12, fontWeight: 500, color: item.estado === 'rechazado' ? rojo : (item.estado === 'aprobado_con_obs' ? amarillo : verde) }}>
                               {item.estado === 'aprobado' && 'Aprobado'}
@@ -409,7 +491,9 @@ const AprobacionBodega: React.FC = () => {
                 )}
               </div>
             );
-          })}
+              })}
+            </div>
+          ))}
 
         </div>
       </IonContent>
@@ -425,4 +509,4 @@ const AprobacionBodega: React.FC = () => {
   );
 };
 
-export default AprobacionBodega;
+export default AprobacionBodega;  

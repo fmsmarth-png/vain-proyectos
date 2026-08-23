@@ -1,6 +1,14 @@
 import * as pdfjsLib from 'pdfjs-dist';
+// El worker se importa con ?url para que Vite lo empaquete dentro de la app
+// (funciona sin conexión) y lo sirva con el Content-Type correcto en todas
+// las plataformas. La ruta estática a un .mjs suelto ('/pdf.worker.min.mjs')
+// fallaba solo en el WebView de iOS, porque Capacitor no le entrega el MIME
+// de módulo que iOS exige — por eso el PDF se leía en Android/localhost pero
+// no en iOS. Al venir del bundler, la versión del worker siempre coincide
+// con la de la librería, evitando además desajustes de versión.
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
 
 export interface DatosSolicitud {
   condominio: string;

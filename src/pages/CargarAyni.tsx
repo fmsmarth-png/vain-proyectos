@@ -126,7 +126,13 @@ const CargarAyni: React.FC = () => {
               La app calcula el recibido (comprado − por recepcionar), filtra servicios y agrupa por material.
               La última planilla reemplaza el recibido anterior; los vales entregados no se tocan.
             </div>
-            <input ref={fileInput} type="file" accept=".xlsx,.xls" onChange={onArchivo} style={{ display: 'none' }} />
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12"
+              onChange={onArchivo}
+              style={{ display: 'none' }}
+            />
             <button onClick={seleccionarArchivo} disabled={procesando} style={{ width: '100%', height: 46, borderRadius: 12, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
               {procesando ? 'Procesando...' : '📄 Seleccionar planilla'}
             </button>

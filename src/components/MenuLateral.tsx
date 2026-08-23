@@ -189,7 +189,7 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   // Bodega
   const itemsBodega: MenuItem[] = [];
   if (puedeGenerarVale) itemsBodega.push({ icon: FileText, label: 'Generar Vale', ruta: '/bodega/generar-vale', permiso: true });
-  if (puedeAprobarBodega) itemsBodega.push({ icon: CheckSquare2, label: 'Vales de bodega', ruta: '/bodega/aprobacion', permiso: true });
+  if (puedeAprobarBodega || puedeGenerarVale) itemsBodega.push({ icon: CheckSquare2, label: 'Vales de bodega', ruta: '/bodega/aprobacion', permiso: true });
   if (puedeVerStock) itemsBodega.push({ icon: BarChart3, label: 'Stock de bodega', ruta: '/bodega/stock', permiso: true });
   if (puedeCargarAyni) itemsBodega.push({ icon: Upload, label: 'Cargar planilla AYNI', ruta: '/bodega/cargar-ayni', permiso: true });
   if (puedeGestionarKits) itemsBodega.push({ icon: Package, label: 'Kits de materiales', ruta: '/bodega/kits', permiso: true });

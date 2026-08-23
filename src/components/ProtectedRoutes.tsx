@@ -206,7 +206,7 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
         } />
 
         <Route exact path="/bodega/aprobacion" render={() =>
-          tienePermiso('bodega_aprobar') ? <AprobacionBodega /> : <Redirect to="/dashboard" />
+          (tienePermiso('bodega_ver') || tienePermiso('bodega_aprobar')) ? <AprobacionBodega /> : <Redirect to="/dashboard" />
         } />
 
         <Route exact path="/bodega/stock" render={() =>

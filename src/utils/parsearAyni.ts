@@ -172,8 +172,25 @@ function detectarFilaHeader(hoja: XLSX.WorkSheet): number {
   return 3; // respaldo: supuesto original (fila 4)
 }
 
+// Lee el archivo como ArrayBuffer usando FileReader en vez de file.arrayBuffer().
+// Motivo: en el WebView de iOS, un archivo elegido desde la app Archivos/iCloud
+// puede llegar de forma "diferida" (aún no descargado de la nube), y ahí
+// file.arrayBuffer() a veces resuelve con datos vacíos o falla en silencio.
+// FileReader.readAsArrayBuffer espera correctamente a que iOS materialice el
+// archivo. En Android/escritorio se comporta igual que arrayBuffer(), así que
+// es seguro usarlo en todas las plataformas. El jefe de bodega usa iPhone y es
+// el primer usuario en cargar la planilla, por eso se prioriza este camino.
+function leerArchivoComoArrayBuffer(file: File): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo (¿está descargado de iCloud?)'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 export async function parsearAyni(file: File): Promise<ResultadoParseo> {
-  const buf = await file.arrayBuffer();
+  const buf = await leerArchivoComoArrayBuffer(file);
   const wb = XLSX.read(buf, { type: 'array' });
   const hoja = wb.Sheets['Requerimientos'] ?? wb.Sheets[wb.SheetNames[0]];
 

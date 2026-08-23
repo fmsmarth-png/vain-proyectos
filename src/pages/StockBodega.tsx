@@ -95,6 +95,7 @@ const StockBodega: React.FC = () => {
   const [fichaMaterial, setFichaMaterial] = useState<StockRow | null>(null);
   const [fichaOcs, setFichaOcs] = useState<OcRow[]>([]);
   const [fichaEntregas, setFichaEntregas] = useState<EntregaRow[]>([]);
+  const [fichaActividades, setFichaActividades] = useState<string[]>([]);
   const [fichaCargando, setFichaCargando] = useState(false);
   const [ajusteCantidad, setAjusteCantidad] = useState('');
   const [ajusteMotivo, setAjusteMotivo] = useState('');
@@ -178,12 +179,18 @@ const StockBodega: React.FC = () => {
     setFichaAbierta(true);
     setFichaCargando(true);
     setAjusteCantidad(''); setAjusteMotivo('');
-    const [ocs, entregas] = await Promise.all([
+    const [ocs, entregas, actividades] = await Promise.all([
       supabase.rpc('bodega_material_ocs', { p_material_id: m.material_id }),
       supabase.rpc('bodega_material_entregas', { p_material_id: m.material_id }),
+      supabase.from('bodega_material_actividades').select('bodega_actividades ( nombre )').eq('material_id', m.material_id),
     ]);
     setFichaOcs((ocs.data as OcRow[] | null) ?? []);
     setFichaEntregas((entregas.data as EntregaRow[] | null) ?? []);
+    const nombresActividades = ((actividades.data as any[]) ?? [])
+      .map(r => r.bodega_actividades?.nombre)
+      .filter(Boolean)
+      .sort();
+    setFichaActividades(nombresActividades);
     setFichaCargando(false);
   };
 
@@ -309,6 +316,20 @@ const StockBodega: React.FC = () => {
                 {fichaMaterial.familia}{fichaMaterial.unidad ? ` · ${fichaMaterial.unidad}` : ''}
               </div>
 
+              {/* Actividades donde se usa este material */}
+              {fichaActividades.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {fichaActividades.map(nombre => (
+                    <span key={nombre} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 10, background: azulBg, color: azul, border: `0.5px solid ${azulBord}` }}>
+                      {nombre}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {!fichaCargando && fichaActividades.length === 0 && (
+                <div style={{ fontSize: 11, color: textMuted, marginTop: 8 }}>Sin actividad asociada todavía.</div>
+              )}
+
               {/* Números clave */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '16px 0' }}>
                 <div style={{ background: azulBg, borderRadius: 12, padding: '12px', border: `0.5px solid ${azulBord}` }}>
@@ -324,7 +345,9 @@ const StockBodega: React.FC = () => {
                 </div>
                 <div style={{ background: verdeBg, borderRadius: 12, padding: '12px', border: `0.5px solid ${verdeBord}` }}>
                   <div style={{ fontSize: 11, color: textSecondary }}>Stock en obra</div>
-                  <div style={{ fontSize: 22, fontWeight: 600, color: fichaMaterial.bajo_stock ? rojo : verde }}>{fichaMaterial.stock_actual}</div>
+                  <div style={{ fontSize: 22, fontWeight: 600, color: fichaMaterial.bajo_stock ? rojo : verde }}>
+                    {fichaMaterial.stock_actual} <span style={{ fontSize: 13, fontWeight: 400 }}>{fichaMaterial.unidad}</span>
+                  </div>
                 </div>
               </div>
 
@@ -337,6 +360,37 @@ const StockBodega: React.FC = () => {
                     Órdenes de compra (AYNI)
                   </div>
                   {fichaOcs.length === 0 && <div style={{ fontSize: 13, color: textMuted, marginBottom: 14 }}>Sin OC registradas.</div>}
+
+                  {/* Saldo agregado: suma comprado y recibido de TODAS las OC del
+                      material, para saber cuánto falta por llegar en total, no
+                      solo por línea. */}
+                  {fichaOcs.length > 0 && (() => {
+                    const totalComprado = fichaOcs.reduce((acc, oc) => acc + (oc.comprado_j ?? 0), 0);
+                    const totalRecibido = fichaOcs.reduce((acc, oc) => acc + (oc.recibido ?? 0), 0);
+                    const totalPendiente = totalComprado - totalRecibido;
+                    const uni = fichaMaterial.unidad_compra ?? '';
+                    return (
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between', fontSize: 12,
+                        marginBottom: 10, padding: '10px 12px', borderRadius: 10,
+                        background: dark ? 'rgba(255,255,255,0.03)' : '#f8fafc', border: `0.5px solid ${border}`,
+                      }}>
+                        <div>
+                          <div style={{ color: textMuted, fontSize: 10 }}>Comprado</div>
+                          <div style={{ color: textPrimary, fontWeight: 600 }}>{totalComprado} <span style={{ fontWeight: 400, fontSize: 10 }}>{uni}</span></div>
+                        </div>
+                        <div>
+                          <div style={{ color: textMuted, fontSize: 10 }}>Recibido</div>
+                          <div style={{ color: textPrimary, fontWeight: 600 }}>{totalRecibido} <span style={{ fontWeight: 400, fontSize: 10 }}>{uni}</span></div>
+                        </div>
+                        <div>
+                          <div style={{ color: textMuted, fontSize: 10 }}>Pendiente</div>
+                          <div style={{ color: totalPendiente > 0 ? amarillo : textPrimary, fontWeight: 600 }}>{totalPendiente} <span style={{ fontWeight: 400, fontSize: 10 }}>{uni}</span></div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {fichaOcs.map((oc, i) => {
                     const recTotal = (oc.estado_oc ?? '').toUpperCase().includes('TOTAL');
                     const col = recTotal ? verde : (oc.recibido ?? 0) > 0 ? amarillo : textMuted;
@@ -349,7 +403,9 @@ const StockBodega: React.FC = () => {
                           <div style={{ fontSize: 11, color: textMuted }}>{oc.estado_oc || oc.estado_req}</div>
                         </div>
                         <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 8, background: bgc, color: col, border: `0.5px solid ${brd}`, whiteSpace: 'nowrap' }}>
-                          {oc.recibido ?? 0}{(oc.por_recepcionar_k ?? 0) > 0 ? ` de ${oc.comprado_j}` : ' recibido'}
+                          {(oc.por_recepcionar_k ?? 0) > 0
+                            ? `${oc.recibido ?? 0} de ${oc.comprado_j} ${fichaMaterial.unidad_compra ?? ''}`
+                            : `${oc.recibido ?? 0} ${fichaMaterial.unidad_compra ?? ''} recibido`}
                         </span>
                       </div>
                     );
@@ -372,7 +428,9 @@ const StockBodega: React.FC = () => {
                         </div>
                         {e.observacion && <div style={{ fontSize: 11, color: amarillo, marginTop: 1 }}>{e.observacion}</div>}
                       </div>
-                      <span style={{ fontSize: 13, color: rojo, marginLeft: 8 }}>−{e.cantidad_entregada ?? 0}</span>
+                      <span style={{ fontSize: 13, color: rojo, marginLeft: 8, whiteSpace: 'nowrap' }}>
+                        −{e.cantidad_entregada ?? 0} {fichaMaterial.unidad}
+                      </span>
                     </div>
                   ))}
 
