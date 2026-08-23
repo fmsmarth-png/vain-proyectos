@@ -51,11 +51,11 @@ const PrepararOfflineOG: React.FC<Props> = ({ proyectos = [] }) => {
   const [resultado, setResultado]     = useState<string>('');
 
   // ── tokens ────────────────────────────────────────────────────────────────
-  const card          = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const card          = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb'  : '#0f172a';
   const textSecondary = dark ? '#6b7280'  : '#64748b';
-  const textMuted     = dark ? '#444444'  : '#94a3b8';
+  const textMuted     = dark ? '#5D728F'  : '#94a3b8';
   const azul          = dark ? '#60a5fa'  : '#1d4ed8';
   const verde         = dark ? '#4ade80'  : '#15803d';
   const rojo          = dark ? '#f87171'  : '#b91c1c';

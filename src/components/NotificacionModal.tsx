@@ -72,12 +72,12 @@ export const NotificacionModal: React.FC = () => {
         '--max-width': '420px',
         '--height': 'auto',
         '--border-radius': '20px',
-        '--background': '#000000',
+        '--background': '#0B1220',
         '--box-shadow': '0 20px 60px rgba(0,0,0,0.6)',
       } as any}
     >
       <div style={{
-        background: '#000000',
+        background: '#0B1220',
         border: `0.5px solid ${cfg.border}`,
         borderRadius: 20,
         overflow: 'hidden',
@@ -139,7 +139,7 @@ export const NotificacionModal: React.FC = () => {
             onClick={marcarVisto}
             style={{
               width: '100%', height: 50, borderRadius: 12,
-              background: cfg.color, border: 'none', color: '#000000',
+              background: cfg.color, border: 'none', color: '#0B1220',
               fontSize: 15, fontWeight: 600, cursor: 'pointer',
               transition: 'opacity 0.2s',
             }}

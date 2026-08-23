@@ -48,6 +48,8 @@ import GenerarVale from '../pages/GenerarVale';
 import AprobacionBodega from '../pages/Aprobacionbodega';
 import StockBodega from '../pages/StockBodega';
 import DashboardBodega from '../pages/DashboardBodega';
+import CargarAyni from '../pages/CargarAyni';
+import GestionKits from '../pages/GestionKits';
 import LevantamientoCeramicos from '../pages/LevantamientoCeramicos';
 import LevantamientoCeramicosDetalle from '../pages/LevantamientoCeramicosDetalle';
 import LevantamientoCeramicosChecklist from '../pages/LevantamientoCeramicosChecklist';
@@ -209,6 +211,14 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
 
         <Route exact path="/bodega/stock" render={() =>
           tienePermiso('bodega_ver') ? <StockBodega /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/bodega/cargar-ayni" render={() =>
+          tienePermiso('bodega_cargar_ayni') ? <CargarAyni /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/bodega/kits" render={() =>
+          tienePermiso('bodega_gestionar_kits') ? <GestionKits /> : <Redirect to="/dashboard" />
         } />
 
         {/* Levantamiento Cerámicos */}

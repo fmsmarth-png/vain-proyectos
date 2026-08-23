@@ -45,15 +45,15 @@ const AprobacionBodega: React.FC = () => {
   const location = useLocation<{ proyecto?: Proyecto }>();
 
   // ── tokens (idénticos al sistema de diseño VAIN) ──────────────────────────
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const cardGrad       = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border         = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const cardGrad       = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border         = dark ? '#243550'  : '#e2e8f0';
   const textPrimary    = dark ? '#f9fafb'  : '#0f172a';
   const textSecondary  = dark ? '#6b7280'  : '#64748b';
-  const textMuted      = dark ? '#444444'  : '#94a3b8';
-  const toolbar        = dark ? '#000000'  : '#1e3a5f';
-  const inputBg        = dark ? '#111111'  : '#ffffff';
-  const inputBorder    = dark ? '#1e1e1e'  : '#cbd5e1';
+  const textMuted      = dark ? '#5D728F'  : '#94a3b8';
+  const toolbar        = dark ? '#0E1728'  : '#1e3a5f';
+  const inputBg        = dark ? '#1B2C48'  : '#ffffff';
+  const inputBorder    = dark ? '#243550'  : '#cbd5e1';
 
   const verde      = dark ? '#4ade80' : '#15803d';
   const verdeBg    = dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4';
@@ -265,7 +265,7 @@ const AprobacionBodega: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' } as any} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Vales de bodega</IonTitle>
         </IonToolbar>
       </IonHeader>

@@ -67,7 +67,7 @@ const App: React.FC = () => {
   }, []);
 
   if (loading) return (
-    <div style={{ color: 'white', padding: 20, background: '#111', minHeight: '100vh' }}>
+    <div style={{ color: 'white', padding: 20, background: '#16233B', minHeight: '100vh' }}>
       Cargando... (si ves esto por más de 5 segundos hay un problema)
     </div>
   );

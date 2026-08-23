@@ -98,15 +98,15 @@ const ReporteOG: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const bg            = dark ? '#000000' : '#f3f4f6';
-  const card          = dark ? '#111111' : '#ffffff';
+  const bg            = dark ? '#0B1220' : '#f3f4f6';
+  const card          = dark ? '#1B2C48' : '#ffffff';
   const border        = dark ? '#222222' : '#e5e7eb';
   const textPrimary   = dark ? '#f9fafb' : '#111827';
   const textSecondary = '#6b7280';
   const textMuted     = dark ? '#4b5563' : '#9ca3af';
-  const toolbar       = dark ? '#111111' : '#1e3a5f';
-  const inputBg       = dark ? '#1a1a1a' : '#ffffff';
-  const rowAlt        = dark ? '#161616' : '#f9fafb';
+  const toolbar       = dark ? '#1B2C48' : '#1e3a5f';
+  const inputBg       = dark ? '#1E2E4A' : '#ffffff';
+  const rowAlt        = dark ? '#1E2E4A' : '#f9fafb';
 
   const [rows, setRows]       = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);

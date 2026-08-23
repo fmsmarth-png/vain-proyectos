@@ -60,8 +60,8 @@ const VisitasPostVenta: React.FC<Props> = ({
   const [visitas, setVisitas] = useState<Visita[]>([]);
 
   const textMuted = dark ? '#6b7280' : '#94a3b8';
-  const border = dark ? '#1e1e1e' : '#e2e8f0';
-  const card = dark ? '#0e0e0e' : '#ffffff';
+  const border = dark ? '#243550' : '#e2e8f0';
+  const card = dark ? '#16233B' : '#ffffff';
 
   const cargar = async () => {
     try {

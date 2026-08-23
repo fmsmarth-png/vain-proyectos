@@ -57,16 +57,16 @@ const DashboardOG: React.FC<Props> = ({ proyectoPrincipal, dark }) => {
   const [cargando, setCargando] = useState(false);
 
   // Tokens de tema (mismos que Dashboard principal)
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const card          = dark ? '#16233B'  : '#ffffff';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb'  : '#0f172a';
   const textSecondary = dark ? '#6b7280'  : '#64748b';
-  const textMuted     = dark ? '#444444'  : '#94a3b8';
-  const kpiCardBg     = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #181818 100%)' : '#ffffff';
-  const kpiCardBorder = dark ? '#1e1e1e'  : '#e2e8f0';
-  const kpiSepBorder  = dark ? '#1a1a1a'  : '#f1f5f9';
+  const textMuted     = dark ? '#5D728F'  : '#94a3b8';
+  const kpiCardBg     = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const kpiCardBorder = dark ? '#243550'  : '#e2e8f0';
+  const kpiSepBorder  = dark ? '#1E2E4A'  : '#f1f5f9';
   const kpiNumColor   = dark ? '#f9fafb'  : '#0f172a';
-  const kpiSubColor   = dark ? '#444'     : '#94a3b8';
+  const kpiSubColor   = dark ? '#5D728F'     : '#94a3b8';
 
   useEffect(() => {
     if (!proyectoPrincipal?.id) return;
@@ -122,19 +122,19 @@ const DashboardOG: React.FC<Props> = ({ proyectoPrincipal, dark }) => {
       {/* Banner proyecto (mismo estilo que el banner de Terminaciones Finas) */}
       <div style={{
         background: dark
-          ? 'linear-gradient(135deg, #111 0%, #1a1a1a 50%, #111 100%)'
+          ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 50%, #16233B 100%)'
           : 'linear-gradient(135deg, #064e3b 0%, #06b6d4 100%)',
         borderRadius: 16, padding: '16px 18px', marginBottom: 20,
-        border: dark ? '0.5px solid #2a2a2a' : 'none',
+        border: dark ? '0.5px solid #2E4468' : 'none',
         position: 'relative', overflow: 'hidden'
       }}>
         <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 12 }}>🏗️</span>
-          <span style={{ fontSize: 9, color: dark ? '#555' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600 }}>Obra Gruesa</span>
+          <span style={{ fontSize: 9, color: dark ? '#6E86A6' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600 }}>Obra Gruesa</span>
         </div>
         <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', letterSpacing: '-0.5px' }}>{proyectoPrincipal.nombre}</div>
-        {proyectoPrincipal.direccion && <div style={{ fontSize: 11, color: dark ? '#444' : 'rgba(255,255,255,0.4)', marginTop: 4 }}>📍 {proyectoPrincipal.direccion}</div>}
+        {proyectoPrincipal.direccion && <div style={{ fontSize: 11, color: dark ? '#5D728F' : 'rgba(255,255,255,0.4)', marginTop: 4 }}>📍 {proyectoPrincipal.direccion}</div>}
       </div>
 
       {/* Último depto revisado OG */}
@@ -202,13 +202,13 @@ const DashboardOG: React.FC<Props> = ({ proyectoPrincipal, dark }) => {
       {/* Total + por definir (resumen al pie) */}
       {conteos && (
         <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1, background: dark ? '#111' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
+          <div style={{ flex: 1, background: dark ? '#16233B' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
             <div style={{ fontSize: 20, marginBottom: 6 }}>📋</div>
             <div style={{ fontSize: 28, fontWeight: 800, color: CIAN, lineHeight: 1 }}>{conteos.total}</div>
             <div style={{ fontSize: 10, color: textMuted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Total OG</div>
           </div>
           {conteos.porDefinir > 0 && (
-            <div style={{ flex: 1, background: dark ? '#111' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
+            <div style={{ flex: 1, background: dark ? '#16233B' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
               <div style={{ fontSize: 20, marginBottom: 6 }}>❓</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: dark ? '#888' : '#94a3b8', lineHeight: 1 }}>{conteos.porDefinir}</div>
               <div style={{ fontSize: 10, color: textMuted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Por definir</div>

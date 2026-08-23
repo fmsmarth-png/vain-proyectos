@@ -82,16 +82,16 @@ const DetalleProyecto: React.FC<any> = (props) => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
-  const cardAlt       = dark ? '#111111'  : '#f8fafc';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const card          = dark ? '#16233B'  : '#ffffff';
+  const cardAlt       = dark ? '#1B2C48'  : '#f8fafc';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb'  : '#0f172a';
   const textSecondary = dark ? '#6b7280'  : '#64748b';
-  const textMuted     = dark ? '#444444'  : '#94a3b8';
-  const toolbar       = dark ? '#000000'  : '#1e3a5f';
-  const inputBg       = dark ? '#111111'  : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e'  : '#cbd5e1';
+  const textMuted     = dark ? '#5D728F'  : '#94a3b8';
+  const toolbar       = dark ? '#0E1728'  : '#1e3a5f';
+  const inputBg       = dark ? '#1B2C48'  : '#ffffff';
+  const inputBorder   = dark ? '#243550'  : '#cbd5e1';
 
   const estadoColors = dark ? estadoDeptoColorDark : estadoDeptoColorLight;
 
@@ -296,11 +296,11 @@ const crearDepartamentos = async () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }}
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }}
             onClick={() => history.push('/proyectos')}>← Volver</IonButton>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>{proyecto?.nombre}</IonTitle>
           {esAdmin && (
-            <IonButton slot="end" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.8)' }}
+            <IonButton slot="end" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.8)' }}
               onClick={() => { setError(''); setNombreTorre(''); setFrenteTorre(''); setModalTorre(true); }}>
               + Torre
             </IonButton>
@@ -312,8 +312,8 @@ const crearDepartamentos = async () => {
         <div style={{ padding: 16 }}>
 
           {/* Info proyecto */}
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#666' : '#fff', flexShrink: 0 }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2E4468' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#6E86A6' : '#fff', flexShrink: 0 }}>
               {proyecto?.codigo?.toUpperCase() ?? proyecto?.nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
             </div>
             <div>
@@ -326,7 +326,7 @@ const crearDepartamentos = async () => {
           </div>
 
           {/* Leyenda estados */}
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 14, padding: '12px 14px', marginBottom: 16, border: `0.5px solid ${border}` }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 14, padding: '12px 14px', marginBottom: 16, border: `0.5px solid ${border}` }}>
             <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 10 }}>Estado de departamentos</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
               {Object.entries(estadoDeptoLabel).map(([key, label]) => (
@@ -340,7 +340,7 @@ const crearDepartamentos = async () => {
 
           {/* Torres */}
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Torres</div>
-          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 16 }} />
+          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 16 }} />
 
           {torres.length === 0 ? (
             <div style={{ textAlign: 'center', marginTop: 60 }}>
@@ -349,12 +349,12 @@ const crearDepartamentos = async () => {
               <div style={{ fontSize: 12, marginTop: 4, color: textMuted }}>{esAdmin ? 'Agrega la primera torre con "+ Torre"' : 'No hay torres disponibles'}</div>
             </div>
           ) : torres.map(torre => (
-            <div key={torre.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}` }}>
+            <div key={torre.id} style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}` }}>
 
               {/* Header torre */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#666' : '#fff' }}>{torre.nombre}</div>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2E4468' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#6E86A6' : '#fff' }}>{torre.nombre}</div>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>Torre {torre.nombre}{torre.frente ? ` (${torre.frente})` : ''}</div>
                     <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{torre.departamentos?.length ?? 0} departamentos</div>

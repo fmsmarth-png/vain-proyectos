@@ -35,15 +35,15 @@ const Proyectos: React.FC = () => {
   const { online } = useOffline();
   const dark = theme === 'dark';
 
-  const bg          = dark ? '#000000' : '#f0f4f8';
-  const card        = dark ? '#0e0e0e'  : '#ffffff';
-  const border      = dark ? '#1a1a1a'  : '#e2e8f0';
+  const bg          = dark ? '#0B1220' : '#f0f4f8';
+  const card        = dark ? '#16233B'  : '#ffffff';
+  const border      = dark ? '#1E2E4A'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg       = dark ? '#1B2C48' : '#ffffff';
+  const inputBorder   = dark ? '#243550' : '#cbd5e1';
 
   useEffect(() => { cargar(); }, []);
   useAppFocus(() => { cargar(); });
@@ -136,10 +136,10 @@ const Proyectos: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonMenuButton slot="start" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
+          <IonMenuButton slot="start" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Proyectos</IonTitle>
           {esAdmin && online && (
-            <IonButton slot="end" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.8)', fontSize: 13 }}
+            <IonButton slot="end" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.8)', fontSize: 13 }}
               onClick={() => { setError(''); setNombre(''); setDireccion(''); setCodigo(''); setModal(true); }}>
               + Nuevo
             </IonButton>
@@ -168,11 +168,11 @@ const Proyectos: React.FC = () => {
           ) : (
             <>
               <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Todos los proyectos</div>
-              <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 14 }} />
+              <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 14 }} />
 
               {/* Filtro línea */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-                <button onClick={() => setFiltroLinea('')} style={{ height: 28, padding: '0 12px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: filtroLinea === '' ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: filtroLinea === '' ? '#fff' : textMuted, border: `0.5px solid ${filtroLinea === '' ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>
+                <button onClick={() => setFiltroLinea('')} style={{ height: 28, padding: '0 12px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: filtroLinea === '' ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent', color: filtroLinea === '' ? '#fff' : textMuted, border: `0.5px solid ${filtroLinea === '' ? (dark ? '#2E4468' : '#1e3a5f') : border}` }}>
                   Todas
                 </button>
                 {lineas.map(l => (
@@ -191,20 +191,20 @@ const Proyectos: React.FC = () => {
                 return (
                   <div key={p.id} style={{
                     background: dark
-                      ? (esPrincipal ? 'linear-gradient(135deg, #111 0%, #1a1a1a 50%, #111 100%)' : 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)')
+                      ? (esPrincipal ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 50%, #16233B 100%)' : 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)')
                       : (esPrincipal ? 'linear-gradient(135deg, #eff6ff, #fff)' : '#fff'),
                     borderRadius: 16, padding: '14px 16px', marginBottom: 10,
                     border: dark
-                      ? (esPrincipal ? '0.5px solid #2a2a2a' : '0.5px solid #1a1a1a')
+                      ? (esPrincipal ? '0.5px solid #2E4468' : '0.5px solid #1E2E4A')
                       : (esPrincipal ? '0.5px solid #bfdbfe' : '0.5px solid #e2e8f0'),
                     position: 'relative', overflow: 'hidden'
                   }}>
                     {esPrincipal && (
-                      <div style={{ position: 'absolute', top: -20, right: -20, width: 80, height: 80, borderRadius: '50%', background: dark ? 'radial-gradient(circle, #222 0%, transparent 70%)' : 'radial-gradient(circle, #dbeafe 0%, transparent 70%)' }} />
+                      <div style={{ position: 'absolute', top: -20, right: -20, width: 80, height: 80, borderRadius: '50%', background: dark ? 'radial-gradient(circle, #26395C 0%, transparent 70%)' : 'radial-gradient(circle, #dbeafe 0%, transparent 70%)' }} />
                     )}
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
-                      <div style={{ width: 44, height: 44, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : (esPrincipal ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : '#f8fafc'), border: dark ? '0.5px solid #2a2a2a' : (esPrincipal ? 'none' : '0.5px solid #e2e8f0'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: dark ? '#666' : (esPrincipal ? '#fff' : '#64748b'), flexShrink: 0 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : (esPrincipal ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : '#f8fafc'), border: dark ? '0.5px solid #2E4468' : (esPrincipal ? 'none' : '0.5px solid #e2e8f0'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: dark ? '#6E86A6' : (esPrincipal ? '#fff' : '#64748b'), flexShrink: 0 }}>
                         {circuloTexto(p)}
                       </div>
                       <div onClick={() => history.push(`/proyectos/${p.id}`)} style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}>
@@ -226,7 +226,7 @@ const Proyectos: React.FC = () => {
                           )}
                         </div>
                       </div>
-                      <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 20, fontWeight: 600, flexShrink: 0, background: p.estado === 'activo' ? (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4') : (dark ? 'rgba(107,114,128,0.06)' : '#f8fafc'), color: p.estado === 'activo' ? (dark ? '#4ade80' : '#15803d') : (dark ? '#555' : '#64748b'), border: `0.5px solid ${p.estado === 'activo' ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? '#1e1e1e' : '#e2e8f0')}` }}>
+                      <span style={{ fontSize: 10, padding: '3px 9px', borderRadius: 20, fontWeight: 600, flexShrink: 0, background: p.estado === 'activo' ? (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4') : (dark ? 'rgba(107,114,128,0.06)' : '#f8fafc'), color: p.estado === 'activo' ? (dark ? '#4ade80' : '#15803d') : (dark ? '#6E86A6' : '#64748b'), border: `0.5px solid ${p.estado === 'activo' ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? '#243550' : '#e2e8f0')}` }}>
                         {p.estado === 'activo' ? 'Activo' : 'Cerrado'}
                       </span>
                     </div>

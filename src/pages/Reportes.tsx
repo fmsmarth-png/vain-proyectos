@@ -54,15 +54,15 @@ const Reportes: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const bg          = dark ? '#000000' : '#f0f4f8';
-  const border      = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg          = dark ? '#0B1220' : '#f0f4f8';
+  const border      = dark ? '#243550'  : '#e2e8f0';
   const textPrimary = dark ? '#f9fafb' : '#0f172a';
-  const textMuted   = dark ? '#444444' : '#94a3b8';
-  const toolbar     = dark ? '#000000' : '#1e3a5f';
-  const inputBg     = dark ? '#111111' : '#ffffff';
-  const inputBorder = dark ? '#1e1e1e' : '#cbd5e1';
+  const textMuted   = dark ? '#5D728F' : '#94a3b8';
+  const toolbar     = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg     = dark ? '#1B2C48' : '#ffffff';
+  const inputBorder = dark ? '#243550' : '#cbd5e1';
   const sepLine     = dark
-    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
+    ? 'linear-gradient(90deg, transparent, #243550, transparent)'
     : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   const [proyectos, setProyectos]     = useState<any[]>([]);
@@ -649,12 +649,12 @@ const Reportes: React.FC = () => {
     fontSize: 9, color: textMuted, display: 'block', marginBottom: 6,
     textTransform: 'uppercase' as any, letterSpacing: '1.5px', fontWeight: 600,
   };
-  const estiloReporte = { background: '#ffffff', fontFamily: 'Arial, sans-serif', color: '#000000' };
+  const estiloReporte = { background: '#ffffff', fontFamily: 'Arial, sans-serif', color: '#0B1220' };
 
   const btnExcel = (onClick: () => void, label: string, disabled: boolean) => (
     <button onClick={onClick} disabled={disabled || generando} style={{
       flex: 1, height: 40, borderRadius: 10,
-      background: disabled ? (dark ? '#0e0e0e' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #0a1a0e, #111)' : '#f0fdf4'),
+      background: disabled ? (dark ? '#16233B' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, rgba(34,197,94,0.12), #16233B)' : '#f0fdf4'),
       border: `0.5px solid ${disabled ? border : (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0')}`,
       color: disabled ? textMuted : (dark ? '#4ade80' : '#15803d'),
       fontSize: 11, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
@@ -664,7 +664,7 @@ const Reportes: React.FC = () => {
   const btnZC = (onClick: () => void, label: string, disabled: boolean) => (
     <button onClick={onClick} disabled={disabled || generando} style={{
       flex: 1, height: 40, borderRadius: 10,
-      background: disabled ? (dark ? '#0e0e0e' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #0a100e, #111)' : '#f0f9ff'),
+      background: disabled ? (dark ? '#16233B' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #0a100e, #16233B)' : '#f0f9ff'),
       border: `0.5px solid ${disabled ? border : (dark ? 'rgba(96,165,250,0.2)' : '#bae6fd')}`,
       color: disabled ? textMuted : (dark ? '#60a5fa' : '#0369a1'),
       fontSize: 11, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
@@ -683,7 +683,7 @@ const Reportes: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonMenuButton slot="start" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
+          <IonMenuButton slot="start" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Reportes</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -694,7 +694,7 @@ const Reportes: React.FC = () => {
           {/* ── Seleccionar ─────────────────────────────────────────────── */}
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Seleccionar</div>
           <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 16, border: `0.5px solid ${border}` }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 16, border: `0.5px solid ${border}` }}>
             <label style={labelStyle}>proyecto</label>
             <select value={proyectoId} onChange={e => setProyectoId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar proyecto...</option>
@@ -734,7 +734,7 @@ const Reportes: React.FC = () => {
             <>
               <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Descargar Excel</div>
               <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
-              <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 16, border: `0.5px solid ${border}` }}>
+              <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 16, border: `0.5px solid ${border}` }}>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {btnExcel(generarExcelProyecto, '🏗️ Proyecto', !proyectoId)}
                   {btnExcel(generarExcelTorre,    '🏢 Torre',    !torreId)}
@@ -749,7 +749,7 @@ const Reportes: React.FC = () => {
             <>
               <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Zona Común · Torre {torreSel?.nombre}</div>
               <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
-              <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 8, border: `0.5px solid ${border}` }}>
+              <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 8, border: `0.5px solid ${border}` }}>
                 <div style={{ fontSize: 10, color: textMuted, marginBottom: 8, fontWeight: 600 }}>📋 Observaciones</div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {btnZC(generarExcelZC_Observaciones,    `Torre ${torreSel?.nombre}`,  !zonaComunId)}
@@ -759,7 +759,7 @@ const Reportes: React.FC = () => {
                   <div style={{ fontSize: 11, color: textMuted, marginTop: 10, textAlign: 'center' }}>Cargando zona común...</div>
                 )}
               </div>
-              <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 16, border: `0.5px solid ${border}` }}>
+              <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 16, border: `0.5px solid ${border}` }}>
                 <div style={{ fontSize: 10, color: textMuted, marginBottom: 8, fontWeight: 600 }}>☑️ Checklist</div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {btnZC(generarExcelZC_Checklist, `Sala Basura Torre ${torreSel?.nombre}`, !zonaComunId)}
@@ -775,7 +775,7 @@ const Reportes: React.FC = () => {
               <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
               <button onClick={cargarRegistros} disabled={generando || descargando} style={{
                 width: '100%', height: 46, borderRadius: 12,
-                background: dark ? 'linear-gradient(135deg, #0e0e0e, #161616)' : '#fff',
+                background: dark ? 'linear-gradient(135deg, #16233B, #1E2E4A)' : '#fff',
                 border: `0.5px solid ${border}`, color: textPrimary,
                 fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 8,
               }}>
@@ -791,7 +791,7 @@ const Reportes: React.FC = () => {
               <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
               <button onClick={cargarRegistrosZC} disabled={generando || descargando} style={{
                 width: '100%', height: 46, borderRadius: 12,
-                background: dark ? 'linear-gradient(135deg, #0e0e0e, #161616)' : '#fff',
+                background: dark ? 'linear-gradient(135deg, #16233B, #1E2E4A)' : '#fff',
                 border: `0.5px solid ${border}`, color: textPrimary,
                 fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 8,
               }}>
@@ -805,7 +805,7 @@ const Reportes: React.FC = () => {
             <>
               <button onClick={generarPDF} disabled={descargando || generando} style={{
                 width: '100%', height: 48, borderRadius: 12,
-                background: dark ? 'linear-gradient(135deg, #0a1a0e, #0d1f10)' : '#f0fdf4',
+                background: dark ? 'linear-gradient(135deg, rgba(34,197,94,0.12), #0d1f10)' : '#f0fdf4',
                 border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0',
                 color: dark ? '#4ade80' : '#15803d',
                 fontSize: 13, fontWeight: 700, cursor: descargando ? 'not-allowed' : 'pointer', marginBottom: 8,
@@ -821,7 +821,7 @@ const Reportes: React.FC = () => {
             <>
               <button onClick={generarPDFZC} disabled={descargando || generando} style={{
                 width: '100%', height: 48, borderRadius: 12,
-                background: dark ? 'linear-gradient(135deg, #0a100e, #111)' : '#f0f9ff',
+                background: dark ? 'linear-gradient(135deg, #0a100e, #16233B)' : '#f0f9ff',
                 border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bae6fd',
                 color: dark ? '#60a5fa' : '#0369a1',
                 fontSize: 13, fontWeight: 700, cursor: descargando ? 'not-allowed' : 'pointer', marginBottom: 8,
@@ -1020,13 +1020,13 @@ const Reportes: React.FC = () => {
 };
 
 const BarraProgreso: React.FC<{ progreso: string; progresoNum: number; dark: boolean; textMuted: string }> = ({ progreso, progresoNum, dark, textMuted }) => (
-  <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 12, border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe' }}>
+  <div style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 12, border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
       <span style={{ fontSize: 12, color: dark ? '#60a5fa' : '#2563eb' }}>{progreso}</span>
       <span style={{ fontSize: 12, color: dark ? '#60a5fa' : '#2563eb', fontWeight: 700 }}>{progresoNum}%</span>
     </div>
-    <div style={{ height: 3, background: dark ? '#111' : '#f1f5f9', borderRadius: 2 }}>
-      <div style={{ height: 3, borderRadius: 2, background: dark ? 'linear-gradient(90deg, #333, #555)' : 'linear-gradient(90deg, #bfdbfe, #2563eb)', width: `${progresoNum}%`, transition: 'width 0.3s ease' }} />
+    <div style={{ height: 3, background: dark ? '#16233B' : '#f1f5f9', borderRadius: 2 }}>
+      <div style={{ height: 3, borderRadius: 2, background: dark ? 'linear-gradient(90deg, #333, #6E86A6)' : 'linear-gradient(90deg, #bfdbfe, #2563eb)', width: `${progresoNum}%`, transition: 'width 0.3s ease' }} />
     </div>
     <div style={{ fontSize: 11, color: textMuted, marginTop: 8 }}>Mantén la app abierta mientras se genera el PDF</div>
   </div>

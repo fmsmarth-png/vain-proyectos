@@ -141,48 +141,83 @@ const PreEntregaDashboard: React.FC = () => {
     mas30: 0
   });
 
-  const calcularDeptosPorAntiguedad = async (deptosData: any[]) => {
+  const calcularDeptosPorAntiguedad = async (deptosData: any[], pId: string) => {
     const hoy = new Date();
     const contadores = { menos7: 0, entre8y14: 0, entre15y30: 0, mas30: 0 };
-    
+
     try {
-      // Obtener observaciones PRE-E de estos deptos
-      const deptosIds = deptosData.map(d => d.id);
-      const { data: obs } = await supabase
-        .from('observacionesinformepv')
-        .select('departamento_id, fecha_creacion')
-        .in('departamento_id', deptosIds)
-        .eq('tipo', 'PRE-E');
+      // Set de ids de deptos reales del proyecto (para descartar obs huérfanas / de histórico)
+      const validDeptoIds = new Set(deptosData.map(d => d.id));
 
-      // Agrupar deptos por rango de antigüedad de sus observaciones
-      const deptosPorRango = new Map<string, number>();
-      if (obs) {
-        for (const o of obs) {
-          if (!o.fecha_creacion) continue;
-          const fechaCreacion = new Date(o.fecha_creacion);
-          const diferencia = Math.floor((hoy.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
-          
-          if (!deptosPorRango.has(o.departamento_id)) {
-            // Asignar al rango MAYOR (más antiguo) si tiene obs en múltiples rangos
-            if (diferencia <= 7) deptosPorRango.set(o.departamento_id, 1);
-            else if (diferencia <= 14) deptosPorRango.set(o.departamento_id, 2);
-            else if (diferencia <= 30) deptosPorRango.set(o.departamento_id, 3);
-            else deptosPorRango.set(o.departamento_id, 4);
-          }
+      // Traer TODAS las obs PRE-E PENDIENTES del proyecto, paginando para evitar
+      // el límite de 1000 filas de Supabase. Se consulta por proyecto_id (mismo scope
+      // que el conteo de obs) y NO por .in(departamento_id) para evitar URLs gigantes.
+      const obs: { departamento_id: string | null; fecha_creacion: string | null }[] = [];
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('observacionesinformepv')
+          .select('departamento_id, fecha_creacion')
+          .eq('proyecto_id', pId)
+          .eq('tipo', 'PRE-E')
+          .eq('estado', 'PENDIENTE')
+          .order('id', { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (error || !data || data.length === 0) break;
+        obs.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+
+      // Un depto se cuenta en un rango si tiene AL MENOS UNA obs pendiente en ese rango.
+      // Misma lógica que DeptosFiltrados (un depto puede aparecer en varios rangos).
+      const setMenos7 = new Set<string>();
+      const set8a14 = new Set<string>();
+      const set15a30 = new Set<string>();
+      const setMas30 = new Set<string>();
+
+      // --- DIAGNÓSTICO (temporal) ---
+      let obsMas30Total = 0;      // obs pendientes >30 días (cualquier depto)
+      let obsMas30NullDepto = 0;  // de esas, con departamento_id nulo
+      let obsMas30Huerfana = 0;   // de esas, con departamento_id que NO está en el proyecto
+
+      for (const o of obs) {
+        if (!o.fecha_creacion) continue;
+        const fechaCreacion = new Date(o.fecha_creacion);
+        const diferencia = Math.floor((hoy.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
+
+        // diagnóstico del rango >30
+        if (diferencia > 30) {
+          obsMas30Total++;
+          if (!o.departamento_id) obsMas30NullDepto++;
+          else if (!validDeptoIds.has(o.departamento_id)) obsMas30Huerfana++;
         }
+
+        if (!o.departamento_id) continue;
+        if (!validDeptoIds.has(o.departamento_id)) continue; // descartar obs de deptos que no existen
+
+        if (diferencia <= 7) setMenos7.add(o.departamento_id);
+        else if (diferencia <= 14) set8a14.add(o.departamento_id);
+        else if (diferencia <= 30) set15a30.add(o.departamento_id);
+        else setMas30.add(o.departamento_id);
       }
 
-      // Contar deptos únicos por rango
-      for (const rango of deptosPorRango.values()) {
-        if (rango === 1) contadores.menos7++;
-        else if (rango === 2) contadores.entre8y14++;
-        else if (rango === 3) contadores.entre15y30++;
-        else if (rango === 4) contadores.mas30++;
-      }
+      contadores.menos7 = setMenos7.size;
+      contadores.entre8y14 = set8a14.size;
+      contadores.entre15y30 = set15a30.size;
+      contadores.mas30 = setMas30.size;
+
+      // Lista de números de depto en el rango >30, ordenada (para comparar con DeptosFiltrados)
+      const numeroPorId = new Map<string, any>(deptosData.map(d => [d.id, d.numero]));
+      const deptosMas30Numeros = [...setMas30].map(id => numeroPorId.get(id)).sort();
+      console.log('[PreEntrega][DIAG] obs pendientes totales traídas:', obs.length);
+      console.log('[PreEntrega][DIAG] >30d — obs:', obsMas30Total, '| null depto:', obsMas30NullDepto, '| huérfanas (depto fuera del proyecto):', obsMas30Huerfana);
+      console.log('[PreEntrega][DIAG] >30d — DEPTOS contados:', contadores.mas30, '→', deptosMas30Numeros.join(', '));
 
       setDeptosPorAntiguedad(contadores);
     } catch (e) {
-      console.error('Error calculando deptos por antigüedad:', e);
+      console.error('[PreEntrega] Error calculando deptos por antigüedad:', e);
     }
   };
 
@@ -357,7 +392,7 @@ const PreEntregaDashboard: React.FC = () => {
 
       setDeptos(deptosList);
       await calcularKpis(deptosList, proyectoId);
-      await calcularDeptosPorAntiguedad(deptosList); // ← NUEVA: Calcular deptos por antigüedad
+      await calcularDeptosPorAntiguedad(deptosList, proyectoId); // ← NUEVA: Calcular deptos por antigüedad
     } catch (err) {
       console.error('Error cargarDatos:', err);
     }
@@ -375,20 +410,38 @@ const PreEntregaDashboard: React.FC = () => {
 
       const deptosConPreE = enProceso + listoEntregar + entregadosInmob + entregadosProp;
 
-      const { data: obsPreE } = await supabase
-        .from('observacionesinformepv')
-        .select('id, estado, fecha_creacion')
-        .eq('proyecto_id', pId)
-        .eq('tipo', 'PRE-E');
+      // Traer TODAS las obs PRE-E (pendientes + solucionadas), paginando para evitar
+      // el límite de 1000 filas de Supabase.
+      const obsPreE: { id: string; estado: string; fecha_creacion: string | null }[] = [];
+      {
+        const pageSize = 1000;
+        let from = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from('observacionesinformepv')
+            .select('id, estado, fecha_creacion')
+            .eq('proyecto_id', pId)
+            .eq('tipo', 'PRE-E')
+            .order('id', { ascending: true })
+            .range(from, from + pageSize - 1);
+          if (error || !data || data.length === 0) break;
+          obsPreE.push(...data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+      }
 
-      const totalObs = obsPreE?.length || 0;
-      const obsResueltas = obsPreE?.filter(o => o.estado === 'SOLUCIONADO').length || 0;
+      // Promedio: total de obs (pendientes + solucionadas) / deptos con estado ≠ 1
+      const totalObs = obsPreE.length;
+      const obsResueltas = obsPreE.filter(o => o.estado === 'SOLUCIONADO').length;
       const promedioObs = deptosConPreE > 0 ? parseFloat((totalObs / deptosConPreE).toFixed(1)) : 0;
 
       const hoy = new Date();
       let hasta7 = 0, entre8y14 = 0, entre15y30 = 0, mas30 = 0;
 
-      obsPreE?.forEach(obs => {
+      // Antiguedad: SOLO observaciones PENDIENTES
+      obsPreE.filter(o => o.estado === 'PENDIENTE').forEach(obs => {
+        if (!obs.fecha_creacion) return;
         const fechaCreacion = new Date(obs.fecha_creacion);
         const diasTranscurridos = Math.floor((hoy.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -446,7 +499,7 @@ const PreEntregaDashboard: React.FC = () => {
         (e.currentTarget as HTMLElement).style.boxShadow = 'none';
       }}
     >
-      <div style={{ position: 'absolute', bottom: -8, right: -8, width: 50, height: 50, borderRadius: '50%', background: dark ? `radial-gradient(circle, ${color}08 0%, transparent 70%)` : `radial-gradient(circle, ${color}14 0%, transparent 70%)`, pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: -10, right: -10, width: 60, height: 60, borderRadius: '50%', background: dark ? `radial-gradient(circle, ${color}1f 0%, transparent 70%)` : `radial-gradient(circle, ${color}14 0%, transparent 70%)`, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <IonIcon icon={icon} style={{ fontSize: 24, color, minWidth: 24 }} />
         <div style={{ fontSize: 9, color: textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px' }}>
@@ -663,50 +716,53 @@ const PreEntregaDashboard: React.FC = () => {
 
           {/* ANTIGÜEDAD PRE ENTREGA */}
           <div style={{ marginBottom: 20 }}>
-            <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)', border: `0.5px solid ${border}`, borderRadius: 16, padding: 16 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
-                {[
-                  { label: 'Menos de 7 días', obs: kpis.antiguedad.hasta7, deptos: deptosPorAntiguedad.menos7, color: '#ef4444', textColor: '#f87171', tipo: 'antiguedad_menos7' },
-                  { label: '8 a 14 días', obs: kpis.antiguedad.entre8y14, deptos: deptosPorAntiguedad.entre8y14, color: '#f59e0b', textColor: '#fbbf24', tipo: 'antiguedad_8a14' },
-                  { label: '15 a 30 días', obs: kpis.antiguedad.entre15y30, deptos: deptosPorAntiguedad.entre15y30, color: '#8b5cf6', textColor: '#a78bfa', tipo: 'antiguedad_15a30' },
-                  { label: 'Más de 30 días', obs: kpis.antiguedad.mas30, deptos: deptosPorAntiguedad.mas30, color: '#dc2626', textColor: '#ef4444', tipo: 'antiguedad_mas30' }
-                ].map((item, idx) => (
-                  <div 
-                    key={idx} 
-                    onClick={() => {
-                      if (!proyectoId) return;
-                      history.push('/deptos-filtrados', { tipo: item.tipo, proyectoId, proyectoNombre: proyectoSel?.nombre });
-                    }}
-                    style={{ 
-                      background: dark ? '#16233B' : '#f8fafc', 
-                      borderRadius: 12, 
-                      padding: 12, 
-                      textAlign: 'center', 
-                      border: `0.5px solid ${border}`,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      transform: 'scale(1)'
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.transform = 'scale(1.02)';
-                      (e.currentTarget as HTMLElement).style.borderColor = item.color;
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
-                      (e.currentTarget as HTMLElement).style.borderColor = border;
-                    }}
-                  >
-                    <div style={{ fontSize: 11, fontWeight: 700, color: item.textColor, marginBottom: 12, lineHeight: 1.3 }}>{item.label}</div>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: item.textColor, marginBottom: 4, lineHeight: 1 }}>
-                      {item.obs}
-                    </div>
-                    <div style={{ fontSize: 8, color: item.textColor, fontWeight: 500, lineHeight: 1.2 }}>obs.</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: item.textColor, marginTop: 8, paddingTop: 8, borderTop: `0.5px solid ${border}` }}>
-                      {item.deptos} deptos
-                    </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+              {[
+                { label: 'Menos de 7 días', obs: kpis.antiguedad.hasta7, deptos: deptosPorAntiguedad.menos7, color: '#ef4444', tipo: 'antiguedad_menos7' },
+                { label: '8 a 14 días', obs: kpis.antiguedad.entre8y14, deptos: deptosPorAntiguedad.entre8y14, color: '#f59e0b', tipo: 'antiguedad_8a14' },
+                { label: '15 a 30 días', obs: kpis.antiguedad.entre15y30, deptos: deptosPorAntiguedad.entre15y30, color: '#8b5cf6', tipo: 'antiguedad_15a30' },
+                { label: 'Más de 30 días', obs: kpis.antiguedad.mas30, deptos: deptosPorAntiguedad.mas30, color: '#ef4444', tipo: 'antiguedad_mas30' }
+              ].map((item, idx) => (
+                <div 
+                  key={idx} 
+                  onClick={() => {
+                    if (!proyectoId) return;
+                    history.push('/deptos-filtrados', { tipo: item.tipo, proyectoId, proyectoNombre: proyectoSel?.nombre });
+                  }}
+                  style={{ 
+                    background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)',
+                    borderRadius: 16, 
+                    padding: '14px 8px 12px', 
+                    textAlign: 'center', 
+                    border: `0.5px solid ${border}`,
+                    cursor: 'pointer',
+                    transition: 'transform 0.2s, box-shadow 0.2s',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
+                    (e.currentTarget as HTMLElement).style.boxShadow = dark ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.08)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                    (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                  }}
+                >
+                  {/* glow de color en la esquina (igual que las KPI de arriba) */}
+                  <div style={{ position: 'absolute', bottom: -10, right: -10, width: 60, height: 60, borderRadius: '50%', background: dark ? `radial-gradient(circle, ${item.color}1f 0%, transparent 70%)` : `radial-gradient(circle, ${item.color}14 0%, transparent 70%)`, pointerEvents: 'none' }} />
+                  {/* barrita de acento superior */}
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: item.color }} />
+                  <div style={{ fontSize: 24, fontWeight: 800, color: textPrimary, marginBottom: 2, lineHeight: 1, position: 'relative' }}>
+                    {item.obs}
                   </div>
-                ))}
-              </div>
+                  <div style={{ fontSize: 8, color: textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', lineHeight: 1.2 }}>obs.</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: textSecondary, marginTop: 10, lineHeight: 1.3, minHeight: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{item.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: textPrimary, marginTop: 8, paddingTop: 8, borderTop: `0.5px solid ${border}`, position: 'relative' }}>
+                    {item.deptos} <span style={{ fontSize: 9, fontWeight: 500, color: textMuted }}>deptos</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -716,22 +772,22 @@ const PreEntregaDashboard: React.FC = () => {
           {/* ANTIGÜEDAD POST VENTA */}
           <div>
             <div style={{ fontSize: 9, color: textMuted, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>Observaciones Post Venta por Antigüedad</div>
-            <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)', border: `0.5px solid ${border}`, borderRadius: 16, padding: 16 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
-                {[
-                  { label: 'Menos de 7 días', count: 0, color: '#ef4444' },
-                  { label: '8 a 14 días', count: 0, color: '#f59e0b' },
-                  { label: '15 a 30 días', count: 0, color: '#8b5cf6' },
-                  { label: 'Más de 30 días', count: 0, color: '#6b7280' }
-                ].map((item, idx) => (
-                  <div key={idx} style={{ background: dark ? '#16233B' : '#f8fafc', borderRadius: 12, padding: 12, textAlign: 'center', border: `0.5px solid ${border}` }}>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: item.color, marginBottom: 8, lineHeight: 1 }}>
-                      {item.count}
-                    </div>
-                    <div style={{ fontSize: 9, color: textMuted, fontWeight: 500, lineHeight: 1.3 }}>{item.label}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+              {[
+                { label: 'Menos de 7 días', count: 0, color: '#ef4444' },
+                { label: '8 a 14 días', count: 0, color: '#f59e0b' },
+                { label: '15 a 30 días', count: 0, color: '#8b5cf6' },
+                { label: 'Más de 30 días', count: 0, color: '#6b7280' }
+              ].map((item, idx) => (
+                <div key={idx} style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : 'linear-gradient(135deg, #ffffff, #f8fafc)', borderRadius: 16, padding: '14px 8px 12px', textAlign: 'center', border: `0.5px solid ${border}`, position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', bottom: -10, right: -10, width: 60, height: 60, borderRadius: '50%', background: dark ? `radial-gradient(circle, ${item.color}1f 0%, transparent 70%)` : `radial-gradient(circle, ${item.color}14 0%, transparent 70%)`, pointerEvents: 'none' }} />
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: item.color }} />
+                  <div style={{ fontSize: 24, fontWeight: 800, color: textPrimary, marginBottom: 10, lineHeight: 1, position: 'relative' }}>
+                    {item.count}
                   </div>
-                ))}
-              </div>
+                  <div style={{ fontSize: 10, color: textSecondary, fontWeight: 600, lineHeight: 1.3, position: 'relative' }}>{item.label}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

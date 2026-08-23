@@ -68,12 +68,12 @@ export const InformePV: React.FC = () => {
   const location = useLocation<any>();
   const dark = theme === 'dark';
 
-  const bg = dark ? '#000000' : '#f5f5f5';
-  const card = dark ? '#0e0e0e' : '#ffffff';
-  const border = dark ? '#1e1e1e' : '#f0f0f0';
-  const textPrimary = dark ? '#f9fafb' : '#000000';
+  const bg = dark ? '#0B1220' : '#f5f5f5';
+  const card = dark ? '#16233B' : '#ffffff';
+  const border = dark ? '#243550' : '#f0f0f0';
+  const textPrimary = dark ? '#f9fafb' : '#0B1220';
   const textSecondary = dark ? '#6b7280' : '#666666';
-  const textMuted = dark ? '#444444' : '#999999';
+  const textMuted = dark ? '#5D728F' : '#999999';
   const toolbar = dark ? '#1e3a5f' : '#1e3a5f';
 
   const proyectoInicial = location.state?.proyecto || null;
@@ -259,7 +259,7 @@ export const InformePV: React.FC = () => {
             <div
               style={{
                 background: dark 
-                  ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' 
+                  ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' 
                   : 'linear-gradient(135deg, #f0f4f8, #ffffff)',
                 border: `0.5px solid ${border}`,
                 borderRadius: 14,
@@ -390,7 +390,7 @@ export const InformePV: React.FC = () => {
                       borderRadius: 8,
                       border: `0.5px solid ${border}`,
                       padding: '0 10px',
-                      background: dark ? '#111111' : '#f9f9f9',
+                      background: dark ? '#1B2C48' : '#f9f9f9',
                       color: textPrimary,
                       fontSize: 13,
                       fontWeight: 600,
@@ -413,7 +413,7 @@ export const InformePV: React.FC = () => {
                       borderRadius: 8,
                       border: `0.5px solid ${border}`,
                       padding: '0 10px',
-                      background: dark ? '#111111' : '#f9f9f9',
+                      background: dark ? '#1B2C48' : '#f9f9f9',
                       color: textPrimary,
                       fontSize: 13,
                       fontWeight: 600,
@@ -448,7 +448,7 @@ export const InformePV: React.FC = () => {
                       borderRadius: 8,
                       border: `0.5px solid ${border}`,
                       padding: '0 10px',
-                      background: dark ? '#111111' : '#f9f9f9',
+                      background: dark ? '#1B2C48' : '#f9f9f9',
                       color: textPrimary,
                       fontSize: 13,
                       fontWeight: 600,
@@ -471,7 +471,7 @@ export const InformePV: React.FC = () => {
                       borderRadius: 8,
                       border: `0.5px solid ${border}`,
                       padding: '0 10px',
-                      background: dark ? '#111111' : '#f9f9f9',
+                      background: dark ? '#1B2C48' : '#f9f9f9',
                       color: textPrimary,
                       fontSize: 13,
                       fontWeight: 600,

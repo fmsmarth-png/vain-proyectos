@@ -22,13 +22,13 @@ const DeptosFiltrados: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const bg = dark ? '#000000' : '#f0f4f8';
-  const card = dark ? '#0e0e0e' : '#ffffff';
-  const border = dark ? '#1e1e1e' : '#e2e8f0';
+  const bg = dark ? '#0B1220' : '#f0f4f8';
+  const card = dark ? '#16233B' : '#ffffff';
+  const border = dark ? '#243550' : '#e2e8f0';
   const textPrimary = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted = dark ? '#444444' : '#94a3b8';
-  const toolbar = dark ? '#000000' : '#1e3a5f';
+  const textMuted = dark ? '#5D728F' : '#94a3b8';
+  const toolbar = dark ? '#0E1728' : '#1e3a5f';
   const successColor = dark ? '#4ade80' : '#15803d';
 
   const [torres, setTorres] = useState<any[]>([]);
@@ -86,18 +86,18 @@ const DeptosFiltrados: React.FC = () => {
       case 3: return '#22c55e';
       case 4: return '#8b5cf6';
       case 5: return '#ec4899';
-      default: return dark ? '#1e1e1e' : '#e5e7eb';
+      default: return dark ? '#243550' : '#e5e7eb';
     }
   };
 
   const getColorBg = (estado: number, isCompleted: boolean) => {
     if (isCompleted) {
       return dark 
-        ? 'linear-gradient(135deg, #0a1a0e 0%, #0f2818 100%)' 
+        ? 'linear-gradient(135deg, rgba(34,197,94,0.12) 0%, #0f2818 100%)' 
         : 'linear-gradient(135deg, #f0fdf4 0%, #f7fed3 100%)';
     }
     return dark 
-      ? 'linear-gradient(135deg, #111 0%, #141414 100%)' 
+      ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' 
       : 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)';
   };
 
@@ -156,7 +156,7 @@ const DeptosFiltrados: React.FC = () => {
           if (allDeptos && allDeptos.length > 0) {
             // Ahora filtrar por antigüedad
             const hoy = new Date();
-            let minDias = 0, maxDias = 999;
+            let minDias = 0, maxDias = Infinity;
 
             if (tipo === 'antiguedad_menos7') {
               minDias = 0; maxDias = 7;
@@ -165,27 +165,43 @@ const DeptosFiltrados: React.FC = () => {
             } else if (tipo === 'antiguedad_15a30') {
               minDias = 15; maxDias = 30;
             } else if (tipo === 'antiguedad_mas30') {
-              minDias = 31; maxDias = 999;
+              minDias = 31; maxDias = Infinity;
             }
 
-            // Obtener observaciones PRE-E para estos deptos
-            const deptosIds = allDeptos.map(d => d.id);
-            const { data: obs } = await supabase
-              .from('observacionesinformepv')
-              .select('departamento_id, fecha_creacion')
-              .in('departamento_id', deptosIds)
-              .eq('tipo', 'PRE-E');
+            // Obtener TODAS las obs PRE-E PENDIENTES del proyecto, paginando para evitar
+            // el límite de 1000 filas de Supabase. Mismo scope (proyecto_id) que PreEntrega.
+            const obs: { departamento_id: string | null; fecha_creacion: string | null }[] = [];
+            {
+              const pageSize = 1000;
+              let fromRow = 0;
+              while (true) {
+                const { data, error } = await supabase
+                  .from('observacionesinformepv')
+                  .select('departamento_id, fecha_creacion')
+                  .eq('proyecto_id', proyectoId)
+                  .eq('tipo', 'PRE-E')
+                  .eq('estado', 'PENDIENTE')
+                  .order('id', { ascending: true })
+                  .range(fromRow, fromRow + pageSize - 1);
+                if (error || !data || data.length === 0) break;
+                obs.push(...data);
+                if (data.length < pageSize) break;
+                fromRow += pageSize;
+              }
+            }
+
+            // Set de ids de deptos reales del proyecto
+            const validDeptoIds = new Set(allDeptos.map(d => d.id));
 
             // Filtrar deptos que tienen obs en el rango de antigüedad
             const deptosConObsEnRango = new Set<string>();
-            if (obs) {
-              for (const o of obs) {
-                if (!o.fecha_creacion) continue;
-                const fechaCreacion = new Date(o.fecha_creacion);
-                const diferencia = Math.floor((hoy.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
-                if (diferencia >= minDias && diferencia <= maxDias) {
-                  deptosConObsEnRango.add(o.departamento_id);
-                }
+            for (const o of obs) {
+              if (!o.fecha_creacion || !o.departamento_id) continue;
+              if (!validDeptoIds.has(o.departamento_id)) continue;
+              const fechaCreacion = new Date(o.fecha_creacion);
+              const diferencia = Math.floor((hoy.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
+              if (diferencia >= minDias && diferencia <= maxDias) {
+                deptosConObsEnRango.add(o.departamento_id);
               }
             }
 
@@ -231,8 +247,8 @@ const DeptosFiltrados: React.FC = () => {
     return (
       <IonPage style={{ '--background': bg } as any}>
         <IonHeader>
-          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>
+          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>
               <IonIcon icon={chevronBack} slot="icon-only" />
             </IonButton>
             <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>{getTitulo()}</IonTitle>
@@ -251,8 +267,8 @@ const DeptosFiltrados: React.FC = () => {
     return (
       <IonPage style={{ '--background': bg } as any}>
         <IonHeader>
-          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>
+          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>
               <IonIcon icon={chevronBack} slot="icon-only" />
             </IonButton>
             <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Cargando...</IonTitle>
@@ -270,8 +286,8 @@ const DeptosFiltrados: React.FC = () => {
   return (
     <IonPage style={{ '--background': bg } as any}>
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>
             <IonIcon icon={chevronBack} slot="icon-only" />
           </IonButton>
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>{getTitulo()}</IonTitle>
@@ -285,32 +301,32 @@ const DeptosFiltrados: React.FC = () => {
           <div
             style={{
               background: dark
-                ? 'linear-gradient(135deg, #111 0%, #1a1a1a 50%, #111 100%)'
+                ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 50%, #16233B 100%)'
                 : 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
               borderRadius: 16,
               padding: '20px 20px',
               marginBottom: 24,
-              border: dark ? '0.5px solid #2a2a2a' : 'none',
+              border: dark ? '0.5px solid #2E4468' : 'none',
               position: 'relative',
               overflow: 'hidden'
             }}
           >
             <div style={{ position: 'absolute', top: -40, right: -40, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
             <div style={{ position: 'relative', zIndex: 1 }}>
-              <div style={{ fontSize: 11, color: dark ? '#555' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: dark ? '#6E86A6' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
                 {getTitulo()}
               </div>
               <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
                 {proyectoNombre}
               </div>
-              <div style={{ fontSize: 12, color: dark ? '#777' : 'rgba(255,255,255,0.7)' }}>
+              <div style={{ fontSize: 12, color: dark ? '#8296B0' : 'rgba(255,255,255,0.7)' }}>
                 {deptos.length} departamento{deptos.length !== 1 ? 's' : ''} encontrado{deptos.length !== 1 ? 's' : ''}
               </div>
             </div>
           </div>
 
           {/* SEPARADOR */}
-          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
+          <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginBottom: 20 }} />
 
           {/* TORRES Y DEPTOS */}
           {torres.map((torre, idx) => {
@@ -350,7 +366,7 @@ const DeptosFiltrados: React.FC = () => {
                     )}
                   </div>
                   <div style={{ marginLeft: 'auto' }}>
-                    <div style={{ fontSize: 10, color: textMuted, fontWeight: 600, background: dark ? '#111' : '#f8fafc', padding: '4px 10px', borderRadius: 8, border: `0.5px solid ${border}` }}>
+                    <div style={{ fontSize: 10, color: textMuted, fontWeight: 600, background: dark ? '#16233B' : '#f8fafc', padding: '4px 10px', borderRadius: 8, border: `0.5px solid ${border}` }}>
                       {deptosDelaTorre.length} depto{deptosDelaTorre.length !== 1 ? 's' : ''}
                     </div>
                   </div>
@@ -418,7 +434,7 @@ const DeptosFiltrados: React.FC = () => {
 
                 {/* SEPARADOR ENTRE TORRES */}
                 {idx < torres.length - 1 && (
-                  <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginTop: 24 }} />
+                  <div style={{ height: '0.5px', background: dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)', marginTop: 24 }} />
                 )}
               </div>
             );
@@ -429,7 +445,7 @@ const DeptosFiltrados: React.FC = () => {
             <div
               style={{
                 background: dark
-                  ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)'
+                  ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)'
                   : 'linear-gradient(135deg, #ffffff, #f8fafc)',
                 border: `0.5px solid ${border}`,
                 borderRadius: 16,

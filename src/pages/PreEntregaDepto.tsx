@@ -141,15 +141,15 @@ const PreEntregaDepto: React.FC = () => {
   const [proyectoCompleto, setProyectoCompleto] = useState<any>(proyectoNav);
   const proyecto = proyectoCompleto; // Usar el proyecto completo
 
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const card          = dark ? '#16233B'  : '#ffffff';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg       = dark ? '#1B2C48' : '#ffffff';
+  const inputBorder   = dark ? '#243550' : '#cbd5e1';
 
   const [ambientes, setAmbientes] = useState<any[]>([]);
   const [partidas, setPartidas]   = useState<any[]>([]);
@@ -805,13 +805,13 @@ const PreEntregaDepto: React.FC = () => {
   const selectStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
   const taStyle     = { width: '100%', height: 80, borderRadius: 10, padding: '10px 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, resize: 'none' as any, marginBottom: 12 };
   const inputStyle  = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
-  const sepLine     = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
+  const sepLine     = dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   if (loading && ambientes.length === 0) return (
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
           <IonTitle style={{ fontSize: 15 }}>Cargando...</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -825,7 +825,7 @@ const PreEntregaDepto: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
           <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>ACTA · TORRE {torre?.nombre} · {depto?.numero}</IonTitle>
           <div slot="end" style={{ paddingRight: 14 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
@@ -836,8 +836,8 @@ const PreEntregaDepto: React.FC = () => {
       <IonContent style={{ '--background': bg }}>
         <div style={{ padding: 16 }}>
 
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2E4468' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
               {depto?.numero}
             </div>
             <div style={{ flex: 1 }}>
@@ -874,7 +874,7 @@ const PreEntregaDepto: React.FC = () => {
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Nueva observación</div>
           <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
             <label style={labelStyle}>ambiente *</label>
             <select value={ambienteId} onChange={e => setAmbienteId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar ambiente...</option>
@@ -906,7 +906,7 @@ const PreEntregaDepto: React.FC = () => {
 
             <button onClick={guardar} disabled={guardando} style={{
               width: '100%', height: 48, borderRadius: 12,
-              background: guardando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+              background: guardando ? (dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #243550, #2E4468)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
               border: guardando ? `0.5px solid ${border}` : 'none',
               color: guardando ? textMuted : '#fff',
               fontSize: 15, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer'
@@ -958,7 +958,7 @@ const PreEntregaDepto: React.FC = () => {
 
                 <button onClick={guardarDatosPropietario} disabled={guardandoDatos} style={{
                   width: '100%', height: 46, borderRadius: 12, background: 'transparent',
-                  border: `0.5px solid ${dark ? '#2a2a2a' : '#cbd5e1'}`,
+                  border: `0.5px solid ${dark ? '#2E4468' : '#cbd5e1'}`,
                   color: guardandoDatos ? textMuted : (dark ? '#93c5fd' : '#1e3a5f'),
                   fontSize: 14, fontWeight: 600, cursor: guardandoDatos ? 'not-allowed' : 'pointer', marginBottom: 8
                 }}>
@@ -1001,7 +1001,7 @@ const PreEntregaDepto: React.FC = () => {
 
                 <button onClick={generarActa} disabled={generando} style={{
                   width: '100%', height: 48, borderRadius: 12,
-                  background: generando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+                  background: generando ? (dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
                   border: 'none', color: generando ? textMuted : '#fff',
                   fontSize: 14, fontWeight: 700, cursor: generando ? 'not-allowed' : 'pointer'
                 }}>

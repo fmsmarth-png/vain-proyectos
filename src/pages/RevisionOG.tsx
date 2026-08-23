@@ -37,18 +37,18 @@ const RevisionOG: React.FC = () => {
   const { online } = useOffline();
 
   // ── tokens ────────────────────────────────────────────────────────────────
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
-  const cardGrad      = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const card          = dark ? '#16233B'  : '#ffffff';
+  const cardGrad      = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb'  : '#0f172a';
   const textSecondary = dark ? '#6b7280'  : '#64748b';
-  const textMuted     = dark ? '#444444'  : '#94a3b8';
-  const toolbar       = dark ? '#000000'  : '#1e3a5f';
-  const inputBg       = dark ? '#111111'  : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e'  : '#cbd5e1';
+  const textMuted     = dark ? '#5D728F'  : '#94a3b8';
+  const toolbar       = dark ? '#0E1728'  : '#1e3a5f';
+  const inputBg       = dark ? '#1B2C48'  : '#ffffff';
+  const inputBorder   = dark ? '#243550'  : '#cbd5e1';
   const sepLine       = dark
-    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
+    ? 'linear-gradient(90deg, transparent, #243550, transparent)'
     : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
   const rojo      = dark ? '#f87171' : '#b91c1c';
   const rojoBg    = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
@@ -481,7 +481,7 @@ const RevisionOG: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <IonMenuButton slot="start" menu="menu-lateral"
-            style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+            style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' } as any} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>📐 Revisión OG</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -517,11 +517,11 @@ const RevisionOG: React.FC = () => {
                 >
                   <div style={{
                     width: 42, height: 42, borderRadius: 10,
-                    background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #eff6ff, #dbeafe)',
-                    border: dark ? '0.5px solid #2a2a2a' : '0.5px solid #bfdbfe',
+                    background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #eff6ff, #dbeafe)',
+                    border: dark ? '0.5px solid #2E4468' : '0.5px solid #bfdbfe',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 11, fontWeight: 700,
-                    color: dark ? '#666' : '#1e3a5f', flexShrink: 0,
+                    color: dark ? '#6E86A6' : '#1e3a5f', flexShrink: 0,
                   }}>
                     {p.codigo ? p.codigo.toUpperCase() : p.nombre.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
                   </div>
@@ -531,7 +531,7 @@ const RevisionOG: React.FC = () => {
                       <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{p.codigo}</div>
                     )}
                   </div>
-                  <div style={{ fontSize: 20, color: dark ? '#2a2a2a' : '#bfdbfe' }}>›</div>
+                  <div style={{ fontSize: 20, color: dark ? '#2E4468' : '#bfdbfe' }}>›</div>
                 </div>
               ))}
 
@@ -556,7 +556,7 @@ const RevisionOG: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <button slot="start" onClick={() => { setPantalla('inicio'); setTorres([]); }}
-            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
             ‹
           </button>
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Torres · {proyectoSel?.nombre}</IonTitle>
@@ -581,7 +581,7 @@ const RevisionOG: React.FC = () => {
                 }}>
                   {frente}
                 </span>
-                <div style={{ flex: 1, height: '0.5px', background: dark ? '#1e1e1e' : '#e2e8f0' }} />
+                <div style={{ flex: 1, height: '0.5px', background: dark ? '#243550' : '#e2e8f0' }} />
                 <span style={{ fontSize: 11, color: textMuted }}>{torresGrupo.length} torre{torresGrupo.length !== 1 ? 's' : ''}</span>
               </div>
 
@@ -606,7 +606,7 @@ const RevisionOG: React.FC = () => {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>Torre {torre.nombre}</div>
                       </div>
-                      <div style={{ fontSize: 20, color: dark ? '#2a2a2a' : '#bfdbfe' }}>
+                      <div style={{ fontSize: 20, color: dark ? '#2E4468' : '#bfdbfe' }}>
                         {activa ? '▾' : '›'}
                       </div>
                     </div>
@@ -634,7 +634,7 @@ const RevisionOG: React.FC = () => {
                               <div style={{ fontSize: 12, fontWeight: 700, color: dark ? '#4a7ab5' : '#1e3a5f' }}>
                                 Piso {piso === 0 ? '—' : piso}
                               </div>
-                              <div style={{ flex: 1, height: '0.5px', background: dark ? '#1e1e1e' : '#e2e8f0' }} />
+                              <div style={{ flex: 1, height: '0.5px', background: dark ? '#243550' : '#e2e8f0' }} />
                             </div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                               {Object.keys(porFrente)
@@ -648,7 +648,7 @@ const RevisionOG: React.FC = () => {
                                           key={depto.id}
                                           onClick={e => { e.stopPropagation(); seleccionarDepto(depto); }}
                                           style={{
-                                            background: dark ? 'linear-gradient(135deg, #111, #181818)' : '#ffffff',
+                                            background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#ffffff',
                                             border: `0.5px solid ${tienePendientes ? amarilloBord : border}`,
                                             borderRadius: 12, padding: '10px 12px',
                                             cursor: 'pointer', minWidth: 60, position: 'relative',
@@ -658,7 +658,7 @@ const RevisionOG: React.FC = () => {
                                           <span style={{ fontSize: 13, fontWeight: 700, color: dark ? '#4a7ab5' : '#1e3a5f', lineHeight: 1 }}>
                                             {depto.id_obra ?? '—'}
                                           </span>
-                                          <div style={{ width: '100%', height: '0.5px', background: dark ? '#222' : '#e2e8f0' }} />
+                                          <div style={{ width: '100%', height: '0.5px', background: dark ? '#26395C' : '#e2e8f0' }} />
                                           <span style={{ fontSize: 13, fontWeight: 700, color: textPrimary, lineHeight: 1 }}>
                                             {depto.numero ?? '—'}
                                           </span>
@@ -696,7 +696,7 @@ const RevisionOG: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <button slot="start" onClick={() => setPantalla('torres')}
-            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
             ‹
           </button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>
@@ -727,7 +727,7 @@ const RevisionOG: React.FC = () => {
                 { label: 'Piso',     value: deptoSel?.piso },
               ].map(item => (
                 <div key={item.label} style={{
-                  flex: 1, background: dark ? '#111' : '#f8fafc',
+                  flex: 1, background: dark ? '#16233B' : '#f8fafc',
                   borderRadius: 10, padding: '10px 8px', textAlign: 'center',
                   border: `0.5px solid ${border}`,
                 }}>
@@ -795,7 +795,7 @@ const RevisionOG: React.FC = () => {
                 style={{
                   height: 50, borderRadius: 12, border: 'none',
                   background: (cerrado || !cacheOk)
-                    ? (dark ? '#1a1a1a' : '#e2e8f0')
+                    ? (dark ? '#1E2E4A' : '#e2e8f0')
                     : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
                   color: (cerrado || !cacheOk) ? textMuted : '#fff',
                   fontSize: 14, fontWeight: 700,

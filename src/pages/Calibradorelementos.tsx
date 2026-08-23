@@ -42,15 +42,15 @@ const CalibradorElementos: React.FC = () => {
   const mounted = useRef(false);
   const contenedorRef = useRef<HTMLDivElement>(null);
 
-  const bg          = dark ? '#000000' : '#f0f4f8';
-  const card        = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border      = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg          = dark ? '#0B1220' : '#f0f4f8';
+  const card        = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border      = dark ? '#243550'  : '#e2e8f0';
   const textPrimary = dark ? '#f9fafb'  : '#0f172a';
-  const textMuted   = dark ? '#444444'  : '#94a3b8';
-  const toolbar     = dark ? '#000000'  : '#1e3a5f';
+  const textMuted   = dark ? '#5D728F'  : '#94a3b8';
+  const toolbar     = dark ? '#0E1728'  : '#1e3a5f';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const inputBg     = dark ? '#111111'  : '#ffffff';
-  const inputBorder = dark ? '#1e1e1e'  : '#cbd5e1';
+  const inputBg     = dark ? '#1B2C48'  : '#ffffff';
+  const inputBorder = dark ? '#243550'  : '#cbd5e1';
   const azul        = dark ? '#60a5fa'  : '#1d4ed8';
   const azulBg      = dark ? 'rgba(96,165,250,0.08)' : '#eff6ff';
   const azulBord    = dark ? 'rgba(96,165,250,0.2)'  : '#bfdbfe';
@@ -414,7 +414,7 @@ const CalibradorElementos: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <IonMenuButton slot="start" menu="menu-lateral"
-            style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+            style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' } as any} />
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>🎯 Calibrador de Elementos OG</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -764,7 +764,7 @@ const CalibradorElementos: React.FC = () => {
                   style={{
                     width: '100%', height: 42, borderRadius: 10, border: 'none',
                     fontSize: 13, fontWeight: 700,
-                    background: grupoEspejo && (espejoX || espejoY) ? '#1e3a5f' : (dark ? '#111' : '#e2e8f0'),
+                    background: grupoEspejo && (espejoX || espejoY) ? '#1e3a5f' : (dark ? '#16233B' : '#e2e8f0'),
                     color: grupoEspejo && (espejoX || espejoY) ? '#fff' : textMuted,
                     cursor: grupoEspejo && (espejoX || espejoY) ? 'pointer' : 'not-allowed',
                   }}

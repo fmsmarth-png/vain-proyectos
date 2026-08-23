@@ -41,9 +41,9 @@ const CONFIG: Record<string, { color: string; bg: string; border: string; Icon: 
   info:    { color: '#4c86e6', bg: 'rgba(76,134,230,0.12)', border: 'rgba(76,134,230,0.3)', Icon: Info, label: 'Info' },
 };
 
-const BG = '#000000';
+const BG = '#0B1220';
 const CARD_BG = '#0a0a0a';
-const BORDER = '#1a1a1a';
+const BORDER = '#1E2E4A';
 const TEXT = '#f2f3f5';
 const TEXT_SEC = '#a9adb3';
 const TEXT_MUTED = '#75797f';
@@ -186,7 +186,7 @@ const AdminNotificaciones: React.FC = () => {
   };
 
   const inputStyle: React.CSSProperties = {
-    '--background': '#111111',
+    '--background': '#1B2C48',
     '--color': TEXT,
     '--placeholder-color': TEXT_MUTED,
     '--padding-start': '14px',

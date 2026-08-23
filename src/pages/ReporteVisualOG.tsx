@@ -166,13 +166,13 @@ const ReporteVisualOG: React.FC = () => {
   const history = useHistory();
 
   // Tokens (idénticos a RevisionOGResumen)
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const cardGrad      = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border        = dark ? '#1e1e1e' : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const cardGrad      = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border        = dark ? '#243550' : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
 
   const sCard: React.CSSProperties = {
     background: cardGrad, borderRadius: 16,
@@ -649,7 +649,7 @@ const ReporteVisualOG: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <button slot="start" onClick={volver}
-            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
             ‹
           </button>
           <IonTitle style={{ fontSize: 15 }}>{tituloToolbar}</IonTitle>

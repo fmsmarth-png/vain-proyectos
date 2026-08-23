@@ -207,18 +207,18 @@ const PostVenta: React.FC = () => {
   useEffect(() => { papeletaIdRef.current = papeletaId; }, [papeletaId]);
 
   /* ---------- paleta ---------- */
-  const bg = dark ? '#000000' : '#f0f4f8';
-  const cardGrad = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border = dark ? '#1e1e1e' : '#e2e8f0';
+  const bg = dark ? '#0B1220' : '#f0f4f8';
+  const cardGrad = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border = dark ? '#243550' : '#e2e8f0';
   const textPrimary = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted = dark ? '#444444' : '#94a3b8';
-  const toolbar = dark ? '#000000' : '#1e3a5f';
-  const inputBg = dark ? '#111111' : '#ffffff';
-  const inputBorder = dark ? '#1e1e1e' : '#cbd5e1';
+  const textMuted = dark ? '#5D728F' : '#94a3b8';
+  const toolbar = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg = dark ? '#1B2C48' : '#ffffff';
+  const inputBorder = dark ? '#243550' : '#cbd5e1';
   const accent = dark ? '#60a5fa' : '#2563eb';
   const sepLine = dark
-    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
+    ? 'linear-gradient(90deg, transparent, #243550, transparent)'
     : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   const labelStyle: React.CSSProperties = {
@@ -238,8 +238,8 @@ const PostVenta: React.FC = () => {
   const btnPrimary = (disabled: boolean): React.CSSProperties => ({
     width: '100%', height: 48, borderRadius: 12,
     background: disabled
-      ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9')
-      : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+      ? (dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#f1f5f9')
+      : (dark ? 'linear-gradient(135deg, #243550, #2E4468)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
     border: disabled ? `0.5px solid ${border}` : 'none',
     color: disabled ? textMuted : '#fff',
     fontSize: 15, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
@@ -985,7 +985,7 @@ const PostVenta: React.FC = () => {
 
   const metaChip = (label: string, valor: string) => (
     <div style={{
-      background: dark ? '#111111' : '#f8fafc', border: `0.5px solid ${border}`,
+      background: dark ? '#1B2C48' : '#f8fafc', border: `0.5px solid ${border}`,
       borderRadius: 10, padding: '6px 10px', flex: '1 1 auto', minWidth: 96,
     }}>
       <div style={{ fontSize: 8, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 600, marginBottom: 2 }}>{label}</div>
@@ -994,11 +994,11 @@ const PostVenta: React.FC = () => {
   );
 
   const tarjetaDepto = (
-    <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 14, background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff' }}>
+    <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 14, background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff' }}>
       <div style={{
         width: 46, height: 46, borderRadius: 12,
-        background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
-        border: dark ? '0.5px solid #2a2a2a' : 'none',
+        background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+        border: dark ? '0.5px solid #2E4468' : 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0,
       }}>{depto?.numero}</div>
@@ -1075,7 +1075,7 @@ const PostVenta: React.FC = () => {
       <IonPage id="main-content">
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' } as any}>
-            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any}
+            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' } as any}
               onClick={() => history.push('/dashboard')}>← Volver</IonButton>
             <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>POST VENTA</IonTitle>
           </IonToolbar>
@@ -1101,7 +1101,7 @@ const PostVenta: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' } as any}>
           <IonButton slot="start" fill="clear"
-            style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any}
+            style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' } as any}
             onClick={() => (paso === 'carga' ? salir() : paso === 'firma' ? setPaso('revision') : reiniciar())}>
             ← Volver
           </IonButton>
@@ -1235,7 +1235,7 @@ const PostVenta: React.FC = () => {
                       style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
                       <div style={{
                         width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                        background: ok ? (dark ? 'rgba(74,222,128,0.12)' : '#dcfce7') : (dark ? '#161616' : '#f1f5f9'),
+                        background: ok ? (dark ? 'rgba(74,222,128,0.12)' : '#dcfce7') : (dark ? '#1E2E4A' : '#f1f5f9'),
                         border: `0.5px solid ${ok ? (dark ? 'rgba(74,222,128,0.3)' : '#bbf7d0') : border}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11, fontWeight: 700,

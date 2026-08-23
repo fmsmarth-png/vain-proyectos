@@ -144,7 +144,7 @@ const FotosPreview: React.FC<FotosPreviewProps> = ({ fotos, onAgregar, onElimina
                 </div>
               )}
               {f.subida && (
-                <div style={{ position: 'absolute', bottom: 3, right: 3, background: '#4ade80', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#000', fontWeight: 700 }}>✓</div>
+                <div style={{ position: 'absolute', bottom: 3, right: 3, background: '#4ade80', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#0B1220', fontWeight: 700 }}>✓</div>
               )}
               <button onClick={e => { e.stopPropagation(); onEliminar(idx); }} style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%', width: 20, height: 20, color: '#fff', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, padding: 0 }}>✕</button>
             </div>
@@ -154,12 +154,12 @@ const FotosPreview: React.FC<FotosPreviewProps> = ({ fotos, onAgregar, onElimina
       <input ref={inputRef} type="file" accept="image/*" capture="environment"
         onChange={e => { const file = e.target.files?.[0]; if (file) onAgregar(file); if (inputRef.current) inputRef.current.value = ''; }}
         style={{ display: 'none' }} />
-      <label onClick={() => inputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', height: 40, borderRadius: 10, background: 'transparent', border: `0.5px dashed ${dark ? '#2a2a2a' : '#cbd5e1'}`, color: textMuted, fontSize: 13, cursor: 'pointer' }}>
+      <label onClick={() => inputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', height: 40, borderRadius: 10, background: 'transparent', border: `0.5px dashed ${dark ? '#2E4468' : '#cbd5e1'}`, color: textMuted, fontSize: 13, cursor: 'pointer' }}>
         <span style={{ fontSize: 16 }}>📷</span>
         {fotos.length === 0 ? 'Agregar foto' : `Agregar otra foto (${fotos.length})`}
       </label>
       <IonModal isOpen={!!fotoAmpliada} onDidDismiss={() => setFotoAmpliada(null)}>
-        <div onClick={() => setFotoAmpliada(null)} style={{ background: '#000', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div onClick={() => setFotoAmpliada(null)} style={{ background: '#0B1220', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {fotoAmpliada && <img src={fotoAmpliada} alt="Vista ampliada" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
           <button onClick={() => setFotoAmpliada(null)} style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 20, color: '#fff', fontSize: 16, width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
@@ -175,17 +175,17 @@ const VisitaObra: React.FC = () => {
   const dark = theme === 'dark';
 
   // ── Tokens de diseño — idénticos al resto de la app ──────────────────────
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
-  const cardGrad      = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const card          = dark ? '#16233B'  : '#ffffff';
+  const cardGrad      = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
-  const sepLine       = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg       = dark ? '#1B2C48' : '#ffffff';
+  const inputBorder   = dark ? '#243550' : '#cbd5e1';
+  const sepLine       = dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   const labelStyle = { fontSize: 9, color: textMuted, textTransform: 'uppercase' as any, letterSpacing: '1.5px', fontWeight: 600 };
 
@@ -577,7 +577,7 @@ const VisitaObra: React.FC = () => {
       {[{ key: opcionA, label: labelA }, { key: opcionB, label: labelB }].map(opt => {
         const activo = valor === opt.key;
         return (
-          <button key={opt.key} onClick={() => onChange(opt.key)} style={{ flex: 1, height: 34, borderRadius: 10, background: activo ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', border: `0.5px solid ${activo ? (dark ? '#2a2a2a' : '#1e3a5f') : border}`, color: activo ? '#fff' : textMuted, fontSize: 11, fontWeight: activo ? 600 : 400, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+          <button key={opt.key} onClick={() => onChange(opt.key)} style={{ flex: 1, height: 34, borderRadius: 10, background: activo ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent', border: `0.5px solid ${activo ? (dark ? '#2E4468' : '#1e3a5f') : border}`, color: activo ? '#fff' : textMuted, fontSize: 11, fontWeight: activo ? 600 : 400, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
             <span style={{ fontSize: 10 }}>{activo ? '↑' : '↕'}</span>{opt.label}
           </button>
         );
@@ -630,7 +630,7 @@ const VisitaObra: React.FC = () => {
   if (pantalla === 'inicio') return (
     <IonPage>
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Registrar Visita</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -700,7 +700,7 @@ const VisitaObra: React.FC = () => {
               <button
                 onClick={iniciarVisita}
                 disabled={!proyectoSel || loading}
-                style={{ width: '100%', height: 48, borderRadius: 12, background: proyectoSel ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : (dark ? '#111' : '#e2e8f0'), border: 'none', color: proyectoSel ? '#fff' : textMuted, fontSize: 15, fontWeight: 700, cursor: proyectoSel ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                style={{ width: '100%', height: 48, borderRadius: 12, background: proyectoSel ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : (dark ? '#16233B' : '#e2e8f0'), border: 'none', color: proyectoSel ? '#fff' : textMuted, fontSize: 15, fontWeight: 700, cursor: proyectoSel ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
               >
                 {loading ? <IonSpinner name="crescent" style={{ color: '#fff' }} /> : '+ Iniciar visita'}
               </button>
@@ -744,8 +744,8 @@ const VisitaObra: React.FC = () => {
   if (pantalla === 'historial') return (
     <IonPage>
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-          <button slot="start" onClick={() => setPantalla('inicio')} style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+          <button slot="start" onClick={() => setPantalla('inicio')} style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>Visitas · {historialTitulo}</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -775,7 +775,7 @@ const VisitaObra: React.FC = () => {
                       {v.frente_moldaje ? ` · Moldaje ${v.frente_moldaje}` : ''}
                     </div>
                   </div>
-                  <div style={{ fontSize: 20, color: dark ? '#2a2a2a' : '#bfdbfe' }}>›</div>
+                  <div style={{ fontSize: 20, color: dark ? '#2E4468' : '#bfdbfe' }}>›</div>
                 </div>
               );
             })
@@ -794,7 +794,7 @@ const VisitaObra: React.FC = () => {
     const generando  = generandoDocId === v?.id;
 
     const labelMini: React.CSSProperties = { fontSize: 9, fontWeight: 700, color: dark ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 };
-    const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: 9, border: `0.5px solid ${border}`, background: dark ? '#1a1a1a' : '#fff', color: textPrimary, fontSize: 14, outline: 'none' };
+    const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: 9, border: `0.5px solid ${border}`, background: dark ? '#1E2E4A' : '#fff', color: textPrimary, fontSize: 14, outline: 'none' };
     const desfaseTxt = (dias: any): string => {
       if (dias === null || dias === undefined) return '';
       if (dias === 0) return 'En programa';
@@ -873,8 +873,8 @@ const VisitaObra: React.FC = () => {
     return (
       <IonPage>
         <IonHeader>
-          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-            <button slot="start" onClick={() => setPantalla('historial')} style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
+          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+            <button slot="start" onClick={() => setPantalla('historial')} style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
             <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>Detalle de visita</IonTitle>
           </IonToolbar>
         </IonHeader>
@@ -927,7 +927,7 @@ const VisitaObra: React.FC = () => {
           </div>
           {/* Foto ampliada */}
           <IonModal isOpen={!!fotoAmpliadaDetalle} onDidDismiss={() => setFotoAmpliadaDetalle(null)}>
-            <div onClick={() => setFotoAmpliadaDetalle(null)} style={{ background: '#000', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div onClick={() => setFotoAmpliadaDetalle(null)} style={{ background: '#0B1220', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {fotoAmpliadaDetalle && <img src={fotoAmpliadaDetalle} alt="Vista ampliada" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
               <button onClick={() => setFotoAmpliadaDetalle(null)} style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 20, color: '#fff', fontSize: 16, width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
             </div>
@@ -941,8 +941,8 @@ const VisitaObra: React.FC = () => {
   if (pantalla === 'torres') return (
     <IonPage>
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-          <button slot="start" onClick={() => setPantalla('inicio')} style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+          <button slot="start" onClick={() => setPantalla('inicio')} style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Torres · {proyectoSel?.nombre}</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -977,7 +977,7 @@ const VisitaObra: React.FC = () => {
 
           {torresOrdenadas.map(torre => (
             <div key={torre.id} onClick={() => seleccionarTorre(torre)} style={{ background: cardGrad, borderRadius: 14, border: `0.5px solid ${border}`, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
-              <div style={{ width: 42, height: 42, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #eff6ff, #dbeafe)', border: dark ? '0.5px solid #2a2a2a' : '0.5px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, color: dark ? '#666' : '#1e3a5f', flexShrink: 0 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #eff6ff, #dbeafe)', border: dark ? '0.5px solid #2E4468' : '0.5px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, color: dark ? '#6E86A6' : '#1e3a5f', flexShrink: 0 }}>
                 {torre.nombre?.charAt(0)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -987,7 +987,7 @@ const VisitaObra: React.FC = () => {
                   {torre.pisos} pisos
                 </div>
               </div>
-              <div style={{ fontSize: 20, color: dark ? '#2a2a2a' : '#bfdbfe' }}>›</div>
+              <div style={{ fontSize: 20, color: dark ? '#2E4468' : '#bfdbfe' }}>›</div>
             </div>
           ))}
         </div>
@@ -1000,8 +1000,8 @@ const VisitaObra: React.FC = () => {
   if (pantalla === 'torre') return (
     <IonPage>
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-          <button slot="start" onClick={() => setPantalla('torres')} style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
+        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+          <button slot="start" onClick={() => setPantalla('torres')} style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>
             {torreSel?.nombre}
             <span style={{ fontSize: 12, fontWeight: 400, opacity: 0.6, marginLeft: 6 }}>· {torreSel?.frente}</span>
@@ -1069,7 +1069,7 @@ const VisitaObra: React.FC = () => {
                         <div style={{ fontSize: 12, fontWeight: 700, color: dark ? '#4a7ab5' : '#1e3a5f' }}>
                           Piso {piso === 0 ? '—' : piso}
                         </div>
-                        <div style={{ flex: 1, height: '0.5px', background: dark ? '#1e1e1e' : '#e2e8f0' }} />
+                        <div style={{ flex: 1, height: '0.5px', background: dark ? '#243550' : '#e2e8f0' }} />
                       </div>
                       {/* Grid de frentes */}
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -1082,7 +1082,7 @@ const VisitaObra: React.FC = () => {
                                   key={depto.id}
                                   onClick={() => { setDeptoSel(depto); setPantalla('depto'); }}
                                   style={{
-                                    background: dark ? 'linear-gradient(135deg, #111, #181818)' : '#f8fafc',
+                                    background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#f8fafc',
                                     border: `0.5px solid ${border}`,
                                     borderRadius: 12, padding: '10px 12px',
                                     cursor: 'pointer', minWidth: 64,
@@ -1098,7 +1098,7 @@ const VisitaObra: React.FC = () => {
                                     {depto.id_obra ?? '—'}
                                   </span>
                                   {/* Separador */}
-                                  <div style={{ width: '100%', height: '0.5px', background: dark ? '#222' : '#e2e8f0' }} />
+                                  <div style={{ width: '100%', height: '0.5px', background: dark ? '#26395C' : '#e2e8f0' }} />
                                   {/* Número depto */}
                                   <span style={{
                                     fontSize: 13, fontWeight: 700,
@@ -1144,8 +1144,8 @@ const VisitaObra: React.FC = () => {
     return (
       <IonPage>
         <IonHeader>
-          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#111' : 'transparent' }}>
-            <button slot="start" onClick={() => setPantalla('torre')} style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
+          <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': dark ? '#16233B' : 'transparent' }}>
+            <button slot="start" onClick={() => setPantalla('torre')} style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>‹</button>
             <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>
               {deptoSel?.numero ?? deptoSel?.id_obra}
               {deptoSel?.numero && deptoSel?.id_obra && <span style={{ fontSize: 12, fontWeight: 400, opacity: 0.55, marginLeft: 6 }}>({deptoSel.id_obra})</span>}
@@ -1164,7 +1164,7 @@ const VisitaObra: React.FC = () => {
             <div style={{ background: cardGrad, borderRadius: 16, border: `0.5px solid ${border}`, padding: 16, marginBottom: 12 }}>
               <div style={{ display: 'flex', gap: 8 }}>
                 {[{ label: 'N° Final', value: deptoSel?.numero }, { label: 'Id obra', value: deptoSel?.id_obra }, { label: 'Piso', value: deptoSel?.piso }].map(item => (
-                  <div key={item.label} style={{ flex: 1, background: dark ? '#111' : '#f8fafc', borderRadius: 10, padding: '10px 8px', textAlign: 'center', border: `0.5px solid ${border}` }}>
+                  <div key={item.label} style={{ flex: 1, background: dark ? '#16233B' : '#f8fafc', borderRadius: 10, padding: '10px 8px', textAlign: 'center', border: `0.5px solid ${border}` }}>
                     <div style={{ fontSize: 9, color: textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '1px' }}>{item.label}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: textPrimary }}>{item.value ?? '—'}</div>
                   </div>
@@ -1180,7 +1180,7 @@ const VisitaObra: React.FC = () => {
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{actual.cuadrilla}</div>
               </div>
             ) : (
-              <div style={{ background: dark ? 'linear-gradient(135deg, #111, #181818)' : '#f8fafc', borderRadius: 10, padding: '10px 14px', marginBottom: 6, border: `0.5px solid ${border}` }}>
+              <div style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#f8fafc', borderRadius: 10, padding: '10px 14px', marginBottom: 6, border: `0.5px solid ${border}` }}>
                 <div style={{ fontSize: 11, color: textMuted }}>Sin actividad programada para hoy</div>
               </div>
             )}
@@ -1213,7 +1213,7 @@ const VisitaObra: React.FC = () => {
             <div style={{ background: cardGrad, borderRadius: 16, border: `0.5px solid ${border}`, padding: 16, marginBottom: 12 }}>
               <div style={{ ...labelStyle, marginBottom: 10 }}>¿Qué actividad está realmente aquí?</div>
 
-              <button onClick={() => setShowActividadSheet(true)} style={{ width: '100%', background: actividadReal ? (dark ? 'rgba(30,58,95,0.4)' : 'rgba(30,58,95,0.07)') : (dark ? '#111' : '#f8fafc'), border: `0.5px solid ${actividadReal ? (dark ? 'rgba(30,58,95,0.6)' : '#1e3a5f') : border}`, borderRadius: 10, padding: '11px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', marginBottom: badge ? 10 : 0 }}>
+              <button onClick={() => setShowActividadSheet(true)} style={{ width: '100%', background: actividadReal ? (dark ? 'rgba(30,58,95,0.4)' : 'rgba(30,58,95,0.07)') : (dark ? '#16233B' : '#f8fafc'), border: `0.5px solid ${actividadReal ? (dark ? 'rgba(30,58,95,0.6)' : '#1e3a5f') : border}`, borderRadius: 10, padding: '11px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', marginBottom: badge ? 10 : 0 }}>
                 <div>
                   {actividadReal ? (
                     <>
@@ -1231,7 +1231,7 @@ const VisitaObra: React.FC = () => {
               <IonModal isOpen={showActividadSheet} onDidDismiss={() => setShowActividadSheet(false)} initialBreakpoint={0.75} breakpoints={[0, 0.75, 1]}>
                 <div style={{ background: card, height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <div style={{ padding: '16px 16px 12px', borderBottom: `0.5px solid ${border}` }}>
-                    <div style={{ width: 36, height: 4, borderRadius: 2, background: dark ? '#2a2a2a' : '#e2e8f0', margin: '0 auto 14px' }} />
+                    <div style={{ width: 36, height: 4, borderRadius: 2, background: dark ? '#2E4468' : '#e2e8f0', margin: '0 auto 14px' }} />
                     <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>Seleccionar actividad</div>
                     <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>Agrupado por cuadrilla · toca para seleccionar</div>
                   </div>
@@ -1244,8 +1244,8 @@ const VisitaObra: React.FC = () => {
                             const sel = actividadReal === act.actividad;
                             return (
                               <button key={i} onClick={() => { setActividadReal(sel ? '' : act.actividad); setShowActividadSheet(false); }}
-                                style={{ width: '100%', background: sel ? (dark ? 'rgba(30,58,95,0.5)' : 'rgba(30,58,95,0.09)') : (dark ? '#111' : '#f8fafc'), border: `0.5px solid ${sel ? (dark ? 'rgba(30,58,95,0.7)' : '#1e3a5f') : border}`, borderRadius: 10, padding: '9px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}>
-                                <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: sel ? (dark ? '#4ade80' : '#1e3a5f') : (dark ? '#2a2a2a' : '#cbd5e1'), border: sel ? 'none' : `1.5px solid ${dark ? '#3a3a3a' : '#94a3b8'}` }} />
+                                style={{ width: '100%', background: sel ? (dark ? 'rgba(30,58,95,0.5)' : 'rgba(30,58,95,0.09)') : (dark ? '#16233B' : '#f8fafc'), border: `0.5px solid ${sel ? (dark ? 'rgba(30,58,95,0.7)' : '#1e3a5f') : border}`, borderRadius: 10, padding: '9px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}>
+                                <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: sel ? (dark ? '#4ade80' : '#1e3a5f') : (dark ? '#2E4468' : '#cbd5e1'), border: sel ? 'none' : `1.5px solid ${dark ? '#3a3a3a' : '#94a3b8'}` }} />
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: textPrimary }}>{act.actividad}</div>
                                   {act.dia_inicio !== undefined && <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>Día {act.dia_inicio}</div>}

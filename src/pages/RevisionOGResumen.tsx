@@ -109,7 +109,7 @@ function heatColor(count: number, dark: boolean) {
   if (count === 0) return {
     fill: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
     stroke: dark ? '#333' : '#cbd5e1',
-    text: dark ? '#555' : '#94a3b8',
+    text: dark ? '#6E86A6' : '#94a3b8',
   };
   if (count <= 2) return {
     fill: dark ? 'rgba(96,165,250,0.18)' : 'rgba(37,99,235,0.12)',
@@ -129,7 +129,7 @@ function heatColor(count: number, dark: boolean) {
 }
 
 function estadoBadge(count: number, dark: boolean) {
-  if (count === 0) return { bg: dark ? '#1a1a1a' : '#f1f5f9', color: dark ? '#555' : '#94a3b8', label: 'OK' };
+  if (count === 0) return { bg: dark ? '#1E2E4A' : '#f1f5f9', color: dark ? '#6E86A6' : '#94a3b8', label: 'OK' };
   if (count <= 2) return { bg: dark ? 'rgba(96,165,250,0.12)' : '#eff6ff', color: dark ? '#60a5fa' : '#1d4ed8', label: 'Bajo' };
   if (count <= 4) return { bg: dark ? 'rgba(251,191,36,0.12)' : '#fffbeb', color: dark ? '#fbbf24' : '#a16207', label: 'Alto' };
   return { bg: dark ? 'rgba(239,68,68,0.12)' : '#fef2f2', color: dark ? '#f87171' : '#b91c1c', label: 'Crítico' };
@@ -143,13 +143,13 @@ const RevisionOGResumen: React.FC = () => {
   const iniciado = useRef(false);
 
   // ── Tokens de diseño ──────────────────────────────────────────────────────
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const cardGrad      = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border        = dark ? '#1e1e1e' : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const cardGrad      = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border        = dark ? '#243550' : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
 
   const sCard: React.CSSProperties = {
     background: cardGrad, borderRadius: 16,
@@ -387,7 +387,7 @@ const RevisionOGResumen: React.FC = () => {
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#fff' } as any}>
             <button slot="start" onClick={() => history.goBack()}
-              style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+              style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
               ‹
             </button>
             <IonTitle>Resumen OG</IonTitle>
@@ -408,7 +408,7 @@ const RevisionOGResumen: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <button slot="start" onClick={() => history.goBack()}
-            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
             ‹
           </button>
           <IonTitle style={{ fontSize: 15 }}>
@@ -556,7 +556,7 @@ const RevisionOGResumen: React.FC = () => {
                 {/* Leyenda */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 10 }}>
                   {[
-                    { label: 'Sin obs.', color: dark ? '#555'    : '#94a3b8', fill: dark ? '#111'                      : '#f1f5f9' },
+                    { label: 'Sin obs.', color: dark ? '#6E86A6'    : '#94a3b8', fill: dark ? '#16233B'                      : '#f1f5f9' },
                     { label: '1–2',      color: dark ? '#60a5fa' : '#2563eb', fill: dark ? 'rgba(96,165,250,0.18)'     : 'rgba(37,99,235,0.12)' },
                     { label: '3–4',      color: dark ? '#fbbf24' : '#a16207', fill: dark ? 'rgba(251,191,36,0.18)'     : 'rgba(161,98,7,0.12)' },
                     { label: '≥5',       color: dark ? '#f87171' : '#b91c1c', fill: dark ? 'rgba(248,113,113,0.22)'    : 'rgba(185,28,28,0.12)' },
@@ -599,7 +599,7 @@ const RevisionOGResumen: React.FC = () => {
                             <td style={{ padding: '8px 6px', fontWeight: 600, color: textPrimary }}>{count}</td>
                             <td style={{ padding: '8px 6px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <div style={{ flex: 1, height: 5, borderRadius: 3, background: dark ? '#1a1a1a' : '#e2e8f0' }}>
+                                <div style={{ flex: 1, height: 5, borderRadius: 3, background: dark ? '#1E2E4A' : '#e2e8f0' }}>
                                   <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: barColor }} />
                                 </div>
                                 <span style={{ fontSize: 10, color: textMuted, minWidth: 28 }}>

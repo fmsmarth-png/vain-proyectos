@@ -33,18 +33,27 @@ interface Actividad {
   nombre: string;
 }
 
+interface Kit {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+}
+
 interface Material {
   id: string;
   nombre: string;
-  unidad: string | null; // puede venir null hasta que el jefe de bodega la asigne
+  unidad_solicitud: string | null; // unidad granular (litros, kg...) — puede ser null hasta que el jefe de bodega la asigne
+  unidad_compra: string | null;    // unidad de empaque tal cual la reporta AYNI (tambores, sacos...)
+  factor_conversion: number;       // 1 = no hay distinción, solo existe una unidad
   actividad_id: string | null;
 }
 
 interface ItemCarrito {
   material_id: string;
   nombre: string;
-  unidad: string | null;
+  unidad: string | null;      // unidad canónica en la que queda guardada la cantidad (siempre granular cuando existe)
   cantidad: number;
+  notaOriginal?: string;      // ej. "5 TAMBOR 200 L" — cómo lo tecleó la persona, si eligió la unidad de compra
 }
 
 interface Usuario {
@@ -80,17 +89,17 @@ const GenerarVale: React.FC = () => {
   const location = useLocation<{ proyecto?: Proyecto }>();
 
   // ── tokens (idénticos al sistema de diseño VAIN) ──────────────────────────
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const cardGrad       = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border         = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const cardGrad       = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border         = dark ? '#243550'  : '#e2e8f0';
   const textPrimary    = dark ? '#f9fafb'  : '#0f172a';
   const textSecondary  = dark ? '#6b7280'  : '#64748b';
-  const textMuted      = dark ? '#444444'  : '#94a3b8';
-  const toolbar        = dark ? '#000000'  : '#1e3a5f';
-  const inputBg        = dark ? '#111111'  : '#ffffff';
-  const inputBorder    = dark ? '#1e1e1e'  : '#cbd5e1';
+  const textMuted      = dark ? '#5D728F'  : '#94a3b8';
+  const toolbar        = dark ? '#0E1728'  : '#1e3a5f';
+  const inputBg        = dark ? '#1B2C48'  : '#ffffff';
+  const inputBorder    = dark ? '#243550'  : '#cbd5e1';
   const sepLine         = dark
-    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
+    ? 'linear-gradient(90deg, transparent, #243550, transparent)'
     : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
   const azul      = dark ? '#60a5fa' : '#1d4ed8';
   const azulBg    = dark ? 'rgba(96,165,250,0.06)' : '#eff6ff';
@@ -144,9 +153,12 @@ const GenerarVale: React.FC = () => {
   const [actividadesSeleccionadas, setActividadesSeleccionadas] = useState<Actividad[]>([]);
   const [actividadInput, setActividadInput] = useState('');
   const [materiales, setMateriales] = useState<Material[]>([]);
+  const [kits, setKits] = useState<Kit[]>([]);
+  const [aplicandoKit, setAplicandoKit] = useState<string | null>(null);
   const [materialInput, setMaterialInput] = useState('');
   const [materialSeleccionado, setMaterialSeleccionado] = useState<Material | null>(null);
   const [cantidadInput, setCantidadInput] = useState('1');
+  const [unidadElegida, setUnidadElegida] = useState<'solicitud' | 'compra'>('solicitud');
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [retiraNombre, setRetiraNombre] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -198,17 +210,34 @@ const GenerarVale: React.FC = () => {
       .order('nombre');
     if (actividadesData) setActividades(actividadesData as Actividad[]);
 
+    const { data: kitsData } = await supabase
+      .from('bodega_kits')
+      .select('id, nombre, descripcion')
+      .eq('proyecto_id', proy.id)
+      .eq('activo', true)
+      .order('nombre');
+    if (kitsData) setKits(kitsData as Kit[]);
+
     const rolActual = usuarioRow?.rol ?? '';
     const especialidadActual = usuarioRow?.especialidad ?? null;
     const esAdmin = ['administrador', 'staff'].includes(rolActual);
     if (esAdmin || especialidadActual) {
       let query = supabase
         .from('bodega_materiales')
-        .select('id, nombre, unidad, actividad_id')
+        .select('id, nombre, unidad, unidad_solicitud, factor_conversion, actividad_id')
         .eq('activo', true);
       if (!esAdmin && especialidadActual) query = query.eq('especialidad', especialidadActual);
       const { data: materialesData } = await query.order('nombre');
-      if (materialesData) setMateriales(materialesData as Material[]);
+      if (materialesData) {
+        const mapeados = (materialesData as any[]).map(m => ({
+          id: m.id, nombre: m.nombre,
+          unidad_solicitud: m.unidad_solicitud ?? m.unidad,
+          unidad_compra: m.unidad,
+          factor_conversion: m.factor_conversion ?? 1,
+          actividad_id: m.actividad_id,
+        }));
+        setMateriales(mapeados as Material[]);
+      }
     }
   };
 
@@ -292,19 +321,77 @@ const GenerarVale: React.FC = () => {
     if (!cantidad || cantidad <= 0) {
       setToastColor('danger'); setToastMsg('Ingresa una cantidad válida'); return;
     }
+    // Si la persona eligió pedir en unidad de compra (ej. "2 tambores"), se
+    // convierte a la unidad granular ANTES de guardar — el stock y el
+    // descuento siempre quedan en una sola unidad consistente, sin importar
+    // cómo lo haya tecleado quien pidió el material.
+    const enCompra = unidadElegida === 'compra' && materialSeleccionado.factor_conversion !== 1;
+    const cantidadFinal = enCompra ? cantidad * materialSeleccionado.factor_conversion : cantidad;
     setCarrito(prev => [...prev, {
       material_id: materialSeleccionado.id,
       nombre: materialSeleccionado.nombre,
-      unidad: materialSeleccionado.unidad,
-      cantidad,
+      unidad: materialSeleccionado.unidad_solicitud,
+      cantidad: cantidadFinal,
+      notaOriginal: enCompra ? `${cantidad} ${materialSeleccionado.unidad_compra}` : undefined,
     }]);
     setMaterialSeleccionado(null);
     setMaterialInput('');
     setCantidadInput('1');
+    setUnidadElegida('solicitud');
   };
 
   const quitarDelCarrito = (idx: number) => {
     setCarrito(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // Permite ajustar la cantidad de un ítem ya en el carrito (venga de un kit
+  // o agregado a mano) sin tener que quitarlo y volver a agregarlo.
+  const actualizarCantidadCarrito = (idx: number, valor: string) => {
+    const cantidad = parseFloat(valor);
+    setCarrito(prev => prev.map((item, i) => (i === idx ? { ...item, cantidad: isNaN(cantidad) ? 0 : cantidad, notaOriginal: undefined } : item)));
+  };
+
+  // ── usar kit: agrega todos sus materiales al carrito de una vez ────────
+  // Si un material del kit ya estaba en el carrito, suma la cantidad en vez
+  // de duplicar la línea. Las cantidades quedan editables como cualquier
+  // ítem agregado a mano (quitar/editar sigue el mismo flujo de siempre).
+  const usarKit = async (kit: Kit) => {
+    setAplicandoKit(kit.id);
+    const { data, error } = await supabase
+      .from('bodega_kit_items')
+      .select('material_id, cantidad, bodega_materiales ( nombre, unidad, unidad_solicitud )')
+      .eq('kit_id', kit.id);
+    setAplicandoKit(null);
+
+    if (error || !data || data.length === 0) {
+      setToastColor('danger');
+      setToastMsg('Este kit no tiene materiales o no se pudo cargar');
+      return;
+    }
+
+    setCarrito(prev => {
+      const siguiente = [...prev];
+      for (const fila of data as any[]) {
+        const idxExistente = siguiente.findIndex(i => i.material_id === fila.material_id);
+        if (idxExistente >= 0) {
+          siguiente[idxExistente] = {
+            ...siguiente[idxExistente],
+            cantidad: siguiente[idxExistente].cantidad + Number(fila.cantidad),
+          };
+        } else {
+          siguiente.push({
+            material_id: fila.material_id,
+            nombre: fila.bodega_materiales?.nombre ?? 'Material',
+            unidad: fila.bodega_materiales?.unidad_solicitud ?? fila.bodega_materiales?.unidad ?? null,
+            cantidad: Number(fila.cantidad),
+          });
+        }
+      }
+      return siguiente;
+    });
+
+    setToastColor('success');
+    setToastMsg(`Kit "${kit.nombre}" agregado a la solicitud`);
   };
 
   // ── emitir vale ────────────────────────────────────────────────────────
@@ -315,6 +402,11 @@ const GenerarVale: React.FC = () => {
     if (!torreId) { setToastColor('danger'); setToastMsg('Selecciona la torre'); return; }
     if (!esExterior && deptosSeleccionados.size === 0) { setToastColor('danger'); setToastMsg('Selecciona al menos un departamento'); return; }
     if (carrito.length === 0) { setToastColor('danger'); setToastMsg('Agrega al menos un material'); return; }
+    if (carrito.some(item => !item.cantidad || item.cantidad <= 0)) {
+      setToastColor('danger');
+      setToastMsg('Hay materiales con cantidad 0 — corrígelos o quítalos antes de emitir');
+      return;
+    }
 
     setGuardando(true);
     try {
@@ -368,7 +460,7 @@ const GenerarVale: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' } as any} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Nueva solicitud de material</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -489,6 +581,29 @@ const GenerarVale: React.FC = () => {
             )}
           </div>
 
+          {/* ── Kits de materiales ─────────────────────────────── */}
+          {kits.length > 0 && (
+            <div style={sCard}>
+              <div style={sSecLabel}>Usar un kit</div>
+              <select
+                style={sInput}
+                value=""
+                disabled={!!aplicandoKit}
+                onChange={e => {
+                  const kit = kits.find(k => k.id === e.target.value);
+                  if (kit) usarKit(kit);
+                }}
+              >
+                <option value="" disabled>
+                  {aplicandoKit ? 'Agregando...' : 'Selecciona un kit para agregarlo'}
+                </option>
+                {kits.map(kit => (
+                  <option key={kit.id} value={kit.id}>{kit.nombre}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* ── Materiales ─────────────────────────────────────── */}
           <div style={sCard}>
             <div style={sSecLabel}>Agregar material</div>
@@ -505,10 +620,10 @@ const GenerarVale: React.FC = () => {
                     {sugerenciasMaterial.map(m => (
                       <div
                         key={m.id}
-                        onClick={() => { setMaterialSeleccionado(m); setMaterialInput(m.nombre); }}
+                        onClick={() => { setMaterialSeleccionado(m); setMaterialInput(m.nombre); setUnidadElegida('solicitud'); }}
                         style={{ padding: '8px 12px', fontSize: 13, color: textPrimary, cursor: 'pointer', borderBottom: `0.5px solid ${border}` }}
                       >
-                        {m.nombre}{!m.unidad && <span style={{ color: textMuted }}> (sin unidad)</span>}
+                        {m.nombre}{!m.unidad_solicitud && <span style={{ color: textMuted }}> (sin unidad)</span>}
                       </div>
                     ))}
                   </div>
@@ -523,6 +638,36 @@ const GenerarVale: React.FC = () => {
                 onChange={e => setCantidadInput(e.target.value)}
               />
             </div>
+
+            {/* Elegir en qué unidad se está pidiendo, solo si el material tiene
+                ambas (granular y de compra) y son distintas */}
+            {materialSeleccionado && materialSeleccionado.factor_conversion !== 1 && materialSeleccionado.unidad_compra && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button
+                  onClick={() => setUnidadElegida('solicitud')}
+                  style={{
+                    flex: 1, height: 34, borderRadius: 8, fontSize: 12, cursor: 'pointer',
+                    border: `0.5px solid ${unidadElegida === 'solicitud' ? azul : border}`,
+                    background: unidadElegida === 'solicitud' ? azulBg : 'transparent',
+                    color: unidadElegida === 'solicitud' ? azul : textSecondary,
+                  }}
+                >
+                  Pedir en {materialSeleccionado.unidad_solicitud}
+                </button>
+                <button
+                  onClick={() => setUnidadElegida('compra')}
+                  style={{
+                    flex: 1, height: 34, borderRadius: 8, fontSize: 12, cursor: 'pointer',
+                    border: `0.5px solid ${unidadElegida === 'compra' ? azul : border}`,
+                    background: unidadElegida === 'compra' ? azulBg : 'transparent',
+                    color: unidadElegida === 'compra' ? azul : textSecondary,
+                  }}
+                >
+                  Pedir en {materialSeleccionado.unidad_compra}
+                </button>
+              </div>
+            )}
+
             <button style={sBtnSecondary} onClick={agregarMaterialCarrito}>+ Agregar a la lista</button>
 
             {carrito.length > 0 && (
@@ -531,9 +676,20 @@ const GenerarVale: React.FC = () => {
                 <div style={{ fontSize: 12, color: textMuted, marginBottom: 8 }}>Materiales en esta solicitud</div>
                 {carrito.map((item, idx) => (
                   <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: idx < carrito.length - 1 ? `0.5px solid ${border}` : 'none' }}>
-                    <span style={{ fontSize: 14, color: textPrimary }}>{item.nombre}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontSize: 13, color: textSecondary }}>{item.cantidad}{item.unidad ? ` ${item.unidad}` : ''}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: textPrimary }}>{item.nombre}</div>
+                      {item.notaOriginal && (
+                        <div style={{ fontSize: 11, color: textMuted }}>ingresado como {item.notaOriginal}</div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                      <input
+                        type="number" min="0"
+                        value={item.cantidad}
+                        onChange={e => actualizarCantidadCarrito(idx, e.target.value)}
+                        style={{ ...sInputSmall, width: 64, height: 32, padding: '4px 8px', textAlign: 'right' }}
+                      />
+                      {item.unidad && <span style={{ fontSize: 12, color: textSecondary }}>{item.unidad}</span>}
                       <span onClick={() => quitarDelCarrito(idx)} style={{ color: rojo, cursor: 'pointer', fontSize: 13 }}>Quitar</span>
                     </div>
                   </div>

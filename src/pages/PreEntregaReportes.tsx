@@ -19,8 +19,8 @@ export const PreEntregaReportes: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const bg = dark ? '#000000' : '#f8f8f8';
-  const card = dark ? '#111111' : '#ffffff';
+  const bg = dark ? '#0B1220' : '#f8f8f8';
+  const card = dark ? '#1B2C48' : '#ffffff';
   const cardBg = dark ? '#0a0a0a' : '#f9f9f9';
   const border = dark ? '#222222' : '#e8e8e8';
   const textPrimary = dark ? '#ffffff' : '#1f2937';

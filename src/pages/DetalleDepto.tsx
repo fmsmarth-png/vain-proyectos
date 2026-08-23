@@ -74,15 +74,15 @@ const DetalleDepto: React.FC = () => {
 
   const esAdmin = rolUsuario === 'administrador';
 
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const card          = dark ? '#16233B'  : '#ffffff';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg       = dark ? '#1B2C48' : '#ffffff';
+  const inputBorder   = dark ? '#243550' : '#cbd5e1';
 
   // Validación
   const tieneDatos = depto && torre && proyecto;
@@ -296,7 +296,7 @@ const DetalleDepto: React.FC = () => {
         <>
           <IonHeader>
             <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-              <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>← Volver</IonButton>
+              <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>← Volver</IonButton>
               <IonTitle style={{ fontSize: 14 }}>Cargando...</IonTitle>
             </IonToolbar>
           </IonHeader>
@@ -308,7 +308,7 @@ const DetalleDepto: React.FC = () => {
         <>
           <IonHeader>
             <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-              <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>← Volver</IonButton>
+              <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={() => history.goBack()}>← Volver</IonButton>
               <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Detalle Departamento</IonTitle>
               <IonButton slot="end" fill="clear" style={{ '--color': dark ? '#999' : 'rgba(255,255,255,0.8)' }}>⋮</IonButton>
             </IonToolbar>
@@ -552,7 +552,7 @@ const DetalleDepto: React.FC = () => {
                   left: '5%',
                   right: '5%',
                   height: '2px',
-                  background: dark ? '#1e1e1e' : '#d1d5db',
+                  background: dark ? '#243550' : '#d1d5db',
                   zIndex: 0
                 }} />
 

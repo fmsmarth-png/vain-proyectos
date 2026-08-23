@@ -16,15 +16,15 @@ const Inspeccion: React.FC = () => {
   const { online, pendientes } = useOffline();
   const dark = theme === 'dark';
 
-  const bg          = dark ? '#000000' : '#f0f4f8';
-  const card        = dark ? '#0e0e0e'  : '#ffffff';
-  const border      = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg          = dark ? '#0B1220' : '#f0f4f8';
+  const card        = dark ? '#16233B'  : '#ffffff';
+  const border      = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg       = dark ? '#1B2C48' : '#ffffff';
+  const inputBorder   = dark ? '#243550' : '#cbd5e1';
 
   const [proyectos, setProyectos]         = useState<any[]>([]);
   const [torres, setTorres]               = useState<any[]>([]);
@@ -163,7 +163,7 @@ const irAZonaComunDesdeModal = () => {
   const labelStyle  = { fontSize: 9, color: textMuted, display: 'block', marginBottom: 6, textTransform: 'uppercase' as any, letterSpacing: '1.5px', fontWeight: 600 };
 
   const sepLine = dark
-    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
+    ? 'linear-gradient(90deg, transparent, #243550, transparent)'
     : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   if (loading && !cache.hayDatos()) return (
@@ -178,7 +178,7 @@ const irAZonaComunDesdeModal = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonMenuButton slot="start" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
+          <IonMenuButton slot="start" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Registrar Observaciones</IonTitle>
           <div slot="end" style={{ paddingRight: 14 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
@@ -191,8 +191,8 @@ const irAZonaComunDesdeModal = () => {
 
           {/* Último depto */}
           {ultimoDepto && (
-            <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 20, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#eff6ff', border: dark ? '0.5px solid #2a2a2a' : '0.5px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>📍</div>
+            <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 20, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#eff6ff', border: dark ? '0.5px solid #2E4468' : '0.5px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>📍</div>
               <div>
                 <div style={{ fontSize: 9, color: dark ? '#60a5fa' : '#2563eb', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>
                   Último departamento revisado
@@ -219,7 +219,7 @@ const irAZonaComunDesdeModal = () => {
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Seleccionar departamento</div>
           <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 20, border: `0.5px solid ${border}` }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 20, border: `0.5px solid ${border}` }}>
             <label style={labelStyle}>proyecto</label>
             <select value={proyectoId} onChange={e => setProyectoId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar proyecto...</option>
@@ -242,7 +242,7 @@ const irAZonaComunDesdeModal = () => {
 <button onClick={() => deptoId === '__ZC__' ? irAZonaComun() : iniciarInspeccion()} disabled={!deptoId} style={{
               width: '100%', height: 48, borderRadius: 12,
               background: deptoId
-                ? (dark ? 'linear-gradient(135deg, #1a1a1a, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)')
+                ? (dark ? 'linear-gradient(135deg, #1E2E4A, #2E4468)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)')
                 : 'transparent',
               border: deptoId ? 'none' : `0.5px solid ${border}`,
               color: deptoId ? '#fff' : textMuted,
@@ -265,10 +265,10 @@ const irAZonaComunDesdeModal = () => {
               {resumen.map((t: any) => {
                 const pct = t.total > 0 ? (t.inspeccionados / t.total) * 100 : 0;
                 return (
-                  <div key={t.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #181818 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 10, border: `0.5px solid ${border}` }}>
+                  <div key={t.id} style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 10, border: `0.5px solid ${border}` }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#666' : '#fff' }}>{t.nombre}</div>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2E4468' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#6E86A6' : '#fff' }}>{t.nombre}</div>
                         <div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>Torre {t.nombre}{t.frente ? ` (${t.frente})` : ''}</div>
                           <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{t.inspeccionados}/{t.total} deptos</div>
@@ -278,10 +278,10 @@ const irAZonaComunDesdeModal = () => {
                         {Math.round(pct)}%
                       </span>
                     </div>
-                    <div style={{ height: 3, background: dark ? '#111' : '#f1f5f9', borderRadius: 2, marginBottom: 12 }}>
-                      <div style={{ height: 3, borderRadius: 2, background: pct === 100 ? (dark ? '#4ade80' : '#22c55e') : (dark ? 'linear-gradient(90deg, #333, #555)' : 'linear-gradient(90deg, #bfdbfe, #2563eb)'), width: `${pct}%`, transition: 'width 0.4s ease' }} />
+                    <div style={{ height: 3, background: dark ? '#16233B' : '#f1f5f9', borderRadius: 2, marginBottom: 12 }}>
+                      <div style={{ height: 3, borderRadius: 2, background: pct === 100 ? (dark ? '#4ade80' : '#22c55e') : (dark ? 'linear-gradient(90deg, #333, #6E86A6)' : 'linear-gradient(90deg, #bfdbfe, #2563eb)'), width: `${pct}%`, transition: 'width 0.4s ease' }} />
                     </div>
-                    <button onClick={() => abrirModalTorre(t)} style={{ background: 'none', border: 'none', color: dark ? '#555' : '#2563eb', fontSize: 12, cursor: 'pointer', padding: 0, fontWeight: 500 }}>
+                    <button onClick={() => abrirModalTorre(t)} style={{ background: 'none', border: 'none', color: dark ? '#6E86A6' : '#2563eb', fontSize: 12, cursor: 'pointer', padding: 0, fontWeight: 500 }}>
                       ver deptos →
                     </button>
                   </div>
@@ -339,8 +339,8 @@ const irAZonaComunDesdeModal = () => {
       {deptosModal.map((d: any) => (
         <button key={d.id} onClick={() => { setModalTorre(false); setTimeout(() => iniciarInspeccion(d), 300); }} style={{
           background: d.tieneRegistros
-            ? (dark ? 'linear-gradient(135deg, #0a1a0e, #111)' : '#f0fdf4')
-            : (dark ? 'linear-gradient(135deg, #111, #161616)' : '#f8fafc'),
+            ? (dark ? 'linear-gradient(135deg, rgba(34,197,94,0.12), #16233B)' : '#f0fdf4')
+            : (dark ? 'linear-gradient(135deg, #16233B, #1E2E4A)' : '#f8fafc'),
           border: `0.5px solid ${d.tieneRegistros ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0') : border}`,
           borderRadius: 12, padding: '10px 14px', cursor: 'pointer', textAlign: 'center', minWidth: 72
         }}>

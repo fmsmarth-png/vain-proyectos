@@ -108,15 +108,15 @@ const RevisionOGAmbiente: React.FC = () => {
   };
 
   // ── tokens ──────────────────────────────────────────────────────────────────
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const cardGrad      = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const cardGrad      = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb'  : '#0f172a';
-  const textMuted     = dark ? '#444444'  : '#94a3b8';
-  const toolbar       = dark ? '#000000'  : '#1e3a5f';
+  const textMuted     = dark ? '#5D728F'  : '#94a3b8';
+  const toolbar       = dark ? '#0E1728'  : '#1e3a5f';
   const textSecondary = dark ? '#6b7280'  : '#64748b';
-  const inputBg       = dark ? '#111111'  : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e'  : '#cbd5e1';
+  const inputBg       = dark ? '#1B2C48'  : '#ffffff';
+  const inputBorder   = dark ? '#243550'  : '#cbd5e1';
   const rojo          = dark ? '#f87171'  : '#b91c1c';
   const rojoBg        = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
   const rojoBord      = dark ? 'rgba(239,68,68,0.15)' : '#fecaca';
@@ -527,7 +527,7 @@ const RevisionOGAmbiente: React.FC = () => {
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
             <button slot="start" onClick={() => history.goBack()}
-              style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+              style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
               ‹
             </button>
             <IonTitle style={{ fontSize: 16 }}>Revisión OG</IonTitle>
@@ -552,7 +552,7 @@ const RevisionOGAmbiente: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <button slot="start" onClick={volverADetalle}
-            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
             ‹
           </button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>
@@ -917,7 +917,7 @@ const RevisionOGAmbiente: React.FC = () => {
                     border: 'none', fontSize: 15, fontWeight: 700,
                     // FMS: color distinto en modo offline para feedback visual
                     background: !puedeGuardar
-                      ? (dark ? '#111' : '#e2e8f0')
+                      ? (dark ? '#16233B' : '#e2e8f0')
                       : online
                         ? '#1e3a5f'
                         : '#92400e', // naranja oscuro = modo offline

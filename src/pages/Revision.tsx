@@ -24,17 +24,17 @@ const Revision: React.FC = () => {
   const dark = theme === 'dark';
   const location = useLocation<any>();
 
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
+  const bg            = dark ? '#0B1220' : '#f0f4f8';
+  const card          = dark ? '#16233B'  : '#ffffff';
+  const border        = dark ? '#243550'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
-  const sepLine       = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
-  const regCardBg     = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
+  const textMuted     = dark ? '#5D728F' : '#94a3b8';
+  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg       = dark ? '#1B2C48' : '#ffffff';
+  const inputBorder   = dark ? '#243550' : '#cbd5e1';
+  const sepLine       = dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
+  const regCardBg     = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
 
   const estadoColors: Record<string, string> = dark ? {
     pendiente:   '#f87171',
@@ -851,7 +851,7 @@ const Revision: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonMenuButton slot="start" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} />
+          <IonMenuButton slot="start" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} />
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>Revisión de Observaciones</IonTitle>
           <div slot="end" style={{ paddingRight: 14 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
@@ -865,7 +865,7 @@ const Revision: React.FC = () => {
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Seleccionar departamento</div>
           <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 8, border: `0.5px solid ${border}` }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 8, border: `0.5px solid ${border}` }}>
             <label style={labelStyle}>proyecto</label>
             <select value={proyectoId} onChange={e => setProyectoId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar proyecto...</option>
@@ -933,7 +933,7 @@ const Revision: React.FC = () => {
                         {Object.entries(conteosZC).map(([estado, count]: [string, any]) => {
                           const ec = estadoColors[estado];
                           return (
-                            <div key={estado} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 14, padding: '12px 14px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div key={estado} style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff', borderRadius: 14, padding: '12px 14px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
                               <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: ec }} />
                               <div>
                                 <div style={{ fontSize: 24, fontWeight: 800, color: ec, lineHeight: 1 }}>{count}</div>
@@ -948,7 +948,7 @@ const Revision: React.FC = () => {
                           const ec = f !== 'todos' ? estadoColors[f] : undefined;
                           const activo = filtro === f;
                           return (
-                            <button key={f} onClick={() => setFiltro(f)} style={{ height: 28, padding: '0 12px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0, background: activo ? (f === 'todos' ? (dark ? '#1a1a1a' : '#1e3a5f') : ec + (dark ? '15' : '12')) : 'transparent', color: activo ? (f === 'todos' ? '#fff' : ec) : textMuted, border: `0.5px solid ${activo ? (f === 'todos' ? (dark ? '#2a2a2a' : '#1e3a5f') : ec + '40') : border}` }}>
+                            <button key={f} onClick={() => setFiltro(f)} style={{ height: 28, padding: '0 12px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0, background: activo ? (f === 'todos' ? (dark ? '#1E2E4A' : '#1e3a5f') : ec + (dark ? '15' : '12')) : 'transparent', color: activo ? (f === 'todos' ? '#fff' : ec) : textMuted, border: `0.5px solid ${activo ? (f === 'todos' ? (dark ? '#2E4468' : '#1e3a5f') : ec + '40') : border}` }}>
                               {f === 'todos' ? `Todos (${registrosZC.length})` : `${estadoLabel[f]} (${conteosZC[f as keyof typeof conteosZC]})`}
                             </button>
                           );
@@ -1000,7 +1000,7 @@ const Revision: React.FC = () => {
                 <>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                     {(['todas', 'obra', 'pre_entrega', 'postventa'] as const).map((e: any) => (
-                      <button key={e} onClick={() => setFiltroEtapa(e)} style={{ flex: 1, height: 30, borderRadius: 8, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: filtroEtapa === e ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: filtroEtapa === e ? '#fff' : textMuted, border: `0.5px solid ${filtroEtapa === e ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>
+                      <button key={e} onClick={() => setFiltroEtapa(e)} style={{ flex: 1, height: 30, borderRadius: 8, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: filtroEtapa === e ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent', color: filtroEtapa === e ? '#fff' : textMuted, border: `0.5px solid ${filtroEtapa === e ? (dark ? '#2E4468' : '#1e3a5f') : border}` }}>
                         {e === 'todas' ? '📋 Todas' : e === 'obra' ? '🏗️ Obra' : e === 'pre_entrega' ? '🏠 Pre-E' : '🔧 PV'}
                       </button>
                     ))}
@@ -1013,7 +1013,7 @@ const Revision: React.FC = () => {
                     {Object.entries(conteos).map(([estado, count]: [string, any]) => {
                       const ec = estadoColors[estado];
                       return (
-                        <div key={estado} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 14, padding: '12px 14px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div key={estado} style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff', borderRadius: 14, padding: '12px 14px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: ec }} />
                           <div>
                             <div style={{ fontSize: 24, fontWeight: 800, color: ec, lineHeight: 1 }}>{count}</div>
@@ -1028,7 +1028,7 @@ const Revision: React.FC = () => {
                       const ec = f !== 'todos' ? estadoColors[f] : undefined;
                       const activo = filtro === f;
                       return (
-                        <button key={f} onClick={() => setFiltro(f)} style={{ height: 28, padding: '0 12px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0, background: activo ? (f === 'todos' ? (dark ? '#1a1a1a' : '#1e3a5f') : ec + (dark ? '15' : '12')) : 'transparent', color: activo ? (f === 'todos' ? '#fff' : ec) : textMuted, border: `0.5px solid ${activo ? (f === 'todos' ? (dark ? '#2a2a2a' : '#1e3a5f') : ec + '40') : border}` }}>
+                        <button key={f} onClick={() => setFiltro(f)} style={{ height: 28, padding: '0 12px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0, background: activo ? (f === 'todos' ? (dark ? '#1E2E4A' : '#1e3a5f') : ec + (dark ? '15' : '12')) : 'transparent', color: activo ? (f === 'todos' ? '#fff' : ec) : textMuted, border: `0.5px solid ${activo ? (f === 'todos' ? (dark ? '#2E4468' : '#1e3a5f') : ec + '40') : border}` }}>
                           {f === 'todos' ? `Todos (${registrosFiltradosPorEtapa.length})` : `${estadoLabel[f]} (${conteos[f as keyof typeof conteos]})`}
                         </button>
                       );
@@ -1060,7 +1060,7 @@ const Revision: React.FC = () => {
               {deptoId && online && (
                 <>
                   {puedeEntregarProp && deptoData?.estado_entrega === 'entregado_inmobiliaria' && (
-                    <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 16, marginTop: 8, border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0' }}>
+                    <div style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 16, padding: 16, marginTop: 8, border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0' }}>
                       <div style={{ fontSize: 11, color: dark ? '#4ade80' : '#15803d', marginBottom: 6, fontWeight: 600 }}>🔑 Registrar entrega al propietario</div>
                       <div style={{ fontSize: 11, color: textSecondary, marginBottom: 12 }}>Al confirmar, el departamento pasará a estado Postventa.</div>
                       <button onClick={() => { setErrorEntrega(''); setComentarioEntregaProp(''); setModalEntregaProp(true); }} style={{ width: '100%', height: 42, borderRadius: 10, background: dark ? 'rgba(74,222,128,0.08)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', color: dark ? '#4ade80' : '#15803d', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>🔑 Confirmar entrega al propietario</button>
@@ -1084,10 +1084,10 @@ const Revision: React.FC = () => {
             {resumenTorres.length === 0 ? <div style={{ textAlign: 'center', marginTop: 40 }}><IonSpinner name="crescent" /></div> : resumenTorres.map((t: any) => {
               const pct = t.total > 0 ? Math.round((t.conObs / t.total) * 100) : 0;
               return (
-                <div key={t.id} style={{ background: dark ? 'linear-gradient(135deg, #111, #181818)' : '#f8fafc', borderRadius: 14, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
+                <div key={t.id} style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#f8fafc', borderRadius: 14, padding: 14, marginBottom: 10, border: `0.5px solid ${border}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#666' : '#fff' }}>{t.nombre}</div>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: dark ? '#6E86A6' : '#fff' }}>{t.nombre}</div>
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: textPrimary }}>Torre {t.nombre}{t.frente ? ` (${t.frente})` : ''}</div>
                         <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>{t.conObs}/{t.total} deptos con obs</div>
@@ -1095,10 +1095,10 @@ const Revision: React.FC = () => {
                     </div>
                     <span style={{ fontSize: 13, fontWeight: 700, color: pct === 100 ? (dark ? '#4ade80' : '#15803d') : textMuted }}>{pct}%</span>
                   </div>
-                  <div style={{ height: 3, background: dark ? '#111' : '#f1f5f9', borderRadius: 2, marginBottom: 10 }}>
-                    <div style={{ height: 3, borderRadius: 2, background: pct === 100 ? (dark ? '#4ade80' : '#22c55e') : (dark ? 'linear-gradient(90deg, #333, #555)' : 'linear-gradient(90deg, #bfdbfe, #2563eb)'), width: `${pct}%`, transition: 'width 0.3s' }} />
+                  <div style={{ height: 3, background: dark ? '#16233B' : '#f1f5f9', borderRadius: 2, marginBottom: 10 }}>
+                    <div style={{ height: 3, borderRadius: 2, background: pct === 100 ? (dark ? '#4ade80' : '#22c55e') : (dark ? 'linear-gradient(90deg, #333, #6E86A6)' : 'linear-gradient(90deg, #bfdbfe, #2563eb)'), width: `${pct}%`, transition: 'width 0.3s' }} />
                   </div>
-                  <button onClick={() => abrirModalTorre(t)} style={{ background: 'none', border: 'none', color: dark ? '#555' : '#2563eb', fontSize: 12, cursor: 'pointer', padding: 0, fontWeight: 500 }}>ver deptos →</button>
+                  <button onClick={() => abrirModalTorre(t)} style={{ background: 'none', border: 'none', color: dark ? '#6E86A6' : '#2563eb', fontSize: 12, cursor: 'pointer', padding: 0, fontWeight: 500 }}>ver deptos →</button>
                 </div>
               );
             })}
@@ -1120,7 +1120,7 @@ const Revision: React.FC = () => {
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {deptosModal.map((d: any) => (
-                  <button key={d.id} onClick={() => seleccionarDepto(d)} style={{ background: d.tieneRegistros ? (dark ? 'linear-gradient(135deg, #0a1a0e, #111)' : '#f0fdf4') : (dark ? 'linear-gradient(135deg, #111, #161616)' : '#f8fafc'), border: `0.5px solid ${d.tieneRegistros ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0') : border}`, borderRadius: 12, padding: '10px 14px', cursor: 'pointer', textAlign: 'center', minWidth: 72 }}>
+                  <button key={d.id} onClick={() => seleccionarDepto(d)} style={{ background: d.tieneRegistros ? (dark ? 'linear-gradient(135deg, rgba(34,197,94,0.12), #16233B)' : '#f0fdf4') : (dark ? 'linear-gradient(135deg, #16233B, #1E2E4A)' : '#f8fafc'), border: `0.5px solid ${d.tieneRegistros ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0') : border}`, borderRadius: 12, padding: '10px 14px', cursor: 'pointer', textAlign: 'center', minWidth: 72 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: d.tieneRegistros ? (dark ? '#4ade80' : '#15803d') : textPrimary }}>{d.numero}</div>
                     <div style={{ fontSize: 10, color: d.tieneRegistros ? (dark ? '#4ade80' : '#15803d') : textMuted, marginTop: 2 }}>{d.id_obra}</div>
                     {d.tieneRegistros && <div style={{ fontSize: 10, color: dark ? '#4ade80' : '#15803d', marginTop: 3 }}>✓</div>}
@@ -1230,7 +1230,7 @@ const Revision: React.FC = () => {
 
         {/* Modal foto */}
         <IonModal isOpen={!!fotoModal} onDidDismiss={() => setFotoModal('')}>
-          <div style={{ background: '#000', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div style={{ background: '#0B1220', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
             <button onClick={() => setFotoModal('')} style={{ position: 'absolute', top: 48, right: 16, background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: '50%', width: 36, height: 36, color: '#fff', fontSize: 20, cursor: 'pointer' }}>×</button>
             <img src={fotoModal} style={{ width: '100%', maxHeight: '90vh', objectFit: 'contain' }} />
           </div>

@@ -111,9 +111,9 @@ const App: React.FC = () => {
   );
 
   if (pendiente) return (
-    <div style={{ background: '#000000', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, textAlign: 'center' }}>
+    <div style={{ background: '#0B1220', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, textAlign: 'center' }}>
       <img src="/logo-vain-blanco.png" style={{ height: 100, objectFit: 'contain', marginBottom: 32 }} alt="VAIN" />
-      <div style={{ background: '#111111', borderRadius: 14, padding: 28, border: '0.5px solid #222222', maxWidth: 340, width: '100%' }}>
+      <div style={{ background: '#1B2C48', borderRadius: 14, padding: 28, border: '0.5px solid #222222', maxWidth: 340, width: '100%' }}>
         <div style={{ fontSize: 32, marginBottom: 16 }}>⏳</div>
         <div style={{ fontSize: 18, fontWeight: 500, color: '#f9fafb', marginBottom: 8 }}>Solicitud en revisión</div>
         <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6, marginBottom: 24 }}>
