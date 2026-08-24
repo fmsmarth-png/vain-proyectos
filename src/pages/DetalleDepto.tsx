@@ -7,6 +7,7 @@ import { useHistory, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import VisitasPostVenta from '../components/VisitasPostVenta';
+import BottomNavBar from '../components/BottomNavBar';
 import {
   Building2, CheckCircle2, FileText, Check, Eye, ClipboardList, Info, MoreVertical, Home, User, Phone, Calendar, Edit
 } from 'lucide-react';
@@ -315,13 +316,24 @@ const DetalleDepto: React.FC = () => {
           </IonHeader>
 
           <IonContent style={{ '--background': bg }}>
-            <div style={{ padding: 16, paddingBottom: 80 }}>
+            <div style={{ padding: 16, paddingBottom: 100 }}>
           <div style={{ background: card, borderRadius: 14, padding: 16, marginBottom: 20, border: `0.5px solid ${border}` }}>
             <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
               <div style={{ width: 60, height: 60, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : 'linear-gradient(135deg, #1e3a5f, #3b82f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Home size={28} color="#fff" strokeWidth={1.5} />
               </div>
               <div style={{ flex: 1 }}>
+                {/* Contexto de proyecto: antes no hacía falta porque a este
+                    detalle siempre se llegaba ya dentro de un proyecto
+                    (DeptosFiltrados). Ahora también se llega desde el
+                    Calendario de Post Venta, que mezcla deptos de TODOS los
+                    proyectos asignados — sin esto no había forma de saber
+                    de qué proyecto era el depto que se estaba viendo. */}
+                {proyecto?.nombre && (
+                  <div style={{ fontSize: 11, color: textMuted, marginBottom: 4, fontWeight: 600 }}>
+                    {proyecto.nombre}{proyecto.codigo ? ` · ${proyecto.codigo}` : ''}
+                  </div>
+                )}
                 <div style={{ fontSize: 12, color: textMuted, marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Torre {torre?.nombre}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: textPrimary, marginBottom: 6 }}>Departamento {depto?.numero}</div>
                 {depto?.piso && (
@@ -682,6 +694,12 @@ const DetalleDepto: React.FC = () => {
 
         </div>
       </IonContent>
+
+      <BottomNavBar
+        activeTab="inicio"
+        proyecto={proyecto}
+        proyectoNombre={proyecto?.nombre || ''}
+      />
         </>
       )}
     </IonPage>

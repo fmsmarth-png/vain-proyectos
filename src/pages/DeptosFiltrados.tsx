@@ -8,6 +8,7 @@ import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { chevronBack } from 'ionicons/icons';
 import { IonIcon } from '@ionic/react';
+import BottomNavBar from '../components/BottomNavBar';
 
 interface FiltroState {
   tipo: string;
@@ -295,7 +296,7 @@ const DeptosFiltrados: React.FC = () => {
       </IonHeader>
 
       <IonContent style={{ '--background': bg }}>
-        <div style={{ padding: '16px 16px 20px' }}>
+        <div style={{ padding: '16px 16px 100px' }}>
 
           {/* BANNER PROYECTO */}
           <div
@@ -463,6 +464,14 @@ const DeptosFiltrados: React.FC = () => {
           <div style={{ height: 20 }} />
         </div>
       </IonContent>
+
+      <BottomNavBar
+        activeTab="inicio"
+        proyecto={{ id: proyectoId, nombre: proyectoNombre }}
+        torres={torres}
+        deptos={deptos}
+        proyectoNombre={proyectoNombre}
+      />
     </IonPage>
   );
 };

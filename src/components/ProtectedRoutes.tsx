@@ -30,6 +30,7 @@ import Revision from '../pages/Revision';
 import ZonasComunes from '../pages/ZonasComunes';
 import VisitaObra from '../pages/VisitaObra';
 import PostVenta from '../pages/PostVenta';
+import CalendarioPostVenta from '../pages/CalendarioPostVenta';
 import PreEntrega from '../pages/PreEntrega';
 import PreEntregaDepto from '../pages/PreEntregaDepto';
 import DeptosFiltrados from '../pages/DeptosFiltrados';
@@ -132,6 +133,11 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
         {/* Post Venta */}
         <Route exact path={['/post-venta', '/post-venta/:deptoId']} render={() =>
           tienePermiso('postventa_ver') ? <PostVenta /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Calendario Post Venta */}
+        <Route exact path="/calendario-postventa" render={() =>
+          tienePermiso('postventa_ver') ? <CalendarioPostVenta /> : <Redirect to="/dashboard" />
         } />
 
         {/* Pre Entrega */}

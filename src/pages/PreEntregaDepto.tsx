@@ -16,6 +16,7 @@ import { comprimirImagen } from '../utils/comprimirImagen';
 import FotoAnnotator from '../components/FotoAnnotator';
 import { generarActaPreEntrega, ObsActa } from '../utils/pdfActaPreEntrega';
 import { nombreSemanaActual } from '../utils/semanasVain';
+import BottomNavBar from '../components/BottomNavBar';
 
 interface FotoUploaderProps {
   preview: string | null;
@@ -834,7 +835,7 @@ const PreEntregaDepto: React.FC = () => {
       </IonHeader>
 
       <IonContent style={{ '--background': bg }}>
-        <div style={{ padding: 16 }}>
+        <div style={{ padding: '16px 16px 100px' }}>
 
           <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2E4468' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
@@ -1024,6 +1025,12 @@ const PreEntregaDepto: React.FC = () => {
           onCancel={() => { URL.revokeObjectURL(fotoParaAnotar); setFotoParaAnotar(null); }}
         />
       )}
+
+      <BottomNavBar
+        activeTab="inicio"
+        proyecto={proyecto}
+        proyectoNombre={proyecto?.nombre || ''}
+      />
 
     </IonPage>
   );

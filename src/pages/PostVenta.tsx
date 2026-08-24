@@ -12,7 +12,9 @@ import { comprimirImagen } from '../utils/comprimirImagen';
 import FotoAnnotator from '../components/FotoAnnotator';
 import { generatePdfPostventa } from '../helpers/pdfPostventa';
 import { extraerPapeletaPdf, ObservacionPdf, DatosSolicitud } from '../helpers/extraerPapeletaPdf';
+import { RESUME_KEY } from '../helpers/postventaSession';
 import { nombreSemana, fechaDesdeDdMmAaaa } from '../utils/semanasVain';
+import BottomNavBar from '../components/BottomNavBar';
 
 const SESSION_KEY = 'post_venta_depto_state';
 const OTRO = '__OTRO__';
@@ -20,8 +22,8 @@ const OTRO = '__OTRO__';
 // Guardado automático: el borrador de una visita vive en tablas propias,
 // separadas de `observacionesinformepv`. Una visita en progreso NO aparece
 // en Revision ni en Reportes hasta que se finaliza (ahí se hace el INSERT
-// de siempre). RESUME_KEY es el id de borrador que DetalleDepto pide reanudar.
-const RESUME_KEY = 'postventa_papeleta_id';
+// de siempre). RESUME_KEY es el id de borrador que DetalleDepto (y
+// CalendarioPostVenta, al crear una papeleta nueva) piden reanudar.
 const T_PAPELETA = 'postventa_papeletas';
 const T_BORRADOR = 'postventa_obs_borrador';
 
@@ -50,6 +52,7 @@ interface RevisionObs {
 }
 
 const DATOS_VACIOS: DatosSolicitud = {
+  formato: 'solicitud',
   condominio: '', depto: '', torre: '', requerimiento: '',
   fechaRegistro: '', fechaAtencion: '', horaAtencion: '',
 };
@@ -69,20 +72,46 @@ const norm = (s: any) =>
     .replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 
 /**
- * El ambiente de la papeleta lo escribe el propietario y es solo contexto:
- * puede confundir baño 1 con baño 2, o referirse a algo que ni siquiera está
- * en el catálogo (estacionamiento, bodega). Por eso nunca se transforma ni se
- * fuerza. Si hay parecido claro con un ambiente del catálogo se pre-selecciona
- * como guía; si no, el inspector elige — incluida la opción "Otro".
+ * El texto de la papeleta (ambiente, partida) lo escribe el propietario o
+ * viene de la plantilla de la constructora y es solo contexto: puede
+ * confundir baño 1 con baño 2, o referirse a algo que ni siquiera está en el
+ * catálogo (estacionamiento, bodega). Por eso nunca se transforma ni se
+ * fuerza. Si hay parecido claro con una opción del catálogo se pre-selecciona
+ * como guía; si no, el inspector elige a mano.
+ *
+ * El fallback sin número final existe porque algunos catálogos listan los
+ * ambientes/partidas SIN numerar ("BAÑO" en vez de "BAÑO 1", "BAÑO 2"...),
+ * mientras que la papeleta sí trae el número. Sin este fallback, cualquier
+ * papeleta con ambientes numerados nunca preseleccionaría nada.
  */
-const sugerirAmbiente = (textoPdf: string, catalogo: Catalogo[]): string => {
+const sinNumeroFinal = (s: string) => s.replace(/\s*n?[°ºo]?\s*\d+\s*$/i, '').trim();
+
+const sugerirDeCatalogo = (textoPdf: string, catalogo: Catalogo[]): string => {
   const t = norm(textoPdf);
   if (!t) return '';
-  const exacto = catalogo.find(a => norm(a.nombre) === t);
-  if (exacto) return exacto.nombre;
-  const parcial = catalogo.find(a => t.includes(norm(a.nombre)) || norm(a.nombre).includes(t));
-  return parcial ? parcial.nombre : '';
+
+  const buscar = (texto: string) =>
+    catalogo.find(a => norm(a.nombre) === texto) ??
+    catalogo.find(a => texto.includes(norm(a.nombre)) || norm(a.nombre).includes(texto));
+
+  const directo = buscar(t);
+  if (directo) return directo.nombre;
+
+  const tSinNumero = norm(sinNumeroFinal(textoPdf));
+  if (tSinNumero && tSinNumero !== t) {
+    const sinNumero = buscar(tSinNumero);
+    if (sinNumero) return sinNumero.nombre;
+  }
+
+  return '';
 };
+
+const sugerirAmbiente = (textoPdf: string, catalogo: Catalogo[]): string =>
+  sugerirDeCatalogo(textoPdf, catalogo);
+
+/** Solo viene poblado cuando la papeleta es formato 'orden_visita' (trae columna PARTIDA). */
+const sugerirPartida = (textoPdf: string | undefined, catalogo: Catalogo[]): string =>
+  sugerirDeCatalogo(textoPdf ?? '', catalogo);
 
 const formatRut = (value: string): string => {
   const clean = value.replace(/[^0-9kK]/g, '').toUpperCase();
@@ -347,9 +376,17 @@ const PostVenta: React.FC = () => {
     try {
       const { datos: d, observaciones } = await extraerPapeletaPdf(file);
 
-      console.log(`=== ${file.name} ===`);
+      console.log(`=== ${file.name} (formato: ${d.formato}) ===`);
       console.log(`Req ${d.requerimiento} · Torre ${d.torre} · Depto ${d.depto} · Registro ${d.fechaRegistro} · Atención ${d.fechaAtencion} ${d.horaAtencion} · ${observaciones.length} obs`);
-      observaciones.forEach(o => console.log(`  #${o.numero} [${o.ambiente}] → ${o.descripcion}`));
+      observaciones.forEach(o => {
+        const ambienteSugerido = sugerirAmbiente(o.ambiente, ambientes);
+        const partidaSugerida = sugerirPartida(o.partida, partidas);
+        console.log(
+          `  #${o.numero} [${o.ambiente}${o.partida ? ' / ' + o.partida : ''}] → ${o.descripcion}` +
+          ` (ambiente match: ${ambienteSugerido || '— sin match en catálogo —'}` +
+          `${o.partida ? `, partida match: ${partidaSugerida || '— sin match en catálogo —'}` : ''})`
+        );
+      });
 
       if (observaciones.length === 0) {
         setError('No se extrajeron observaciones del PDF. Verifica el formato.');
@@ -370,7 +407,9 @@ const PostVenta: React.FC = () => {
       const revsIniciales: RevisionObs[] = observaciones.map(o => ({
         ambienteSel: sugerirAmbiente(o.ambiente, ambientes),
         ambienteLibre: '',
-        observacion: '', partida: '', causa: '',
+        observacion: '',
+        partida: sugerirPartida(o.partida, partidas),
+        causa: '',
         estado: 'SOLUCIONADO' as const,
         fotoAntes: null, fotoDespues: null,
         origen: 'papeleta' as const,
@@ -690,6 +729,7 @@ const PostVenta: React.FC = () => {
 
       setSinPapeleta(!!pap.sin_papeleta);
       setDatos({
+        formato: 'solicitud', // el borrador guardado no persiste el formato de origen; no se usa tras la carga inicial
         condominio: pap.condominio ?? '', depto: pap.depto_numero ?? '', torre: pap.torre_codigo ?? '',
         requerimiento: pap.n_requerimiento ?? '', fechaRegistro: pap.fecha_registro ?? '',
         fechaAtencion: pap.fecha_atencion ?? '', horaAtencion: pap.hora_atencion ?? '',
@@ -1121,7 +1161,7 @@ const PostVenta: React.FC = () => {
       </IonHeader>
 
       <IonContent style={{ '--background': bg } as any}>
-        <div style={{ padding: 16 }}>
+        <div style={{ padding: '16px 16px 100px' }}>
 
           {/* ============ PASO 1 · CARGA ============ */}
           {paso === 'carga' && (
@@ -1459,6 +1499,12 @@ const PostVenta: React.FC = () => {
       {anotando && (
         <FotoAnnotator imageSrc={anotando.src} onConfirm={confirmarAnotacion} onCancel={() => setAnotando(null)} />
       )}
+
+      <BottomNavBar
+        activeTab="calendario"
+        proyecto={proyecto}
+        proyectoNombre={proyecto?.nombre || proyectoCodigo || ''}
+      />
     </IonPage>
   );
 };

@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { IonIcon, IonModal } from '@ionic/react';
-import { homeOutline, searchOutline, barChartOutline, ellipsisHorizontalOutline, documentTextOutline } from 'ionicons/icons';
+import { homeOutline, searchOutline, barChartOutline, calendarOutline, documentTextOutline } from 'ionicons/icons';
 
 interface BottomNavBarProps {
-  activeTab: 'inicio' | 'buscar' | 'informes' | 'reportes' | 'mas';
+  activeTab: 'inicio' | 'buscar' | 'informes' | 'reportes' | 'calendario';
   proyecto?: any;
   torres?: any[];
   deptos?: any[];
@@ -90,35 +90,36 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
     <button
       onClick={onClick}
       style={{
-        flex: 1,
-        height: '100%',
-        background: 'transparent',
+        width: 52,
+        height: 52,
+        borderRadius: isActive ? 26 : 12,
+        background: isActive ? 'rgba(0, 0, 0, 0.25)' : 'transparent',
         border: 'none',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        gap: 4,
         cursor: 'pointer',
-        color: isActive ? '#3b82f6' : textSecondary,
-        transition: 'all 0.2s',
-        borderBottom: isActive ? '2px solid #3b82f6' : 'none'
+        color: isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.6)',
+        transition: 'all 0.3s ease',
+        padding: 0
       }}
       onMouseEnter={(e) => {
         if (!isActive) {
-          e.currentTarget.style.color = '#3b82f6';
-          e.currentTarget.style.background = dark ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.05)';
+          e.currentTarget.style.color = '#ffffff';
+          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
         }
       }}
       onMouseLeave={(e) => {
         if (!isActive) {
-          e.currentTarget.style.color = textSecondary;
+          e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)';
           e.currentTarget.style.background = 'transparent';
         }
       }}
     >
-      <IonIcon icon={icon} style={{ fontSize: 22 }} />
-      <span style={{ fontSize: 9, fontWeight: 600 }}>{label}</span>
+      <IonIcon icon={icon} style={{ fontSize: 24 }} />
+      {isActive && <span style={{ fontSize: 8, fontWeight: 600, marginTop: 2 }}>{label}</span>}
     </button>
   );
 
@@ -127,18 +128,23 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
       {/* BOTTOM NAVIGATION */}
       <div style={{
         position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
+        bottom: 20,
+        left: 20,
+        right: 20,
         boxSizing: 'border-box',
-        height: 'calc(68px + var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px)))',
+        height: 'calc(70px + var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px)))',
         paddingBottom: 'var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px))',
-        background: card,
-        borderTop: `0.5px solid ${border}`,
+        background: 'rgba(15, 79, 92, 0.15)',
+        backdropFilter: 'blur(4px)',
+        borderRadius: 40,
+        border: '1px solid rgba(255, 255, 255, 0.2)',
         display: 'flex',
         justifyContent: 'space-around',
         alignItems: 'center',
-        zIndex: 100
+        zIndex: 100,
+        paddingLeft: 16,
+        paddingRight: 16,
+        boxShadow: '0 4px 16px 0 rgba(15, 79, 92, 0.15)'
       }}>
         <NavButton
           icon={homeOutline}
@@ -169,10 +175,10 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         />
 
         <NavButton
-          icon={ellipsisHorizontalOutline}
-          label="Más"
-          isActive={activeTab === 'mas'}
-          onClick={() => {}}
+          icon={calendarOutline}
+          label="Calendario"
+          isActive={activeTab === 'calendario'}
+          onClick={() => history.push('/calendario-postventa')}
         />
       </div>
 
@@ -422,4 +428,4 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   );
 };
 
-export default BottomNavBar;  
+export default BottomNavBar;
