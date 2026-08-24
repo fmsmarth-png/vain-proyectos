@@ -165,9 +165,18 @@ const Home: React.FC = () => {
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@correo.com" style={inputStyle} />
               </div>
 
-              <div style={{ marginBottom: 24 }}>
+              <div style={{ marginBottom: 12 }}>
                 <label style={labelStyle}>contraseña</label>
                 <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" onKeyPress={e => e.key === 'Enter' && login()} style={inputStyle} />
+              </div>
+
+              <div style={{ marginBottom: 24, textAlign: 'right' }}>
+                <button
+                  onClick={() => history.push('/recuperar-contrasena')}
+                  style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: 13, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
               </div>
 
               {error && (

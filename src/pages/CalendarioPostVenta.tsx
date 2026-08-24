@@ -276,6 +276,11 @@ const CalendarioPostVenta: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [diaExpandido, setDiaExpandido] = useState<string | null>(null); // clave de fecha
+  // Drill-down dentro del modal del día: null = mostrando la lista de horas
+  // agendadas ese día; con valor = mostrando el detalle de esa hora
+  // (proyecto/torre/depto + observaciones si es postventa).
+  const [horaExpandida, setHoraExpandida] = useState<string | null>(null);
+  const cerrarModalDia = () => { setDiaExpandido(null); setHoraExpandida(null); };
 
   // Observaciones del modal de "Visitas del día". Se piden aparte de las
   // papeletas (lazy, solo al abrir un día) porque viven en otra tabla
@@ -1075,15 +1080,22 @@ const CalendarioPostVenta: React.FC = () => {
 
   const papeletaArrastrada = papeletas.find(p => p.id === arrastrandoId) ?? null;
 
-  const etiquetaChip = (p: PapeletaCalendario, hora: string) => {
-    const codigo = p.proyecto_codigo || p.condominio || '';
-    // Ej: "PSC2- B 408 9:00am"
-    return [
-      codigo ? `${codigo}-` : '',
-      p.torre_codigo ?? '',
-      p.depto_numero ?? '',
-      hora,
-    ].filter(Boolean).join(' ');
+  /**
+   * Devuelve 2 líneas en vez de un solo string largo: una celda de día mide
+   * ~1/7 del ancho de pantalla (unos 45-50px reales en un teléfono), donde
+   * "PSC2- B 408 9:00am" en una sola línea SIEMPRE se trunca — no entra ni
+   * a fuente mínima. Partido en 2 líneas cortas (torre-depto arriba, hora
+   * abajo) cada una cabe cómoda. El código de proyecto se omite cuando ya
+   * hay un filtro de proyecto activo (ver `filtroProyectoId`): mostrarlo
+   * ahí es redundante y solo resta espacio a lo que sí varía entre chips.
+   */
+  const etiquetaChip = (p: PapeletaCalendario, hora: string): { linea1: string; linea2: string } => {
+    const codigo = filtroProyectoId ? '' : (p.proyecto_codigo || p.condominio || '');
+    const torreDepto = [p.torre_codigo, p.depto_numero].filter(Boolean).join('-');
+    return {
+      linea1: [codigo, torreDepto].filter(Boolean).join(' ') || '—',
+      linea2: hora || '',
+    };
   };
 
   /**
@@ -1111,7 +1123,7 @@ const CalendarioPostVenta: React.FC = () => {
     const color = colorEstado(p.estado);
     const esFantasma = arrastrandoId === p.id;
     const hora = formatHora12h(p.hora_atencion);
-    const etiqueta = etiquetaChip(p, hora);
+    const { linea1, linea2 } = etiquetaChip(p, hora);
     const tienePendientes = pendientesIds.has(p.id);
     const esPreEntrega = p.tipo === 'pre_entrega';
 
@@ -1124,14 +1136,8 @@ const CalendarioPostVenta: React.FC = () => {
           borderRadius: 4,
           padding: '1px 4px',
           marginBottom: 2,
-          fontSize: 8.5,
-          lineHeight: '13px',
-          fontWeight: 600,
           color,
           cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 3,
           overflow: 'hidden',
           opacity: esFantasma ? 0.25 : 1,
           touchAction: 'none',
@@ -1139,12 +1145,21 @@ const CalendarioPostVenta: React.FC = () => {
         }}
         title={`${esPreEntrega ? 'Pre Entrega' : 'Post Venta'} · ${p.proyecto_codigo || p.condominio ? (p.proyecto_codigo || p.condominio) + ' · ' : ''}Torre ${p.torre_codigo ?? '—'} · Depto ${p.depto_numero ?? '—'}${hora ? ' · ' + hora : ''}${tienePendientes ? ' · tiene observaciones pendientes' : ''}`}
       >
-        {tienePendientes && (
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: pendienteColor, flexShrink: 0 }} />
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 3,
+          fontSize: 9, lineHeight: '11px', fontWeight: 700,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+          {tienePendientes && (
+            <span style={{ width: 4, height: 4, borderRadius: '50%', background: pendienteColor, flexShrink: 0 }} />
+          )}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{linea1}</span>
+        </div>
+        {linea2 && (
+          <div style={{ fontSize: 8, lineHeight: '10px', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {linea2}
+          </div>
         )}
-        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-          {etiqueta || `Depto ${p.depto_numero ?? '—'}`}
-        </span>
       </div>
     );
   };
@@ -1162,43 +1177,45 @@ const CalendarioPostVenta: React.FC = () => {
     const p = grupo[0];
     const color = colorEstado(p.estado);
     const hora = formatHora12h(p.hora_atencion);
-    const etiqueta = etiquetaChip(p, hora);
+    const { linea1, linea2 } = etiquetaChip(p, hora);
     const tienePendientes = grupo.some(g => pendientesIds.has(g.id));
     const esPreEntrega = p.tipo === 'pre_entrega';
 
     return (
       <div
-        onClick={() => setDiaExpandido(claveDia)}
+        onClick={() => { setDiaExpandido(claveDia); setHoraExpandida(hora); }}
         style={{
           background: dark ? `${color}1f` : `${color}14`,
           border: `${esPreEntrega ? '1px dashed' : '0.5px solid'} ${color}55`,
           borderRadius: 4,
           padding: '1px 4px',
           marginBottom: 2,
-          fontSize: 8.5,
-          lineHeight: '13px',
-          fontWeight: 600,
           color,
           cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 3,
+          position: 'relative',
           userSelect: 'none',
         }}
         title={`${grupo.length} ${esPreEntrega ? 'actas de pre entrega' : 'papeletas'} iguales (mismo depto y hora) — probablemente subidas por duplicado. Toca para verlas.`}
       >
-        <span style={{ display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', minWidth: 0 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 3, paddingRight: 14,
+          fontSize: 9, lineHeight: '11px', fontWeight: 700,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
           {tienePendientes && (
-            <span style={{ width: 5, height: 5, borderRadius: '50%', background: pendienteColor, flexShrink: 0 }} />
+            <span style={{ width: 4, height: 4, borderRadius: '50%', background: pendienteColor, flexShrink: 0 }} />
           )}
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-            {etiqueta || `Depto ${p.depto_numero ?? '—'}`}
-          </span>
-        </span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{linea1}</span>
+        </div>
+        {linea2 && (
+          <div style={{ fontSize: 8, lineHeight: '10px', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {linea2}
+          </div>
+        )}
         <span style={{
+          position: 'absolute', top: 1, right: 3,
           background: color, color: dark ? '#0B1220' : '#fff', borderRadius: 4,
-          padding: '0 3px', fontSize: 7.5, fontWeight: 800, flexShrink: 0,
+          padding: '0 3px', fontSize: 7.5, fontWeight: 800, lineHeight: '11px',
         }}>
           ×{grupo.length}
         </span>
@@ -1361,7 +1378,7 @@ const CalendarioPostVenta: React.FC = () => {
               const esHoy = esMismoDia(fecha, hoy);
               const items = porDia.get(clave) ?? [];
               const grupos = agruparPorDeptoHora(items);
-              const gruposVisibles = grupos.slice(0, 3);
+              const gruposVisibles = grupos.slice(0, 2);
               const gruposRestantes = grupos.length - gruposVisibles.length;
               const esObjetivoDrag = celdaSobre === clave;
 
@@ -1371,11 +1388,10 @@ const CalendarioPostVenta: React.FC = () => {
                   data-fecha-key={clave}
                   style={{
                     // Alto FIJO (no minHeight): todas las celdas de la fila
-                    // quedan parejas, como en Google Calendar, y lo que no
-                    // entra se recorta (overflow: hidden) — el "+N más" ya
-                    // es la vía para ver el resto, no hace falta que la
-                    // celda crezca y desalinee las filas de abajo.
-                    height: 76,
+                    // quedan parejas, y lo que no entra se recorta — el
+                    // detalle completo (código, torre, depto, hora) vive en
+                    // el modal del día, no hace falta que quepa acá.
+                    height: 88,
                     minWidth: 0, // ver comentario de arriba sobre CSS Grid
                     overflow: 'hidden',
                     borderRadius: 8,
@@ -1388,11 +1404,17 @@ const CalendarioPostVenta: React.FC = () => {
                     transition: 'background 0.1s',
                   }}
                 >
-                  <div style={{
-                    fontSize: 10, fontWeight: esHoy ? 800 : 600,
-                    color: esHoy ? accent : (delMes ? textPrimary : textMuted),
-                    marginBottom: 2, paddingLeft: 2,
-                  }}>
+                  {/* El número de fecha es el "abrir el día" explícito que
+                      pedía el reporte — no depende de acertarle a un chip
+                      angosto. Abre el modal en modo "lista de horas". */}
+                  <div
+                    onClick={() => { setDiaExpandido(clave); setHoraExpandida(null); }}
+                    style={{
+                      fontSize: 10, fontWeight: esHoy ? 800 : 600,
+                      color: esHoy ? accent : (delMes ? textPrimary : textMuted),
+                      marginBottom: 2, paddingLeft: 2, cursor: 'pointer',
+                    }}
+                  >
                     {fecha.getDate()}
                   </div>
 
@@ -1400,7 +1422,7 @@ const CalendarioPostVenta: React.FC = () => {
 
                   {gruposRestantes > 0 && (
                     <button
-                      onClick={() => setDiaExpandido(clave)}
+                      onClick={() => { setDiaExpandido(clave); setHoraExpandida(null); }}
                       style={{
                         background: 'transparent', border: 'none', padding: '0 0 0 2px',
                         fontSize: 8.5, fontWeight: 700, color: textMuted, cursor: 'pointer',
@@ -1723,88 +1745,152 @@ const CalendarioPostVenta: React.FC = () => {
         )}
       </IonModal>
 
-      {/* Modal: día expandido (más de 3 visitas) */}
-      <IonModal isOpen={!!diaExpandido} onDidDismiss={() => setDiaExpandido(null)} initialBreakpoint={0.6} breakpoints={[0, 0.6, 1]}>
+      {/* Modal: día expandido — drill-down de 2 niveles.
+          Nivel 1 (horaExpandida === null): lista de horas agendadas ese día.
+          Nivel 2 (horaExpandida !== null): detalle de esa hora (proyecto/
+          torre/depto + observaciones si es postventa). Existe porque un chip
+          de la grilla es demasiado angosto para mostrar código de proyecto +
+          torre + depto + hora legible a la vez — acá sí hay espacio. */}
+      <IonModal isOpen={!!diaExpandido} onDidDismiss={cerrarModalDia} initialBreakpoint={0.6} breakpoints={[0, 0.6, 1]}>
         <div style={{ padding: 20, background: card, height: '100%', overflowY: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: textPrimary }}>
-              {diaExpandido ? `Visitas del ${diaExpandido.split('-').reverse().join('-')}` : ''}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            {horaExpandida && (
+              <button onClick={() => setHoraExpandida(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                <IonIcon icon={chevronBack} style={{ fontSize: 18, color: textSecondary }} />
+              </button>
+            )}
+            <div style={{ fontSize: 15, fontWeight: 700, color: textPrimary, flex: 1 }}>
+              {horaExpandida
+                ? horaExpandida
+                : (diaExpandido ? `Visitas del ${diaExpandido.split('-').reverse().join('-')}` : '')}
             </div>
-            <button onClick={() => setDiaExpandido(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+            <button onClick={cerrarModalDia} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
               <IonIcon icon={closeOutline} style={{ fontSize: 22, color: textSecondary }} />
             </button>
           </div>
-          {(porDia.get(diaExpandido ?? '') ?? []).map(p => {
-            const obs = obsPorPapeleta[p.id];
-            return (
-              <div
-                key={p.id}
-                style={{
-                  borderRadius: 10, border: `0.5px solid ${border}`,
-                  background: dark ? '#1B2C48' : '#f8fafc', marginBottom: 8, overflow: 'hidden',
-                }}
-              >
-                <div
-                  onClick={() => { setDiaExpandido(null); abrirDepto(p); }}
-                  style={{ padding: '12px 14px', cursor: 'pointer' }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: textPrimary }}>
-                    {p.proyecto_codigo || p.condominio || ''} · Torre {p.torre_codigo} · Depto {p.depto_numero}
-                  </div>
-                  <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>
-                    {formatHora12h(p.hora_atencion)}
-                  </div>
-                </div>
 
-                <div style={{ padding: '0 14px 12px 14px' }}>
-                  {p.tipo === 'pre_entrega' ? (
-                    <div style={{
-                      display: 'inline-block', fontSize: 8, fontWeight: 800, borderRadius: 5,
-                      padding: '2px 6px', color: dark ? '#0B1220' : '#fff',
-                      background: colorEstado(p.estado),
-                    }}>
-                      PRE ENTREGA · {p.estado === 'COMPLETADA' ? 'ACTA GENERADA' : 'AGENDADA'}
+          {(() => {
+            const itemsDia = porDia.get(diaExpandido ?? '') ?? [];
+
+            // ---------- Nivel 1: lista de horas ----------
+            if (!horaExpandida) {
+              const porHora = new Map<string, PapeletaCalendario[]>();
+              for (const p of itemsDia) {
+                const h = formatHora12h(p.hora_atencion) || 'Sin hora';
+                if (!porHora.has(h)) porHora.set(h, []);
+                porHora.get(h)!.push(p);
+              }
+              const horas = Array.from(porHora.entries());
+              if (horas.length === 0) {
+                return <div style={{ fontSize: 12, color: textMuted, textAlign: 'center', padding: 24 }}>No hay visitas agendadas este día.</div>;
+              }
+              return horas.map(([hora, items]) => {
+                const resumen = items
+                  .map(p => `${p.proyecto_codigo || p.condominio || ''}-${p.torre_codigo || ''} ${p.depto_numero || ''}`.trim())
+                  .join(', ');
+                const algunaPendiente = items.some(p => pendientesIds.has(p.id));
+                return (
+                  <button
+                    key={hora}
+                    onClick={() => setHoraExpandida(hora)}
+                    style={{
+                      width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '12px 14px', marginBottom: 8, borderRadius: 10,
+                      border: `0.5px solid ${border}`, background: dark ? '#1B2C48' : '#f8fafc', cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontSize: 14, fontWeight: 700, color: accent, minWidth: 72 }}>{hora}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {resumen}
+                      </div>
+                      <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>
+                        {items.length === 1 ? '1 visita' : `${items.length} visitas`}
+                      </div>
                     </div>
-                  ) : (
-                    <>
-                      {obs === undefined && cargandoObsDia && (
-                        <div style={{ fontSize: 10, color: textMuted }}>Cargando observaciones...</div>
-                      )}
-                      {obs && obs.length === 0 && (
-                        <div style={{ fontSize: 10, color: textMuted }}>Sin observaciones registradas.</div>
-                      )}
-                      {obs && obs.map((o, i) => {
-                        const esSolucionado = o.estado === 'SOLUCIONADO';
-                        const textoObs = o.solicitud_cliente || o.observacion || 'Sin descripción';
-                        return (
-                          <div
-                            key={i}
-                            style={{
-                              display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0',
-                              borderTop: i === 0 ? `0.5px solid ${border}` : 'none',
-                            }}
-                          >
-                            <span style={{
-                              flexShrink: 0, marginTop: 1, fontSize: 8, fontWeight: 800, borderRadius: 5,
-                              padding: '2px 5px', whiteSpace: 'nowrap',
-                              color: dark ? '#0B1220' : '#fff',
-                              background: esSolucionado ? verde : pendienteColor,
-                            }}>
-                              {esSolucionado ? 'SOLUCIONADO' : 'PENDIENTE'}
-                            </span>
-                            <span style={{ fontSize: 11, color: textSecondary, lineHeight: 1.4 }}>
-                              {o.ambiente && <strong style={{ color: textPrimary }}>{o.ambiente}: </strong>}
-                              {textoObs}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
+                    {algunaPendiente && (
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: pendienteColor, flexShrink: 0 }} />
+                    )}
+                    <IonIcon icon={chevronForward} style={{ fontSize: 14, color: textMuted, flexShrink: 0 }} />
+                  </button>
+                );
+              });
+            }
+
+            // ---------- Nivel 2: detalle de la hora tocada ----------
+            const itemsHora = itemsDia.filter(p => (formatHora12h(p.hora_atencion) || 'Sin hora') === horaExpandida);
+            return itemsHora.map(p => {
+              const obs = obsPorPapeleta[p.id];
+              return (
+                <div
+                  key={p.id}
+                  style={{
+                    borderRadius: 10, border: `0.5px solid ${border}`,
+                    background: dark ? '#1B2C48' : '#f8fafc', marginBottom: 8, overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    onClick={() => { cerrarModalDia(); abrirDepto(p); }}
+                    style={{ padding: '12px 14px', cursor: 'pointer' }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 700, color: textPrimary }}>
+                      {p.proyecto_codigo || p.condominio || ''} · Torre {p.torre_codigo} · Depto {p.depto_numero}
+                    </div>
+                    <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>
+                      {p.tipo === 'pre_entrega' ? 'Pre Entrega' : 'Post Venta'} · {formatHora12h(p.hora_atencion)}
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '0 14px 12px 14px' }}>
+                    {p.tipo === 'pre_entrega' ? (
+                      <div style={{
+                        display: 'inline-block', fontSize: 8, fontWeight: 800, borderRadius: 5,
+                        padding: '2px 6px', color: dark ? '#0B1220' : '#fff',
+                        background: colorEstado(p.estado),
+                      }}>
+                        {p.estado === 'COMPLETADA' ? 'ACTA GENERADA' : 'AGENDADA'}
+                      </div>
+                    ) : (
+                      <>
+                        {obs === undefined && cargandoObsDia && (
+                          <div style={{ fontSize: 10, color: textMuted }}>Cargando observaciones...</div>
+                        )}
+                        {obs && obs.length === 0 && (
+                          <div style={{ fontSize: 10, color: textMuted }}>Sin observaciones registradas.</div>
+                        )}
+                        {obs && obs.map((o, i) => {
+                          const esSolucionado = o.estado === 'SOLUCIONADO';
+                          const textoObs = o.solicitud_cliente || o.observacion || 'Sin descripción';
+                          return (
+                            <div
+                              key={i}
+                              style={{
+                                display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0',
+                                borderTop: i === 0 ? `0.5px solid ${border}` : 'none',
+                              }}
+                            >
+                              <span style={{
+                                flexShrink: 0, marginTop: 1, fontSize: 8, fontWeight: 800, borderRadius: 5,
+                                padding: '2px 5px', whiteSpace: 'nowrap',
+                                color: dark ? '#0B1220' : '#fff',
+                                background: esSolucionado ? verde : pendienteColor,
+                              }}>
+                                {esSolucionado ? 'SOLUCIONADO' : 'PENDIENTE'}
+                              </span>
+                              <span style={{ fontSize: 11, color: textSecondary, lineHeight: 1.4 }}>
+                                {o.ambiente && <strong style={{ color: textPrimary }}>{o.ambiente}: </strong>}
+                                {textoObs}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </IonModal>
 

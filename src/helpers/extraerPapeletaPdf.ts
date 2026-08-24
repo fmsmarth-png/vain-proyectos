@@ -320,7 +320,11 @@ function extraerDatosOrdenVisita(celdas: Celda[]): DatosSolicitud {
 
   const proyecto = g(/Proyecto:\s*(.+?)\s*(?:Etapa:|$)/i);
   const etapa = g(/Etapa:\s*(.+?)\s*(?:Torre:|$)/i);
-  const torre = g(/Torre:\s*(\S+)/i);
+  // No-greedy + lookahead a "Orden N°": cuando Torre viene vacía (pasa en
+  // la práctica, ver Formulario_Diagnostico_Visita5087672.pdf), \S+ sin
+  // este límite capturaba por error la palabra "Orden" de la línea
+  // siguiente ("Torre: Orden N° : 5087672" en el texto unido).
+  const torre = g(/Torre:\s*(.*?)\s*(?=Orden N[°ºo])/i);
   const ordenN = g(/Orden N[°ºo]?\s*:?\s*(\d+)/i);
   const propietario = g(/Propietario:\s*(.+?)\s*(?:Tel[eé]fono Contacto:|$)/i);
   const telefonoContacto = g(/Tel[eé]fono Contacto:\s*(\S+)/i);
@@ -363,24 +367,67 @@ function extraerDatosOrdenVisita(celdas: Celda[]): DatosSolicitud {
  * Esta plantilla SÍ tiene líneas de grilla reales y sus celdas se alinean
  * arriba de cada fila (a diferencia de la plantilla 'solicitud'), pero cada
  * columna puede envolver a un número de líneas distinto dentro de la misma
- * fila (ej. "PUERTA MUEBLE" en 2 líneas, con "BAÑO 1" centrado entre ambas).
- * Por eso no sirve anclar filas por número de ítem (no hay columna de
- * número) ni por igualdad exacta de Y por columna.
+ * fila (ej. "PUERTA MUEBLE" en 2 líneas, con "BAÑO 1" centrado entre ambas;
+ * o un comentario de supervisor de 6-7 líneas mientras las otras 3 columnas
+ * de esa misma fila tienen 1 sola línea). Por eso no sirve anclar filas por
+ * número de ítem (no hay columna de número) ni por igualdad exacta de Y por
+ * columna.
  *
  * Algoritmo: se agrupan TODAS las celdas del área de la tabla (encabezado +
- * filas) en "bandas" de Y usando el mayor salto vertical como separador de
- * fila (igual idea que el separador de columna de la plantilla 1, pero en
- * el eje Y): el alto de línea real se mide como el menor salto entre celdas
- * consecutivas, y cualquier salto bastante mayor que ese (usamos 1.8x) marca
- * el borde entre una fila de la tabla y la siguiente. La primera banda es
- * siempre el encabezado (PARTIDA/RECINTO/OBSERVACIÓN/COMENTARIO) y se
- * descarta. Las columnas se asignan por cercanía en X a cada encabezado.
+ * filas), PÁGINA POR PÁGINA (ver nota de multi-página abajo), en "bandas" de
+ * Y usando el mayor salto vertical como separador de fila. El umbral de
+ * separación NO asume cuál es "el" alto de línea normal del documento — se
+ * calcula buscando el salto más grande entre los valores de salto únicos y
+ * ordenados (la misma idea que ya se usa para encontrar el borde entre
+ * columnas por X, aplicada al eje Y). Esto importa porque un mismo documento
+ * puede tener MÁS DE UNA magnitud de salto "chico" real (ej. ~6.6pt para el
+ * wrap ajustado de una columna angosta como PARTIDA, y ~13.2pt para el wrap
+ * de una columna ancha como el comentario) — tomar el mínimo o la mediana de
+ * esos saltos como "el" alto de línea puede fallar y hacer que cada línea de
+ * un comentario largo se cuente como una fila nueva.
+ *
+ * La primera banda es siempre el encabezado (PARTIDA/RECINTO/OBSERVACIÓN/
+ * COMENTARIO) y se descarta. Las columnas se asignan por cercanía en X a
+ * cada encabezado.
+ *
+ * Multi-página: dos páginas distintas pueden compartir el mismo valor de Y
+ * (el layout se repite), así que el clustering de filas se hace por PÁGINA,
+ * nunca comparando Y entre páginas distintas — un cambio de página siempre
+ * fuerza un corte de fila. Eso a su vez puede partir una celda a la mitad
+ * justo en el borde de la página (una PARTIDA de 2 líneas, o un comentario
+ * largo): la primera parte queda como la última "fila" de una página con
+ * una sola columna llena, y el resto aparece al principio de la página
+ * siguiente. Esa fila huérfana (exactamente 1 columna con texto, última de
+ * su página) se fusiona como prefijo de esa misma columna en la fila
+ * siguiente, en vez de quedar como una fila rota o de más.
  */
+
+/** Salto más grande entre valores únicos y ordenados — separa el cluster de "saltos chicos" (intra-fila) del de separadores de fila reales, sin asumir cuál es la magnitud "normal". */
+function umbralFilaNatural(saltos: number[]): number {
+  const unicos = Array.from(new Set(saltos.map((g) => Math.round(g * 100) / 100))).sort((a, b) => a - b);
+  if (unicos.length < 2) return (unicos[0] ?? 12) * 1.8;
+  let mejorSalto = -1;
+  let umbral = unicos[unicos.length - 1] * 0.9;
+  for (let i = 1; i < unicos.length; i++) {
+    const salto = unicos[i] - unicos[i - 1];
+    if (salto > mejorSalto) {
+      mejorSalto = salto;
+      umbral = (unicos[i] + unicos[i - 1]) / 2;
+    }
+  }
+  return umbral;
+}
+
 function extraerObservacionesOrdenVisita(celdas: Celda[]): ObservacionPdf[] {
   const partidaH = celdas.find((c) => /^PARTIDA$/i.test(c.str));
   const recintoH = celdas.find((c) => /^RECINTO$/i.test(c.str));
   const obsH = celdas.find((c) => /^OBSERVACIÓN$/i.test(c.str));
-  const comH = celdas.find((c) => /^COMENTARIO SUPERVISOR$/i.test(c.str));
+  // Tolerante a que el header venga partido palabra por palabra en varias
+  // líneas ("COMENTARIO" / "SUPERVISOR" / "OV", cada uno su propio ítem de
+  // texto) en vez de "COMENTARIO SUPERVISOR" junto — pasa en algunas
+  // papeletas y antes hacía que no se encontrara la 4ª columna, mezclando
+  // el comentario largo con la observación real.
+  const comH = celdas.find((c) => /^COMENTARIO/i.test(c.str) && c.page === partidaH?.page);
 
   if (!partidaH || !recintoH || !obsH) {
     throw new Error('No se encontró la tabla "Detalle de Observaciones" en el PDF.');
@@ -410,34 +457,48 @@ function extraerObservacionesOrdenVisita(celdas: Celda[]): ObservacionPdf[] {
     return bordes.length;
   };
 
-  // Clustering de filas por salto de Y (ver comentario de la función)
-  const ys = Array.from(new Set(area.map((c) => c.y))).sort((a, b) => b - a);
-  const gaps: number[] = [];
-  for (let i = 1; i < ys.length; i++) gaps.push(ys[i - 1] - ys[i]);
-  const saltosChicos = gaps.filter((g) => g > 0.5 && g < 15);
-  const altoLinea = saltosChicos.length ? Math.min(...saltosChicos) : 12;
-  const umbralFila = altoLinea * 1.8;
-
-  const gruposY: number[][] = [];
-  let actual: number[] = ys.length ? [ys[0]] : [];
-  for (let i = 1; i < ys.length; i++) {
-    if (ys[i - 1] - ys[i] > umbralFila) {
-      gruposY.push(actual);
-      actual = [ys[i]];
-    } else {
-      actual.push(ys[i]);
+  // Valores de Y únicos POR PÁGINA (nunca comparar Y entre páginas distintas).
+  interface Marca { page: number; y: number }
+  const marcas: Marca[] = [];
+  const vistos = new Set<string>();
+  for (const c of area.slice().sort((a, b) => a.page - b.page || b.y - a.y)) {
+    const key = `${c.page}|${c.y}`;
+    if (!vistos.has(key)) {
+      vistos.add(key);
+      marcas.push({ page: c.page, y: c.y });
     }
   }
-  if (actual.length) gruposY.push(actual);
+
+  const saltos: number[] = [];
+  for (let i = 1; i < marcas.length; i++) {
+    if (marcas[i - 1].page === marcas[i].page) saltos.push(marcas[i - 1].y - marcas[i].y);
+  }
+  const umbralFila = umbralFilaNatural(saltos);
+
+  const gruposMarca: Marca[][] = [];
+  let actual: Marca[] = marcas.length ? [marcas[0]] : [];
+  for (let i = 1; i < marcas.length; i++) {
+    const mismaPagina = marcas[i - 1].page === marcas[i].page;
+    const salto = mismaPagina ? marcas[i - 1].y - marcas[i].y : Infinity; // cambio de página = corte forzado
+    if (!mismaPagina || salto > umbralFila) {
+      gruposMarca.push(actual);
+      actual = [marcas[i]];
+    } else {
+      actual.push(marcas[i]);
+    }
+  }
+  if (actual.length) gruposMarca.push(actual);
 
   const ordenLectura = (a: Celda, b: Celda) => b.y - a.y || a.x - b.x;
   const unir = (arr: Celda[]) => arr.sort(ordenLectura).map((c) => c.str).join(' ').trim();
 
-  const filas = gruposY.map((grupoY) => {
-    const cells = area.filter((c) => grupoY.some((y) => Math.abs(y - c.y) < TOL_Y));
+  interface FilaTabla { pagina: number; partida: string; recinto: string; observacion: string; comentario: string }
+  let filas: FilaTabla[] = gruposMarca.map((grupo) => {
+    const cells = area.filter((c) => grupo.some((m) => m.page === c.page && Math.abs(m.y - c.y) < TOL_Y));
     const porColumna: Celda[][] = [[], [], [], []];
     for (const c of cells) porColumna[columnaDe(c.x)].push(c);
     return {
+      pagina: grupo[0].page,
       partida: unir(porColumna[0]),
       recinto: unir(porColumna[1]),
       observacion: unir(porColumna[2]),
@@ -446,9 +507,26 @@ function extraerObservacionesOrdenVisita(celdas: Celda[]): ObservacionPdf[] {
   });
 
   // La primera fila es siempre el encabezado de columnas — se descarta.
-  const filasDatos = filas.slice(1).filter((f) => f.partida || f.recinto || f.observacion || f.comentario);
+  filas = filas.slice(1).filter((f) => f.partida || f.recinto || f.observacion || f.comentario);
 
-  return filasDatos.map((f, i) => ({
+  // Fusión de filas huérfanas por corte de página (ver comentario de la
+  // función): última fila de su página, con contenido en UNA sola columna.
+  const CAMPOS = ['partida', 'recinto', 'observacion', 'comentario'] as const;
+  const filasFinales: FilaTabla[] = [];
+  for (let i = 0; i < filas.length; i++) {
+    const f = filas[i];
+    const siguiente = filas[i + 1];
+    const llenos = CAMPOS.filter((k) => f[k]);
+    const esUltimaDeSuPagina = siguiente && siguiente.pagina !== f.pagina;
+    if (llenos.length === 1 && esUltimaDeSuPagina) {
+      const campo = llenos[0];
+      filas[i + 1] = { ...siguiente, [campo]: `${f[campo]} ${siguiente[campo]}`.trim() };
+      continue; // se descarta el huérfano, ya quedó fusionado en la siguiente
+    }
+    filasFinales.push(f);
+  }
+
+  return filasFinales.map((f, i) => ({
     numero: String(i + 1),
     ambiente: f.recinto,
     descripcion: f.observacion,

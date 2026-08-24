@@ -55,6 +55,7 @@ import LevantamientoCeramicos from '../pages/LevantamientoCeramicos';
 import LevantamientoCeramicosDetalle from '../pages/LevantamientoCeramicosDetalle';
 import LevantamientoCeramicosChecklist from '../pages/LevantamientoCeramicosChecklist';
 import AdminNotificaciones from '../pages/AdminNotificaciones';
+import CambiarContrasena from '../pages/CambiarContrasena';
 
 const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
 
@@ -254,6 +255,9 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
         <Route exact path="/admin-notificaciones" render={() =>
   (usuario?.email === 'fmsmarth@gmail.com' || tienePermiso('admin_permisos')) ? <AdminNotificaciones /> : <Redirect to="/dashboard" />
 } />
+
+        {/* Cambiar Contraseña */}
+        <Route exact path="/cambiar-contrasena" component={CambiarContrasena} />
 
         <Redirect exact from="/" to="/dashboard" />
       </IonRouterOutlet>

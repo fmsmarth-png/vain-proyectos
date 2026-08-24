@@ -6,11 +6,14 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { SplashScreen } from '@capacitor/splash-screen';
 import Home from './pages/Home';
+import RecuperarContrasena from './pages/RecuperarContrasena';
+import RestablecerContrasena from './pages/RestablecerContrasena';
 import { ThemeProvider } from './Context/ThemeContext';
 import { OfflineProvider } from './Context/OfflineContext';
 import { CacheProvider } from './Context/CacheContext';
 import ProtectedRoutes from './components/ProtectedRoutes';
 import InformePV from './components/InformePV';
+import { registrarDeepLinkRecovery } from './helpers/deepLinkRecovery';
 
 import '@ionic/react/css/core.css';
 import '@ionic/react/css/normalize.css';
@@ -24,11 +27,28 @@ setupIonicReact();
 // Levantamiento Cerámicos: pantalla provisoria, acceso restringido a estos dos correos
 const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
 
+// Detección SÍNCRONA del enlace de recuperación (antes del primer render).
+// Supabase, tras verificar el token, redirige a /restablecer-contrasena con el
+// token en el hash (#access_token=...&type=recovery). Hay que detectarlo aquí
+// y no dentro de un useEffect, porque para cuando el efecto corre el router ya
+// pudo haber resuelto el <Redirect to="/home" /> y limpiado el hash.
+const esEnlaceRecovery = (): boolean => {
+  const h = window.location.hash || '';
+  const s = window.location.search || '';
+  const p = window.location.pathname || '';
+  return (
+    h.includes('type=recovery') ||
+    s.includes('type=recovery') ||
+    p.includes('/restablecer-contrasena')
+  );
+};
+
 const App: React.FC = () => {
   const [session, setSession]     = useState<any>(null);
   const [usuario, setUsuario]     = useState<any>(null);
   const [loading, setLoading]     = useState(true);
   const [pendiente, setPendiente] = useState(false);
+  const [recoveryMode, setRecoveryMode] = useState<boolean>(() => esEnlaceRecovery());
 
   const cargarUsuario = async (id: string) => {
     try {
@@ -60,6 +80,15 @@ const App: React.FC = () => {
 
   useEffect(() => {
     SplashScreen.hide().catch(() => {});
+
+    // Deep link de recuperación de contraseña en nativo (Android/iOS): cuando
+    // el correo abre la app con el token, activamos el modo recuperación y
+    // navegamos a la pantalla de nueva contraseña.
+    registrarDeepLinkRecovery(() => {
+      setRecoveryMode(true);
+      setLoading(false);
+      window.location.hash = '#/restablecer-contrasena';
+    });
     const splashMinimo = new Promise(r => setTimeout(r, 2000));
     const timeout = setTimeout(() => {
       const cached = localStorage.getItem('cache_usuario');
@@ -76,6 +105,14 @@ const App: React.FC = () => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      // Si llegamos por un enlace de recuperación, no cargamos usuario ni
+      // dejamos que la sesión temporal nos lleve al Dashboard.
+      if (esEnlaceRecovery()) {
+        setSession(session);
+        setRecoveryMode(true);
+        setLoading(false);
+        return;
+      }
       setSession(session);
       if (session?.user) {
         await Promise.all([cargarUsuario(session.user.id), splashMinimo]);
@@ -85,7 +122,31 @@ const App: React.FC = () => {
       }
     });
 
+    // Si la URL trae el token de recovery (llegó desde el link del email),
+    // activamos el modo recuperación de inmediato y cortamos el loading para
+    // no quedarnos en el spinner ni caer al Dashboard/Home.
+    if (esEnlaceRecovery()) {
+      setRecoveryMode(true);
+      setLoading(false);
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      // Supabase dispara PASSWORD_RECOVERY cuando el usuario llega desde el
+      // link del email. En ese caso NO lo mandamos al Dashboard: mostramos la
+      // pantalla para crear una nueva contraseña.
+      if (_event === 'PASSWORD_RECOVERY') {
+        setRecoveryMode(true);
+        setSession(session);
+        setLoading(false);
+        return;
+      }
+      // Si ya estamos en modo recuperación, ignoramos el resto de eventos de
+      // auth (la sesión temporal de recovery no debe llevarnos al Dashboard).
+      if (recoveryMode) {
+        setSession(session);
+        setLoading(false);
+        return;
+      }
       setSession(session);
       if (session?.user) await cargarUsuario(session.user.id);
       else { setUsuario(null); setPendiente(false); setLoading(false); }
@@ -98,7 +159,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  if (loading) return (
+  if (loading && !recoveryMode) return (
     <div style={{ background: '#0a1628', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 32 }}>
       <img src="/logo-vain-blanco.png" style={{ height: 120, objectFit: 'contain' }} alt="VAIN" />
       <div style={{ display: 'flex', gap: 8 }}>
@@ -135,11 +196,20 @@ const App: React.FC = () => {
           <PermisosProvider>
             <IonApp>
               <IonReactRouter>
-                {session && usuario ? (
+                {recoveryMode ? (
+                  // Llegó desde el link del email: crear nueva contraseña,
+                  // aunque exista una sesión de recovery activa.
+                  <>
+                    <Route exact path="/restablecer-contrasena" component={RestablecerContrasena} />
+                    <Redirect to="/restablecer-contrasena" />
+                  </>
+                ) : session && usuario ? (
                   <ProtectedRoutes usuario={usuario} />
                 ) : (
                   <>
                     <Route exact path="/home" component={Home} />
+                    <Route exact path="/recuperar-contrasena" component={RecuperarContrasena} />
+                    <Route exact path="/restablecer-contrasena" component={RestablecerContrasena} />
                     <Redirect to="/home" />
                   </>
                 )}

@@ -32,6 +32,7 @@ import {
   Bell,
   Upload,
   Package,
+  Lock,
 } from 'lucide-react';
 
 interface Props { usuario: any; }
@@ -485,6 +486,10 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
             <div onClick={toggleTheme} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', color: textSecondaryColor, fontSize: 14, cursor: 'pointer' }}>
               {theme === 'dark' ? <Sun width={18} height={18} stroke={textSecondaryColor} strokeWidth={1.8} /> : <Moon width={18} height={18} stroke={textSecondaryColor} strokeWidth={1.8} />}
               {theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+            </div>
+            <div onClick={() => navegar('/cambiar-contrasena')} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', color: textSecondaryColor, fontSize: 14, cursor: 'pointer' }}>
+              <Lock width={18} height={18} stroke={textSecondaryColor} strokeWidth={1.8} />
+              Cambiar contraseña
             </div>
             <div onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', color: '#f87171', fontSize: 14, cursor: 'pointer' }}>
               <LogOut width={18} height={18} stroke="#f87171" strokeWidth={1.8} />
