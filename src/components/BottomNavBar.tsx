@@ -101,19 +101,24 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         justifyContent: 'center',
         gap: 4,
         cursor: 'pointer',
-        color: isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.6)',
+        // El fondo de la pastilla es un tinte muy sutil (15% opacidad) que
+        // toma el color de lo que hay detrás — oscuro en modo oscuro, claro
+        // en modo claro. Un ícono blanco fijo se pierde contra un fondo
+        // claro; acá se invierte según el tema, igual que el resto de la
+        // barra ya hace con `card`/`textPrimary` más arriba.
+        color: isActive ? '#ffffff' : (dark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(15, 23, 42, 0.55)'),
         transition: 'all 0.3s ease',
         padding: 0
       }}
       onMouseEnter={(e) => {
         if (!isActive) {
-          e.currentTarget.style.color = '#ffffff';
-          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+          e.currentTarget.style.color = dark ? '#ffffff' : '#0f172a';
+          e.currentTarget.style.background = dark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(15, 23, 42, 0.08)';
         }
       }}
       onMouseLeave={(e) => {
         if (!isActive) {
-          e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)';
+          e.currentTarget.style.color = dark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(15, 23, 42, 0.55)';
           e.currentTarget.style.background = 'transparent';
         }
       }}
@@ -125,25 +130,34 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
 
   return (
     <>
-      {/* BOTTOM NAVIGATION */}
+      {/* BOTTOM NAVIGATION — pastilla flotante centrada.
+          Dos fixes sobre el diseño original:
+          1) El inset de zona segura (notch/home indicator) ahora se suma al
+             `bottom` (margen POR AFUERA de la caja) en vez de vivir como
+             `height`+`paddingBottom` DENTRO de la caja — así queda espacio
+             transparente real debajo de la pastilla en vez de que el fondo
+             traslúcido se estire hasta casi tocar el borde de la pantalla.
+          2) `left:20, right:20` estiraba la barra a (ancho de pantalla - 40px)
+             y `justifyContent: space-around` repartía esos 5 botones en todo
+             ese ancho. Ahora el ancho es `fit-content` (se ajusta al tamaño
+             real de los 5 botones) y queda centrada con left:50%+transform. */}
       <div style={{
         position: 'fixed',
-        bottom: 20,
-        left: 20,
-        right: 20,
+        left: '50%',
+        bottom: 'calc(20px + var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px)))',
+        transform: 'translateX(-50%)',
+        width: 'fit-content',
+        maxWidth: 'calc(100vw - 32px)',
         boxSizing: 'border-box',
-        height: 'calc(70px + var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px)))',
-        paddingBottom: 'var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px))',
         background: 'rgba(15, 79, 92, 0.15)',
         backdropFilter: 'blur(4px)',
         borderRadius: 40,
         border: '1px solid rgba(255, 255, 255, 0.2)',
         display: 'flex',
-        justifyContent: 'space-around',
         alignItems: 'center',
+        gap: 4,
         zIndex: 100,
-        paddingLeft: 16,
-        paddingRight: 16,
+        padding: '9px 14px',
         boxShadow: '0 4px 16px 0 rgba(15, 79, 92, 0.15)'
       }}>
         <NavButton

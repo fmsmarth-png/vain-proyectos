@@ -1,4 +1,5 @@
-import { IonContent, IonHeader, IonMenuButton, IonPage, IonToolbar, IonTitle, IonToast, IonModal, IonSpinner } from '@ionic/react';
+import { IonContent, IonHeader, IonMenuButton, IonPage, IonToolbar, IonTitle, IonToast, IonModal, IonSpinner, IonRefresher, IonRefresherContent } from '@ionic/react';
+import type { RefresherEventDetail } from '@ionic/react';
 import { useRef, useState, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useIonViewDidEnter } from '@ionic/react';
@@ -145,6 +146,12 @@ const StockBodega: React.FC = () => {
     else setCargando(false);
   };
 
+  // Pull-to-refresh: recarga el stock deslizando hacia abajo.
+  const onRefresh = async (e: CustomEvent<RefresherEventDetail>) => {
+    if (proyecto) await cargarStock(proyecto.id);
+    e.detail.complete();
+  };
+
   // ── filtrado ───────────────────────────────────────────────────────────
   const materialesFiltrados = useMemo(() => {
     let lista = materiales;
@@ -234,6 +241,10 @@ const StockBodega: React.FC = () => {
       </IonHeader>
 
       <IonContent style={{ '--background': bg } as any}>
+        <IonRefresher slot="fixed" onIonRefresh={onRefresh}>
+          <IonRefresherContent />
+        </IonRefresher>
+
         <div style={{ padding: 16, paddingBottom: 40 }}>
 
           {proyecto && <div style={{ fontSize: 13, color: textSecondary, marginBottom: 12 }}>{proyecto.nombre}</div>}

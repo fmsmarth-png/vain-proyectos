@@ -41,7 +41,7 @@ interface RevisionObs {
   observacion: string;
   partida: string;
   causa: string;
-  estado: 'PENDIENTE' | 'SOLUCIONADO';
+  estado: 'PENDIENTE' | 'EN_PROCESO' | 'SOLUCIONADO';
   fotoAntes: string | null;
   fotoDespues: string | null;
   // Origen de la observación:
@@ -231,6 +231,7 @@ const PostVenta: React.FC = () => {
   const papeletaIdRef = useRef<string | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
   const receptorTimer = useRef<any>(null);
+  const fechaHoraTimer = useRef<any>(null);
   const reanudadoRef = useRef(false);
   useEffect(() => { revRef.current = rev; }, [rev]);
   useEffect(() => { papeletaIdRef.current = papeletaId; }, [papeletaId]);
@@ -410,7 +411,11 @@ const PostVenta: React.FC = () => {
         observacion: '',
         partida: sugerirPartida(o.partida, partidas),
         causa: '',
-        estado: 'SOLUCIONADO' as const,
+        // PENDIENTE, no SOLUCIONADO: recién se está leyendo la papeleta, el
+        // inspector todavía no ha revisado ni resuelto nada — asumir
+        // "solucionado" por defecto ocultaba observaciones reales que nunca
+        // se llegaron a mirar.
+        estado: 'PENDIENTE' as const,
         fotoAntes: null, fotoDespues: null,
         origen: 'papeleta' as const,
       }));
@@ -437,7 +442,9 @@ const PostVenta: React.FC = () => {
   const revVacia = (origen: RevisionObs['origen'] = 'adicional'): RevisionObs => ({
     ambienteSel: '', ambienteLibre: '',
     observacion: '', partida: '', causa: '',
-    estado: 'SOLUCIONADO' as const,
+    // Mismo criterio que revsIniciales: una observación recién creada no
+    // está resuelta todavía.
+    estado: 'PENDIENTE' as const,
     fotoAntes: null, fotoDespues: null,
     origen,
   });
@@ -522,6 +529,22 @@ const PostVenta: React.FC = () => {
 
   const ambienteFinal = (r: RevisionObs) =>
     (r.ambienteSel === OTRO ? r.ambienteLibre : r.ambienteSel).trim();
+
+  /**
+   * En la plantilla "orden_visita" (Aconcagua), la OBSERVACIÓN del PDF sola
+   * no da contexto completo — "FILTRA" no dice de qué (cielo, ventana,
+   * cañería...). El PDF sí trae esa pieza en la columna PARTIDA ("CIELO"),
+   * pero el parser la expone aparte (o.partida) en vez de mezclarla con la
+   * descripción. Se combinan acá, en el único punto de donde sale
+   * "solicitud del cliente" (para mostrar Y para guardar), así el contexto
+   * completo queda disponible en todos lados que lean solicitud_cliente
+   * después (el PDF final, el informe, el modal del calendario) sin tener
+   * que tocar cada uno por separado.
+   * En la plantilla vieja ("solicitud") o.partida no existe — queda igual
+   * que antes, solo la descripción.
+   */
+  const contextoObs = (o: ObservacionPdf) =>
+    o.partida ? `${o.partida}: ${o.descripcion}` : o.descripcion;
 
   /* ------------------------------------------------------------------ */
   /*  Guardado automático del borrador (crear / actualizar / reanudar)   */
@@ -649,7 +672,7 @@ const PostVenta: React.FC = () => {
         papeleta_id: pap.id,
         orden: i,
         origen: r.origen ?? 'papeleta',
-        solicitud_cliente: (esSinPapeleta || r.origen === 'adicional') ? null : (observaciones[i]?.descripcion ?? null),
+        solicitud_cliente: (esSinPapeleta || r.origen === 'adicional') ? null : (observaciones[i] ? contextoObs(observaciones[i]) : null),
         solicitud_ambiente: observaciones[i]?.ambiente ?? null,
         ambiente: ambienteFinal(r) || null,
         observacion: r.observacion.trim() || null,
@@ -680,7 +703,7 @@ const PostVenta: React.FC = () => {
       papeleta_id: pid,
       orden,
       origen: r.origen ?? 'adicional',
-      solicitud_cliente: (sinPapeleta || r.origen === 'adicional') ? null : (rObs.descripcion ?? null),
+      solicitud_cliente: (sinPapeleta || r.origen === 'adicional') ? null : (rObs.descripcion ? contextoObs(rObs) : null),
       solicitud_ambiente: rObs.ambiente ?? null,
       ambiente: ambienteFinal(r) || null,
       observacion: r.observacion.trim() || null,
@@ -703,6 +726,44 @@ const PostVenta: React.FC = () => {
         .eq('id', pid);
       setSaveState(error ? 'error' : 'saved');
     }, 700);
+  };
+
+  /**
+   * La fecha/hora de atención que trae la papeleta "orden_visita" no
+   * siempre es confiable como hora real de la visita (ver el comentario en
+   * extraerPapeletaPdf.ts: esa plantilla no imprime ninguna hora de visita,
+   * solo la de registro del pedido) — por eso quedan editables acá, con el
+   * mismo guardado automático que ya usan receptor_nombre/receptor_rut.
+   * Se guarda tal cual se ve en pantalla (texto), sin normalizar formato:
+   * el resto de la app (calendario, informe) ya sabe leer los formatos que
+   * el usuario probablemente escriba.
+   */
+  const guardarFechaHoraDebounced = (fecha: string, hora: string) => {
+    const pid = papeletaIdRef.current;
+    if (!pid) return;
+    clearTimeout(fechaHoraTimer.current);
+    fechaHoraTimer.current = setTimeout(async () => {
+      setSaveState('saving');
+      const { error } = await supabase.from(T_PAPELETA)
+        .update({ fecha_atencion: fecha.trim() || null, hora_atencion: hora.trim() || null, updated_at: new Date().toISOString() })
+        .eq('id', pid);
+      setSaveState(error ? 'error' : 'saved');
+    }, 700);
+  };
+
+  /** "DD-MM-YYYY" o "DD/MM/YYYY" -> "YYYY-MM-DD" (lo que exige <input type="date">). '' si no calza. */
+  const fechaTextoAIso = (texto: string): string => {
+    const m = (texto || '').trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (!m) return '';
+    const [, d, mo, y] = m;
+    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  };
+  /** "YYYY-MM-DD" -> "DD-MM-YYYY" (formato de guardado, consistente con la plantilla nueva). */
+  const isoAFechaTexto = (iso: string): string => {
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    const [, y, mo, d] = m;
+    return `${d}-${mo}-${y}`;
   };
 
   // Reconstruye ambienteSel / ambienteLibre a partir del ambiente guardado.
@@ -752,7 +813,9 @@ const PostVenta: React.FC = () => {
           observacion: h.observacion ?? '',
           partida: h.partida_afectada ?? '',
           causa: h.causa ?? '',
-          estado: (h.estado ?? 'SOLUCIONADO') as RevisionObs['estado'],
+          // Fallback defensivo si la fila no trajera estado por algún
+          // motivo: PENDIENTE, nunca asumir que algo ya se resolvió.
+          estado: (h.estado ?? 'PENDIENTE') as RevisionObs['estado'],
           fotoAntes: h.foto_antes ?? null,
           fotoDespues: h.foto_despues ?? null,
           origen: (h.origen ?? 'papeleta') as RevisionObs['origen'],
@@ -937,7 +1000,7 @@ const PostVenta: React.FC = () => {
           n_requerimiento: (sinPapeleta || esAdicional) ? null : (datos.requerimiento || null),
           // Sin solicitud del cliente para urgencias y trabajos adicionales.
           // Las derivadas heredan la descripción del padre (viene en o.descripcion).
-          solicitud_cliente: (sinPapeleta || esAdicional) ? null : o.descripcion,
+          solicitud_cliente: (sinPapeleta || esAdicional) ? null : contextoObs(o),
           observacion: rev[i].observacion.trim(),
           ambiente: ambienteFinal(rev[i]),
           partida_afectada: rev[i].partida || null,
@@ -974,7 +1037,7 @@ const PostVenta: React.FC = () => {
         observaciones: obs.map((o, i) => ({
           numero: String(i + 1),
           ambiente: ambienteFinal(rev[i]),
-          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : o.descripcion,
+          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : contextoObs(o),
           observacion: rev[i].observacion.trim(),
           partida: rev[i].partida || undefined,
           causa: rev[i].causa || undefined,
@@ -1032,6 +1095,27 @@ const PostVenta: React.FC = () => {
       <div style={{ fontSize: 12, color: textPrimary, fontWeight: 600 }}>{valor || '—'}</div>
     </div>
   );
+
+  /**
+   * Variante editable de metaChip, para fecha/hora de atención: la
+   * papeleta "orden_visita" no siempre trae la hora real de la visita (ver
+   * extraerPapeletaPdf.ts), así que el profesional necesita poder
+   * corregirla — no alcanza con mostrarla como texto fijo.
+   */
+  const metaChipEditable = (label: string, input: React.ReactNode) => (
+    <div style={{
+      background: dark ? '#1B2C48' : '#f8fafc', border: `0.5px solid ${border}`,
+      borderRadius: 10, padding: '6px 10px', flex: '1 1 auto', minWidth: 96,
+    }}>
+      <div style={{ fontSize: 8, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 600, marginBottom: 2 }}>{label}</div>
+      {input}
+    </div>
+  );
+
+  const inputMetaStyle: React.CSSProperties = {
+    width: '100%', border: 'none', background: 'transparent', padding: 0,
+    fontSize: 12, color: textPrimary, fontWeight: 600, fontFamily: 'inherit',
+  };
 
   const tarjetaDepto = (
     <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 14, background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff' }}>
@@ -1242,8 +1326,31 @@ const PostVenta: React.FC = () => {
               {!sinPapeleta && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                   {metaChip('registro', datos.fechaRegistro)}
-                  {metaChip('atención', datos.fechaAtencion)}
-                  {metaChip('horario', datos.horaAtencion)}
+                  {metaChipEditable('atención', (
+                    <input
+                      type="date"
+                      value={fechaTextoAIso(datos.fechaAtencion)}
+                      onChange={e => {
+                        const nueva = isoAFechaTexto(e.target.value);
+                        setDatos(d => ({ ...d, fechaAtencion: nueva }));
+                        guardarFechaHoraDebounced(nueva, datos.horaAtencion);
+                      }}
+                      style={inputMetaStyle}
+                    />
+                  ))}
+                  {metaChipEditable('horario', (
+                    <input
+                      type="text"
+                      value={datos.horaAtencion}
+                      placeholder="Ej: 10:30"
+                      onChange={e => {
+                        const nueva = e.target.value;
+                        setDatos(d => ({ ...d, horaAtencion: nueva }));
+                        guardarFechaHoraDebounced(datos.fechaAtencion, nueva);
+                      }}
+                      style={inputMetaStyle}
+                    />
+                  ))}
                 </div>
               )}
 
@@ -1294,7 +1401,7 @@ const PostVenta: React.FC = () => {
                         <div style={{ fontSize: 11, color: textMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {(sinPapeleta || r.origen === 'adicional')
                             ? (r.observacion.trim() || 'Sin descripción aún')
-                            : o.descripcion}
+                            : contextoObs(o)}
                         </div>
                       </div>
                       {(sinPapeleta || r.origen === 'derivada' || r.origen === 'adicional') && obs.length > 1 && (
@@ -1318,7 +1425,7 @@ const PostVenta: React.FC = () => {
                               border: `0.5px solid ${dark ? 'rgba(96,165,250,0.15)' : '#bfdbfe'}`,
                               borderRadius: 10, padding: '10px 12px', marginBottom: 6,
                               fontSize: 13, lineHeight: 1.5, color: textPrimary,
-                            }}>{o.descripcion}</div>
+                            }}>{contextoObs(o)}</div>
                             <div style={{ fontSize: 10, color: textMuted, marginBottom: 14 }}>
                               Ubicación indicada por el cliente: <strong>{o.ambiente || '—'}</strong>
                             </div>
@@ -1375,6 +1482,7 @@ const PostVenta: React.FC = () => {
                         <label style={labelStyle}>estado</label>
                         <select value={r.estado} onChange={e => setCampo(idx, 'estado', e.target.value)} style={inputStyle}>
                           <option value="SOLUCIONADO">Solucionado</option>
+                          <option value="EN_PROCESO">En Proceso</option>
                           <option value="PENDIENTE">Pendiente</option>
                         </select>
 

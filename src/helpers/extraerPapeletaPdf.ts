@@ -1,4 +1,12 @@
-import * as pdfjsLib from 'pdfjs-dist';
+// Build 'legacy' de pdfjs-dist (no la raíz del paquete): desde pdfjs-dist
+// 4.5 la build moderna usa Promise.withResolvers(), que no existe en Safari
+// / iOS anterior a 17.4 — y desde 5.5 además Promise.try, que exige una
+// versión todavía más nueva (ver mozilla/pdf.js#20899). En el WebView de
+// Capacitor eso revienta como "undefined is not a function" al leer una
+// papeleta en iPhones no last-gen. La build 'legacy/' es la variante que
+// el propio pdfjs-dist mantiene para estos casos — mismo paquete, sin bajar
+// de versión ni perder fixes, solo evita depender de esas APIs nuevas.
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 // El worker se importa con ?url para que Vite lo empaquete dentro de la app
 // (funciona sin conexión) y lo sirva con el Content-Type correcto en todas
 // las plataformas. La ruta estática a un .mjs suelto ('/pdf.worker.min.mjs')
@@ -6,7 +14,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 // de módulo que iOS exige — por eso el PDF se leía en Android/localhost pero
 // no en iOS. Al venir del bundler, la versión del worker siempre coincide
 // con la de la librería, evitando además desajustes de versión.
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import PdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
 
@@ -37,7 +45,17 @@ export interface DatosSolicitud {
   requerimiento: string;
   /** Cuando el propietario ingresó la solicitud */
   fechaRegistro: string;
-  /** Cuando se agenda la visita */
+  /**
+   * Cuando se agenda la visita. En el formato 'solicitud' viene con hora
+   * real. En 'orden_visita' el PDF NO trae ninguna hora de visita — la
+   * única hora impresa ahí es la de "Fecha Orden de Atención", que es
+   * cuándo Aconcagua REGISTRÓ el pedido en su sistema, no cuándo va a ser
+   * la visita. Usar esa hora como si fuera la de la visita inducía a
+   * error (mostraba, por ejemplo, "18:09" cuando la visita real podía ser
+   * a cualquier otra hora). Por eso en 'orden_visita' `horaAtencion` llega
+   * SIEMPRE vacío: el profesional debe ingresarla a mano una vez que sepa
+   * la hora real acordada con el cliente.
+   */
   fechaAtencion: string;
   horaAtencion: string;
 
@@ -55,6 +73,8 @@ export interface DatosSolicitud {
   fechaOrdenVisita?: string;
   nVivienda?: string;
   direccion?: string;
+  /** Hora en que Aconcagua registró el pedido (NO es la hora de la visita) — solo informativo. */
+  horaRegistro?: string;
 }
 
 export interface ObservacionPdf {
@@ -345,7 +365,9 @@ function extraerDatosOrdenVisita(celdas: Celda[]): DatosSolicitud {
     requerimiento: ordenN,
     fechaRegistro: fechaOrdenAtencion,
     fechaAtencion: fechaOrdenVisita,
-    horaAtencion: horaOrdenAtencion,
+    // Vacío a propósito: ver el comentario en la interfaz DatosSolicitud.
+    // No hay hora de visita real impresa en este formato.
+    horaAtencion: '',
     // Campos exclusivos de esta plantilla:
     proyecto,
     etapa,
@@ -357,6 +379,7 @@ function extraerDatosOrdenVisita(celdas: Celda[]): DatosSolicitud {
     fechaOrdenVisita,
     nVivienda,
     direccion,
+    horaRegistro: horaOrdenAtencion,
   };
 }
 

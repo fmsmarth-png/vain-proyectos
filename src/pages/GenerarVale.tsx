@@ -1,4 +1,5 @@
-import { IonContent, IonHeader, IonMenuButton, IonPage, IonToolbar, IonTitle, IonToast } from '@ionic/react';
+import { IonContent, IonHeader, IonMenuButton, IonPage, IonToolbar, IonTitle, IonToast, IonRefresher, IonRefresherContent } from '@ionic/react';
+import type { RefresherEventDetail } from '@ionic/react';
 import { useRef, useState, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useIonViewDidEnter } from '@ionic/react';
@@ -224,27 +225,36 @@ const GenerarVale: React.FC = () => {
       .order('nombre');
     if (kitsData) setKits(kitsData as Kit[]);
 
-    const rolActual = usuarioRow?.rol ?? '';
-    const especialidadActual = usuarioRow?.especialidad ?? null;
-    const esAdmin = ['administrador', 'staff'].includes(rolActual);
-    if (esAdmin || especialidadActual) {
-      let query = supabase
-        .from('bodega_materiales')
-        .select('id, nombre, unidad, unidad_solicitud, factor_conversion, actividad_id')
-        .eq('activo', true);
-      if (!esAdmin && especialidadActual) query = query.eq('especialidad', especialidadActual);
-      const { data: materialesData } = await query.order('nombre');
-      if (materialesData) {
-        const mapeados = (materialesData as any[]).map(m => ({
-          id: m.id, nombre: m.nombre,
-          unidad_solicitud: m.unidad_solicitud ?? m.unidad,
-          unidad_compra: m.unidad,
-          factor_conversion: m.factor_conversion ?? 1,
-          actividad_id: m.actividad_id,
-        }));
-        setMateriales(mapeados as Material[]);
-      }
+    // Sin filtro por especialidad por ahora: TODOS los roles (jefe de terreno,
+    // profesionales, admin) ven TODOS los materiales del proyecto. El catálogo
+    // de AYNI no distingue especialidad todavía, y filtrar solo complicaba las
+    // pruebas (ej. jefes de terreno sin especialidad quedaban sin ver nada).
+    // El filtro por especialidad se puede reintroducir a futuro cuando se mapee
+    // familia→especialidad.
+    const { data: materialesData } = await supabase
+      .from('bodega_materiales')
+      .select('id, nombre, unidad, unidad_solicitud, factor_conversion, actividad_id')
+      .eq('proyecto_id', proy.id)
+      .eq('activo', true)
+      .order('nombre');
+    if (materialesData) {
+      const mapeados = (materialesData as any[]).map(m => ({
+        id: m.id, nombre: m.nombre,
+        unidad_solicitud: m.unidad_solicitud ?? m.unidad,
+        unidad_compra: m.unidad,
+        factor_conversion: m.factor_conversion ?? 1,
+        actividad_id: m.actividad_id,
+      }));
+      setMateriales(mapeados as Material[]);
     }
+  };
+
+  // Pull-to-refresh: recarga el catálogo (materiales, kits, torres) deslizando
+  // hacia abajo — útil si el jefe de bodega acaba de cargar una planilla nueva
+  // o creó un kit y el jefe de terreno quiere verlo sin salir de la pantalla.
+  const onRefresh = async (e: CustomEvent<RefresherEventDetail>) => {
+    await cargarInicial();
+    e.detail.complete();
   };
 
   // ── torre → departamentos ─────────────────────────────────────────────
@@ -487,6 +497,10 @@ const GenerarVale: React.FC = () => {
       </IonHeader>
 
       <IonContent style={{ '--background': bg } as any}>
+        <IonRefresher slot="fixed" onIonRefresh={onRefresh}>
+          <IonRefresherContent />
+        </IonRefresher>
+
         <div style={{ padding: 16, paddingBottom: 40 }}>
 
           {proyecto && (

@@ -1,7 +1,7 @@
 import { IonContent, IonPage, IonHeader, IonToolbar, IonTitle, IonModal, IonIcon, IonButtons, IonButton, IonSpinner, useIonViewWillEnter } from '@ionic/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
-import { chevronBack, chevronForward, closeOutline, cloudUploadOutline, documentTextOutline } from 'ionicons/icons';
+import { chevronBack, chevronForward, closeOutline, cloudUploadOutline, documentTextOutline, trashOutline } from 'ionicons/icons';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { BottomNavBar } from '../components/BottomNavBar';
@@ -87,6 +87,23 @@ const formatFechaGuardado = (fecha: Date): string => {
 /** Clave de agrupación estable, independiente del formato de origen. */
 const claveFecha = (fecha: Date): string =>
   `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+
+/**
+ * Ida y vuelta a "YYYY-MM-DD" (lo que exige <input type="date">), para
+ * poder editar la fecha leída del PDF en los modales de confirmación de
+ * subida — la papeleta "orden_visita" no siempre trae una hora de visita
+ * confiable (a veces ni la fecha), así que el profesional necesita poder
+ * corregirlas antes de agendar.
+ */
+const fechaTextoAIso = (texto: string): string => {
+  const f = parseFechaFlexible(texto);
+  return f ? claveFecha(f) : '';
+};
+const isoAFechaTexto = (iso: string): string => {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  return formatFechaGuardado(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+};
 
 /** "15:44:14" o "09:00" -> "3:44pm" / "9:00am". Si no calza el formato, se devuelve tal cual. */
 const formatHora12h = (hora: string | null | undefined): string => {
@@ -281,6 +298,7 @@ const CalendarioPostVenta: React.FC = () => {
   // (proyecto/torre/depto + observaciones si es postventa).
   const [horaExpandida, setHoraExpandida] = useState<string | null>(null);
   const cerrarModalDia = () => { setDiaExpandido(null); setHoraExpandida(null); };
+  const [borrandoEvento, setBorrandoEvento] = useState<string | null>(null);
 
   // Observaciones del modal de "Visitas del día". Se piden aparte de las
   // papeletas (lazy, solo al abrir un día) porque viven en otra tabla
@@ -297,7 +315,10 @@ const CalendarioPostVenta: React.FC = () => {
   // Papeletas que tienen al menos 1 observación en estado PENDIENTE (ver
   // cargar()). Se usa tanto para el filtro "Solo pendientes" como para el
   // puntito de aviso en los chips, aunque el filtro esté apagado.
-  const [pendientesIds, setPendientesIds] = useState<Set<string>>(new Set());
+  // Estado agregado por papeleta (ver estadoAgregado() más abajo): calculado
+  // a partir de TODAS las observaciones de esa papeleta, no un simple
+  // booleano "tiene pendientes" — reemplaza al viejo pendientesIds.
+  const [estadoAgregadoPorPapeleta, setEstadoAgregadoPorPapeleta] = useState<Map<string, 'PENDIENTE' | 'EN_PROCESO' | 'SOLUCIONADO'>>(new Map());
   const [soloPendientes, setSoloPendientes] = useState(false);
 
   // Drag táctil (long-press + arrastre). Ver justificación de por qué no se
@@ -431,23 +452,35 @@ const CalendarioPostVenta: React.FC = () => {
       const pe: PapeletaCalendario[] = ((resPE.data as any[]) ?? []).map(r => ({ ...r, tipo: 'pre_entrega' as const, n_requerimiento: null }));
       setPapeletas([...pv, ...pe]);
 
-      // Qué papeletas de POSTVENTA tienen al menos 1 obs PENDIENTE (esto no
-      // aplica a pre-entrega: sus observaciones viven en
-      // observacionesinformepv con otro vocabulario de estados, y su
-      // indicador natural sería "¿ya se generó el acta?", no "pendiente" —
-      // se deja para una próxima vuelta si hace falta). No se filtra por
-      // .in('papeleta_id', ids) porque con cientos/miles de ids arma una URL
-      // gigante — se pide todo lo pendiente visible (RLS ya lo acota a los
-      // proyectos asignados) y se cruza en el cliente.
-      const { data: pendData, error: errPend } = await supabase
+      // Estado agregado por papeleta de POSTVENTA, calculado a partir de
+      // TODAS sus observaciones (no solo las pendientes, como antes) — ver
+      // estadoAgregado() para la regla: una sola obs PENDIENTE hace que
+      // TODA la visita se vea pendiente; si no hay pendientes pero falta
+      // alguna por solucionar, la visita se ve "en proceso"; solo si todas
+      // están SOLUCIONADO se ve completada. Esto no aplica a pre-entrega
+      // (sus observaciones viven en observacionesinformepv, con otro
+      // vocabulario de estados — se deja para una próxima vuelta).
+      // No se filtra por .in('papeleta_id', ids) porque con cientos/miles
+      // de ids arma una URL gigante — se pide todo lo visible (RLS ya lo
+      // acota a los proyectos asignados) y se cruza en el cliente.
+      const { data: obsData, error: errObs } = await supabase
         .from(T_BORRADOR)
-        .select('papeleta_id')
-        .eq('estado', 'PENDIENTE')
+        .select('papeleta_id, estado')
         .limit(5000);
-      if (errPend) {
-        console.warn('No se pudo cargar el estado de pendientes:', errPend);
+      if (errObs) {
+        console.warn('No se pudo cargar el estado agregado de las observaciones:', errObs);
+        setEstadoAgregadoPorPapeleta(new Map());
       } else {
-        setPendientesIds(new Set(((pendData as { papeleta_id: string }[]) ?? []).map(o => o.papeleta_id)));
+        const porPapeleta = new Map<string, string[]>();
+        for (const o of (obsData as { papeleta_id: string; estado: string }[]) ?? []) {
+          if (!porPapeleta.has(o.papeleta_id)) porPapeleta.set(o.papeleta_id, []);
+          porPapeleta.get(o.papeleta_id)!.push(o.estado);
+        }
+        const agregado = new Map<string, 'PENDIENTE' | 'EN_PROCESO' | 'SOLUCIONADO'>();
+        for (const [papeletaId, estados] of porPapeleta) {
+          agregado.set(papeletaId, estadoAgregado(estados));
+        }
+        setEstadoAgregadoPorPapeleta(agregado);
       }
     } catch (e: any) {
       console.error('Error cargando calendario:', e);
@@ -523,9 +556,11 @@ const CalendarioPostVenta: React.FC = () => {
   const papeletasFiltradas = useMemo(() => {
     let r = papeletas;
     if (filtroProyectoId) r = r.filter(p => p.proyecto_id === filtroProyectoId);
-    if (soloPendientes) r = r.filter(p => pendientesIds.has(p.id));
+    if (soloPendientes) {
+      r = r.filter(p => p.tipo === 'postventa' && estadoAgregadoPorPapeleta.get(p.id) === 'PENDIENTE');
+    }
     return r;
-  }, [papeletas, filtroProyectoId, soloPendientes, pendientesIds]);
+  }, [papeletas, filtroProyectoId, soloPendientes, estadoAgregadoPorPapeleta]);
 
   const porDia = useMemo(() => {
     const mapa = new Map<string, PapeletaCalendario[]>();
@@ -619,6 +654,52 @@ const CalendarioPostVenta: React.FC = () => {
       console.error('Error abriendo depto desde el calendario:', e);
       setError('No se pudo abrir el departamento. Intenta de nuevo.');
     }
+  };
+
+  /**
+   * Elimina un evento agendado por error directamente desde el calendario
+   * (sin necesitar SQL a mano) — por ejemplo, una papeleta de postventa
+   * subida por el botón de Acta de Pre Entrega, o cualquier duplicado.
+   *
+   * Para postventa borra primero las observaciones hijas
+   * (postventa_obs_borrador) y después la papeleta — mismo orden que ya
+   * usa VisitasPostVenta.tsx para no violar la FK. Para pre_entrega solo
+   * borra la fila de preentrega_agenda: a propósito NO toca las columnas
+   * acta_* de `departamentos` (propietario, RUT, fecha de promesa...),
+   * porque esos datos pueden ser correctos aunque el AGENDADO haya sido un
+   * error — si además hace falta limpiar esos campos, se hace aparte.
+   *
+   * Requiere las policies de DELETE correspondientes (visitas_delete_rls.sql
+   * para postventa, preentrega_agenda_delete_rls.sql para pre_entrega) —
+   * sin ellas, falla en silencio (RLS deniega, no hay error explícito).
+   */
+  const eliminarEvento = async (p: PapeletaCalendario) => {
+    const tipoTexto = p.tipo === 'pre_entrega' ? 'esta agenda de Pre Entrega' : 'esta papeleta de Post Venta';
+    const confirmado = window.confirm(
+      `¿Eliminar ${tipoTexto} (Torre ${p.torre_codigo ?? '—'} · Depto ${p.depto_numero ?? '—'})?\n\n` +
+      `${p.tipo === 'postventa' ? 'Se pierden también sus observaciones cargadas.' : ''}\n` +
+      `Esta acción no se puede deshacer.`
+    );
+    if (!confirmado) return;
+
+    setBorrandoEvento(p.id);
+    try {
+      if (p.tipo === 'pre_entrega') {
+        const { error } = await supabase.from(T_PREENTREGA).delete().eq('id', p.id);
+        if (error) throw error;
+      } else {
+        const { error: errObs } = await supabase.from(T_BORRADOR).delete().eq('papeleta_id', p.id);
+        if (errObs) throw errObs;
+        const { error: errPap } = await supabase.from(T_PAPELETA).delete().eq('id', p.id);
+        if (errPap) throw errPap;
+      }
+      cerrarModalDia();
+      await cargar();
+    } catch (e) {
+      console.error('Error eliminando evento del calendario:', e);
+      setError('No se pudo eliminar. Revisa tu conexión e intenta de nuevo.');
+    }
+    setBorrandoEvento(null);
   };
 
   /* ---------- reagendar (drag) ---------- */
@@ -826,13 +907,20 @@ const CalendarioPostVenta: React.FC = () => {
         papeleta_id: pap.id,
         orden: i,
         origen: 'papeleta' as const,
-        solicitud_cliente: o.descripcion ?? null,
+        // Mismo criterio que PostVenta.tsx: en la plantilla "orden_visita"
+        // (Aconcagua), la observación sola no da contexto ("FILTRA" no dice
+        // de qué) — se combina con la partida ("CIELO: FILTRA"). En la
+        // plantilla vieja o.partida no existe, queda igual que antes.
+        solicitud_cliente: (o.partida ? `${o.partida}: ${o.descripcion}` : o.descripcion) ?? null,
         solicitud_ambiente: o.ambiente ?? null,
         ambiente: sugerirAmbiente(o.ambiente, ambientes) || null,
         observacion: null,
         partida_afectada: sugerirPartida(o.partida, partidas) || null,
         causa: null,
-        estado: 'SOLUCIONADO',
+        // PENDIENTE, no SOLUCIONADO: se está creando el borrador desde acá,
+        // todavía no hay ninguna inspección real hecha (mismo criterio que
+        // PostVenta.tsx al leer una papeleta).
+        estado: 'PENDIENTE',
       }));
 
       const { error: errHijos } = await supabase.from(T_BORRADOR).insert(filas);
@@ -842,11 +930,18 @@ const CalendarioPostVenta: React.FC = () => {
 
       sessionStorage.setItem(RESUME_KEY, pap.id);
       setMatch(null);
-      history.push(`/post-venta/${depto.id}`, {
-        depto: { id: depto.id, numero: depto.numero },
-        torre: { id: torre.id, nombre: torre.nombre },
-        proyecto: { id: proyecto.id, nombre: proyecto.nombre, codigo: proyecto.codigo },
-      });
+      // No se navega en el mismo tick que se cierra el modal: si el router
+      // cambia de página antes de que Ionic termine la animación de cierre
+      // del IonModal, el backdrop puede quedar sin desmontarse del todo y
+      // tapa la pantalla nueva en negro — sin tirar ningún error, porque no
+      // es un crash, es un elemento de overlay que quedó atrás.
+      setTimeout(() => {
+        history.push(`/post-venta/${depto.id}`, {
+          depto: { id: depto.id, numero: depto.numero },
+          torre: { id: torre.id, nombre: torre.nombre },
+          proyecto: { id: proyecto.id, nombre: proyecto.nombre, codigo: proyecto.codigo },
+        });
+      }, 350);
     } catch (e: any) {
       console.error('Error creando borrador desde el calendario:', e);
       setErrorSubida('No se pudo crear la visita. Intenta de nuevo.');
@@ -990,11 +1085,14 @@ const CalendarioPostVenta: React.FC = () => {
       await aprenderAliasProyecto({ proyecto: d.proyecto }, proyecto, matchActa.aliasesConocidos);
 
       setMatchActa(null);
-      history.push(`/pre-entrega/${depto.id}`, {
-        depto: { id: depto.id, numero: depto.numero },
-        torre: { id: torre.id, nombre: torre.nombre },
-        proyecto: { id: proyecto.id, nombre: proyecto.nombre, codigo: proyecto.codigo },
-      });
+      // Ver el mismo comentario en confirmarYCrear (flujo de postventa).
+      setTimeout(() => {
+        history.push(`/pre-entrega/${depto.id}`, {
+          depto: { id: depto.id, numero: depto.numero },
+          torre: { id: torre.id, nombre: torre.nombre },
+          proyecto: { id: proyecto.id, nombre: proyecto.nombre, codigo: proyecto.codigo },
+        });
+      }, 350);
     } catch (e: any) {
       console.error('Error creando agenda de pre-entrega desde el calendario:', e);
       setErrorSubida('No se pudo agendar la pre-entrega. Intenta de nuevo.');
@@ -1072,9 +1170,41 @@ const CalendarioPostVenta: React.FC = () => {
     window.addEventListener('pointerup', onUp);
   };
 
+  /**
+   * Regla de agregación pedida: una sola observación PENDIENTE hace que
+   * TODA la visita se vea pendiente (es la señal más urgente, gana sobre
+   * cualquier otra cosa). Si no hay ninguna pendiente pero tampoco están
+   * todas SOLUCIONADO (o sea, queda al menos una EN_PROCESO), la visita se
+   * ve "en proceso". Solo si TODAS están SOLUCIONADO se ve completada.
+   */
+  const estadoAgregado = (estados: string[]): 'PENDIENTE' | 'EN_PROCESO' | 'SOLUCIONADO' => {
+    if (estados.some(e => e === 'PENDIENTE')) return 'PENDIENTE';
+    if (estados.every(e => e === 'SOLUCIONADO')) return 'SOLUCIONADO';
+    return 'EN_PROCESO';
+  };
+
   /* ---------- estilos por estado ---------- */
-  const colorEstado = (estado: string) => {
-    if (estado === 'COMPLETADA') return verde;
+  /**
+   * Para POSTVENTA, el color ya no depende del campo `estado` de la
+   * papeleta (que solo dice si el FORMULARIO se guardó o se finalizó) —
+   * ahora depende del estado AGREGADO de sus observaciones (ver
+   * estadoAgregado): pendiente (ámbar) > en proceso (azul) > solucionada
+   * (verde). Si la papeleta todavía no tiene ninguna observación cargada
+   * (recién creada, o "sin papeleta"), se cae al color por el campo
+   * `estado` de siempre, porque no hay nada que agregar todavía.
+   *
+   * Para PRE_ENTREGA se mantiene el criterio de siempre (no tiene
+   * observaciones en esta tabla): COMPLETADA = verde, cualquier otra cosa
+   * (agendada, en progreso) = azul.
+   */
+  const colorEstado = (p: PapeletaCalendario) => {
+    if (p.tipo === 'postventa') {
+      const agregado = estadoAgregadoPorPapeleta.get(p.id);
+      if (agregado === 'PENDIENTE') return pendienteColor;
+      if (agregado === 'EN_PROCESO') return accent;
+      if (agregado === 'SOLUCIONADO') return verde;
+    }
+    if (p.estado === 'COMPLETADA') return verde;
     return accent; // EN_PROGRESO u otros
   };
 
@@ -1120,12 +1250,18 @@ const CalendarioPostVenta: React.FC = () => {
 
   /* ---------- render de un chip ---------- */
   const Chip = ({ p }: { p: PapeletaCalendario }) => {
-    const color = colorEstado(p.estado);
+    const color = colorEstado(p);
     const esFantasma = arrastrandoId === p.id;
     const hora = formatHora12h(p.hora_atencion);
     const { linea1, linea2 } = etiquetaChip(p, hora);
-    const tienePendientes = pendientesIds.has(p.id);
     const esPreEntrega = p.tipo === 'pre_entrega';
+    // Solo para el tooltip — el color del chip ya comunica el estado
+    // agregado, esto es texto de apoyo nada más.
+    const agregado = p.tipo === 'postventa' ? estadoAgregadoPorPapeleta.get(p.id) : undefined;
+    const etiquetaEstado = agregado === 'PENDIENTE' ? 'pendiente'
+      : agregado === 'EN_PROCESO' ? 'en proceso'
+      : agregado === 'SOLUCIONADO' ? 'solucionada'
+      : (p.estado === 'COMPLETADA' ? 'completada' : 'en progreso');
 
     return (
       <div
@@ -1143,16 +1279,13 @@ const CalendarioPostVenta: React.FC = () => {
           touchAction: 'none',
           userSelect: 'none',
         }}
-        title={`${esPreEntrega ? 'Pre Entrega' : 'Post Venta'} · ${p.proyecto_codigo || p.condominio ? (p.proyecto_codigo || p.condominio) + ' · ' : ''}Torre ${p.torre_codigo ?? '—'} · Depto ${p.depto_numero ?? '—'}${hora ? ' · ' + hora : ''}${tienePendientes ? ' · tiene observaciones pendientes' : ''}`}
+        title={`${esPreEntrega ? 'Pre Entrega' : 'Post Venta'} · ${p.proyecto_codigo || p.condominio ? (p.proyecto_codigo || p.condominio) + ' · ' : ''}Torre ${p.torre_codigo ?? '—'} · Depto ${p.depto_numero ?? '—'}${hora ? ' · ' + hora : ''} · ${etiquetaEstado}`}
       >
         <div style={{
           display: 'flex', alignItems: 'center', gap: 3,
           fontSize: 9, lineHeight: '11px', fontWeight: 700,
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
-          {tienePendientes && (
-            <span style={{ width: 4, height: 4, borderRadius: '50%', background: pendienteColor, flexShrink: 0 }} />
-          )}
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{linea1}</span>
         </div>
         {linea2 && (
@@ -1175,10 +1308,9 @@ const CalendarioPostVenta: React.FC = () => {
     if (grupo.length === 1) return <Chip p={grupo[0]} />;
 
     const p = grupo[0];
-    const color = colorEstado(p.estado);
+    const color = colorEstado(p);
     const hora = formatHora12h(p.hora_atencion);
     const { linea1, linea2 } = etiquetaChip(p, hora);
-    const tienePendientes = grupo.some(g => pendientesIds.has(g.id));
     const esPreEntrega = p.tipo === 'pre_entrega';
 
     return (
@@ -1202,9 +1334,6 @@ const CalendarioPostVenta: React.FC = () => {
           fontSize: 9, lineHeight: '11px', fontWeight: 700,
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
-          {tienePendientes && (
-            <span style={{ width: 4, height: 4, borderRadius: '50%', background: pendienteColor, flexShrink: 0 }} />
-          )}
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{linea1}</span>
         </div>
         {linea2 && (
@@ -1322,19 +1451,22 @@ const CalendarioPostVenta: React.FC = () => {
             </button>
           </div>
 
-          {/* Leyenda */}
+          {/* Leyenda — en postventa, el color representa el estado agregado
+              de las observaciones (una sola pendiente pinta toda la
+              visita); en pre-entrega sigue siendo el estado del formulario,
+              ya que no tiene observaciones en esta tabla. */}
           <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 10, color: textSecondary, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 3, background: pendienteColor }} />
+              Pendiente
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 8, height: 8, borderRadius: 3, background: accent }} />
-              En progreso
+              En proceso
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 8, height: 8, borderRadius: 3, background: verde }} />
-              Completada
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: pendienteColor }} />
-              Con obs. pendientes
+              Solucionada / Completada
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 12, height: 0, borderTop: `1px dashed ${textSecondary}` }} />
@@ -1378,7 +1510,7 @@ const CalendarioPostVenta: React.FC = () => {
               const esHoy = esMismoDia(fecha, hoy);
               const items = porDia.get(clave) ?? [];
               const grupos = agruparPorDeptoHora(items);
-              const gruposVisibles = grupos.slice(0, 2);
+              const gruposVisibles = grupos.slice(0, 6);
               const gruposRestantes = grupos.length - gruposVisibles.length;
               const esObjetivoDrag = celdaSobre === clave;
 
@@ -1387,13 +1519,15 @@ const CalendarioPostVenta: React.FC = () => {
                   key={i}
                   data-fecha-key={clave}
                   style={{
-                    // Alto FIJO (no minHeight): todas las celdas de la fila
-                    // quedan parejas, y lo que no entra se recorta — el
-                    // detalle completo (código, torre, depto, hora) vive en
-                    // el modal del día, no hace falta que quepa acá.
-                    height: 88,
+                    // minHeight (no height fijo): en CSS Grid, todas las
+                    // celdas de una misma FILA ya se emparejan solas al alto
+                    // de la más alta — lo único que hacía que no crecieran
+                    // era este valor fijo. Con minHeight, un día con más
+                    // chips estira su fila completa (columnas de ese ancho
+                    // no se tocan), igual que en Google Calendar: se
+                    // deforma verticalmente, nunca horizontalmente.
+                    minHeight: 88,
                     minWidth: 0, // ver comentario de arriba sobre CSS Grid
-                    overflow: 'hidden',
                     borderRadius: 8,
                     padding: '3px 2px',
                     background: esObjetivoDrag
@@ -1462,7 +1596,7 @@ const CalendarioPostVenta: React.FC = () => {
             width: 80,
             pointerEvents: 'none',
             zIndex: 999,
-            background: colorEstado(papeletaArrastrada.estado),
+            background: colorEstado(papeletaArrastrada),
             color: '#fff',
             borderRadius: 8,
             padding: '4px 8px',
@@ -1500,8 +1634,40 @@ const CalendarioPostVenta: React.FC = () => {
               <div><strong style={{ color: textPrimary }}>Leído del PDF:</strong></div>
               <div>{match.datos.proyecto || match.datos.condominio || '—'}{match.datos.etapa ? ` · ${match.datos.etapa}` : ''}</div>
               <div>Torre/Edificio: {match.datos.torre || '—'} · Depto: {match.datos.depto || '—'}</div>
-              {match.datos.fechaAtencion && <div>Fecha de visita: {match.datos.fechaAtencion} {match.datos.horaAtencion}</div>}
               <div>{match.observaciones.length} observación(es)</div>
+            </div>
+
+            {/* Fecha/hora editables — la plantilla "orden_visita" no
+                siempre trae una hora de visita confiable (ver
+                extraerPapeletaPdf.ts: esa plantilla imprime la hora de
+                REGISTRO del pedido, no la de la visita), así que quedan
+                editables acá en vez de solo mostradas como texto. */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <label style={selectLabelStyle(textMuted)}>Fecha de visita</label>
+                <input
+                  type="date"
+                  value={fechaTextoAIso(match.datos.fechaAtencion)}
+                  onChange={e => {
+                    const nueva = isoAFechaTexto(e.target.value);
+                    setMatch(m => (m ? { ...m, datos: { ...m.datos, fechaAtencion: nueva } } : m));
+                  }}
+                  style={selectStyle(dark, border, textPrimary)}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={selectLabelStyle(textMuted)}>Hora</label>
+                <input
+                  type="text"
+                  placeholder="Ej: 10:30"
+                  value={match.datos.horaAtencion}
+                  onChange={e => {
+                    const nueva = e.target.value;
+                    setMatch(m => (m ? { ...m, datos: { ...m.datos, horaAtencion: nueva } } : m));
+                  }}
+                  style={selectStyle(dark, border, textPrimary)}
+                />
+              </div>
             </div>
 
             <label style={selectLabelStyle(textMuted)}>Proyecto</label>
@@ -1633,11 +1799,38 @@ const CalendarioPostVenta: React.FC = () => {
               <div><strong style={{ color: textPrimary }}>Leído del Acta:</strong></div>
               <div>{matchActa.datos.proyecto || '—'}{matchActa.datos.ciudad ? ` · ${matchActa.datos.ciudad}` : ''}</div>
               <div>Edificio: {matchActa.datos.edificio || '—'} · Depto: {matchActa.datos.deptoNumero || '—'}</div>
-              {matchActa.datos.fechaAtencion && <div>Fecha de visita: {matchActa.datos.fechaAtencion} {matchActa.datos.horaAtencion}</div>}
               <div>Propietario: {matchActa.datos.propietarioNombre || '—'}{matchActa.datos.propietarioRut ? ` · ${matchActa.datos.propietarioRut}` : ''}</div>
               {matchActa.datos.fechaPromesaLarga && <div>Promesa: {matchActa.datos.fechaPromesaLarga}</div>}
               {matchActa.datos.procesoVenta && <div>Proceso de venta: {matchActa.datos.procesoVenta}</div>}
               {matchActa.datos.banco && <div>Banco: {matchActa.datos.banco}</div>}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <label style={selectLabelStyle(textMuted)}>Fecha de visita</label>
+                <input
+                  type="date"
+                  value={fechaTextoAIso(matchActa.datos.fechaAtencion)}
+                  onChange={e => {
+                    const nueva = isoAFechaTexto(e.target.value);
+                    setMatchActa(m => (m ? { ...m, datos: { ...m.datos, fechaAtencion: nueva } } : m));
+                  }}
+                  style={selectStyle(dark, border, textPrimary)}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={selectLabelStyle(textMuted)}>Hora</label>
+                <input
+                  type="text"
+                  placeholder="Ej: 10:30"
+                  value={matchActa.datos.horaAtencion}
+                  onChange={e => {
+                    const nueva = e.target.value;
+                    setMatchActa(m => (m ? { ...m, datos: { ...m.datos, horaAtencion: nueva } } : m));
+                  }}
+                  style={selectStyle(dark, border, textPrimary)}
+                />
+              </div>
             </div>
 
             <label style={selectLabelStyle(textMuted)}>Proyecto</label>
@@ -1788,7 +1981,46 @@ const CalendarioPostVenta: React.FC = () => {
                 const resumen = items
                   .map(p => `${p.proyecto_codigo || p.condominio || ''}-${p.torre_codigo || ''} ${p.depto_numero || ''}`.trim())
                   .join(', ');
-                const algunaPendiente = items.some(p => pendientesIds.has(p.id));
+
+                // Reemplaza el punto de color de antes: en vez de solo avisar
+                // "hay algo pendiente" con un punto, dice textualmente cuál
+                // es el estado agregado del grupo — considerando que una
+                // misma hora puede mezclar postventa y pre-entrega, y que
+                // postventa puede a su vez mezclar varias papeletas con
+                // distinto estado agregado cada una.
+                const { texto: textoEstadoHora, color: colorEstadoHora } = (() => {
+                  const postventaItems = items.filter(p => p.tipo === 'postventa');
+                  const preEntregaItems = items.filter(p => p.tipo === 'pre_entrega');
+
+                  // Cualquier PENDIENTE domina sobre todo lo demás.
+                  if (postventaItems.some(p => estadoAgregadoPorPapeleta.get(p.id) === 'PENDIENTE')) {
+                    return { texto: 'Pendiente', color: pendienteColor };
+                  }
+                  if (postventaItems.some(p => estadoAgregadoPorPapeleta.get(p.id) === 'EN_PROCESO')) {
+                    return { texto: 'En proceso', color: accent };
+                  }
+
+                  const todasPostventaOk = postventaItems.length === 0 ||
+                    postventaItems.every(p => estadoAgregadoPorPapeleta.get(p.id) === 'SOLUCIONADO');
+                  const todasPreEntregaOk = preEntregaItems.length === 0 ||
+                    preEntregaItems.every(p => p.estado === 'COMPLETADA');
+
+                  if (postventaItems.length > 0 && preEntregaItems.length === 0) {
+                    return todasPostventaOk
+                      ? { texto: 'Solucionada', color: verde }
+                      : { texto: 'Sin observaciones', color: textMuted };
+                  }
+                  if (preEntregaItems.length > 0 && postventaItems.length === 0) {
+                    return todasPreEntregaOk
+                      ? { texto: 'Acta generada', color: verde }
+                      : { texto: 'Agendada', color: accent };
+                  }
+                  // Mezcla de ambos tipos en la misma hora.
+                  return (todasPostventaOk && todasPreEntregaOk)
+                    ? { texto: 'Solucionada', color: verde }
+                    : { texto: 'En proceso', color: accent };
+                })();
+
                 return (
                   <button
                     key={hora}
@@ -1808,9 +2040,9 @@ const CalendarioPostVenta: React.FC = () => {
                         {items.length === 1 ? '1 visita' : `${items.length} visitas`}
                       </div>
                     </div>
-                    {algunaPendiente && (
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: pendienteColor, flexShrink: 0 }} />
-                    )}
+                    <div style={{ fontSize: 10, fontWeight: 700, color: colorEstadoHora, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      {textoEstadoHora}
+                    </div>
                     <IonIcon icon={chevronForward} style={{ fontSize: 14, color: textMuted, flexShrink: 0 }} />
                   </button>
                 );
@@ -1831,14 +2063,30 @@ const CalendarioPostVenta: React.FC = () => {
                 >
                   <div
                     onClick={() => { cerrarModalDia(); abrirDepto(p); }}
-                    style={{ padding: '12px 14px', cursor: 'pointer' }}
+                    style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}
                   >
-                    <div style={{ fontSize: 13, fontWeight: 700, color: textPrimary }}>
-                      {p.proyecto_codigo || p.condominio || ''} · Torre {p.torre_codigo} · Depto {p.depto_numero}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: textPrimary }}>
+                        {p.proyecto_codigo || p.condominio || ''} · Torre {p.torre_codigo} · Depto {p.depto_numero}
+                      </div>
+                      <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>
+                        {p.tipo === 'pre_entrega' ? 'Pre Entrega' : 'Post Venta'} · {formatHora12h(p.hora_atencion)}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>
-                      {p.tipo === 'pre_entrega' ? 'Pre Entrega' : 'Post Venta'} · {formatHora12h(p.hora_atencion)}
-                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); if (borrandoEvento !== p.id) eliminarEvento(p); }}
+                      disabled={borrandoEvento === p.id}
+                      title="Eliminar (agendado por error)"
+                      style={{
+                        flexShrink: 0, background: 'transparent', border: 'none', padding: 6, marginTop: -4, marginRight: -6,
+                        cursor: borrandoEvento === p.id ? 'default' : 'pointer',
+                        color: dark ? '#f87171' : '#b91c1c',
+                        opacity: borrandoEvento === p.id ? 0.4 : 1,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <IonIcon icon={trashOutline} style={{ fontSize: 16 }} />
+                    </button>
                   </div>
 
                   <div style={{ padding: '0 14px 12px 14px' }}>
@@ -1846,7 +2094,7 @@ const CalendarioPostVenta: React.FC = () => {
                       <div style={{
                         display: 'inline-block', fontSize: 8, fontWeight: 800, borderRadius: 5,
                         padding: '2px 6px', color: dark ? '#0B1220' : '#fff',
-                        background: colorEstado(p.estado),
+                        background: colorEstado(p),
                       }}>
                         {p.estado === 'COMPLETADA' ? 'ACTA GENERADA' : 'AGENDADA'}
                       </div>
@@ -1859,7 +2107,12 @@ const CalendarioPostVenta: React.FC = () => {
                           <div style={{ fontSize: 10, color: textMuted }}>Sin observaciones registradas.</div>
                         )}
                         {obs && obs.map((o, i) => {
-                          const esSolucionado = o.estado === 'SOLUCIONADO';
+                          const colorBadge = o.estado === 'SOLUCIONADO' ? verde
+                            : o.estado === 'EN_PROCESO' ? accent
+                            : pendienteColor;
+                          const textoBadge = o.estado === 'SOLUCIONADO' ? 'SOLUCIONADO'
+                            : o.estado === 'EN_PROCESO' ? 'EN PROCESO'
+                            : 'PENDIENTE';
                           const textoObs = o.solicitud_cliente || o.observacion || 'Sin descripción';
                           return (
                             <div
@@ -1873,9 +2126,9 @@ const CalendarioPostVenta: React.FC = () => {
                                 flexShrink: 0, marginTop: 1, fontSize: 8, fontWeight: 800, borderRadius: 5,
                                 padding: '2px 5px', whiteSpace: 'nowrap',
                                 color: dark ? '#0B1220' : '#fff',
-                                background: esSolucionado ? verde : pendienteColor,
+                                background: colorBadge,
                               }}>
-                                {esSolucionado ? 'SOLUCIONADO' : 'PENDIENTE'}
+                                {textoBadge}
                               </span>
                               <span style={{ fontSize: 11, color: textSecondary, lineHeight: 1.4 }}>
                                 {o.ambiente && <strong style={{ color: textPrimary }}>{o.ambiente}: </strong>}

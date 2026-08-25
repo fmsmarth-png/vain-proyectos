@@ -1,4 +1,5 @@
-import { IonContent, IonHeader, IonMenuButton, IonPage, IonToolbar, IonTitle, IonToast } from '@ionic/react';
+import { IonContent, IonHeader, IonMenuButton, IonPage, IonToolbar, IonTitle, IonToast, IonRefresher, IonRefresherContent } from '@ionic/react';
+import type { RefresherEventDetail } from '@ionic/react';
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useIonViewDidEnter } from '@ionic/react';
@@ -151,13 +152,30 @@ const AprobacionBodega: React.FC = () => {
     if (proy) await cargarVales(proy.id);
   };
 
+  // Pull-to-refresh: recarga manual deslizando hacia abajo, por si el Realtime
+  // tarda o se quiere forzar una actualización inmediata.
+  const onRefresh = async (e: CustomEvent<RefresherEventDetail>) => {
+    if (proyecto) await cargarVales(proyecto.id);
+    e.detail.complete();
+  };
+
   // ── Realtime: nuevas solicitudes y cambios de estado se reflejan solos ──
+  // Se escucha tanto el INSERT del encabezado (vales_bodega) como el INSERT y
+  // UPDATE de sus líneas (vales_bodega_items). El INSERT de líneas es clave:
+  // al emitir un vale, el encabezado se inserta ANTES que sus materiales, así
+  // que la recarga disparada solo por el encabezado traía el vale sin detalle
+  // (items aún no escritos). Al escuchar también el INSERT de líneas, cuando
+  // estas llegan se dispara otra recarga que ya incluye el detalle completo.
   useEffect(() => {
     if (!proyecto) return;
     const channel = supabase
       .channel(`bodega-vales-${proyecto.id}`)
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'vales_bodega', filter: `proyecto_id=eq.${proyecto.id}` },
+        () => cargarVales(proyecto.id)
+      )
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'vales_bodega_items' },
         () => cargarVales(proyecto.id)
       )
       .on('postgres_changes',
@@ -316,6 +334,10 @@ const AprobacionBodega: React.FC = () => {
       </IonHeader>
 
       <IonContent style={{ '--background': bg } as any}>
+        <IonRefresher slot="fixed" onIonRefresh={onRefresh}>
+          <IonRefresherContent />
+        </IonRefresher>
+
         <div style={{ padding: 16, paddingBottom: 40 }}>
 
           {proyecto && (
@@ -509,4 +531,4 @@ const AprobacionBodega: React.FC = () => {
   );
 };
 
-export default AprobacionBodega;  
+export default AprobacionBodega;
