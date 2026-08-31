@@ -730,6 +730,8 @@ const PostVenta: React.FC = () => {
   // (dispositivo distinto, reinstalación de la app), cae a Supabase como
   // respaldo — y de ahí en adelante ya queda protegido localmente también.
   const hidratarBorrador = async (pid: string, catalogo: Catalogo[]) => {
+    // DIAGNÓSTICO TEMPORAL
+    console.log('[DIAGNÓSTICO hidratarBorrador] llamada con pid =', pid, 'en', new Date().toISOString());
     setReanudando(true);
     try {
       const local = leerBorradorLocal(pid);
@@ -781,6 +783,8 @@ const PostVenta: React.FC = () => {
 
       // Sin copia local: reanudación desde otro dispositivo o app reinstalada.
       const { data: pap } = await supabase.from(T_PAPELETA).select('*').eq('id', pid).maybeSingle();
+      // DIAGNÓSTICO TEMPORAL
+      console.log('[DIAGNÓSTICO hidratarBorrador] pap leído de Supabase =', JSON.stringify(pap, null, 2));
       if (!pap) { sessionStorage.removeItem(RESUME_KEY); setReanudando(false); return; }
       // Una visita ya cerrada no se reabre para editar (evita reinsertar en BD).
       if (pap.estado === 'COMPLETADA') { sessionStorage.removeItem(RESUME_KEY); setReanudando(false); return; }
@@ -794,14 +798,21 @@ const PostVenta: React.FC = () => {
       usuarioIdRef.current = pap.usuario_id ?? null;
       usuarioEmailRef.current = pap.usuario_email ?? null;
       setSinPapeleta(!!pap.sin_papeleta);
-      setDatos({
+      sinPapeletaRef.current = !!pap.sin_papeleta;
+      const datosHidratados: DatosSolicitud = {
         condominio: pap.condominio ?? '', depto: pap.depto_numero ?? '', torre: pap.torre_codigo ?? '',
         requerimiento: pap.n_requerimiento ?? '', fechaRegistro: pap.fecha_registro ?? '',
         fechaAtencion: pap.fecha_atencion ?? '', horaAtencion: pap.hora_atencion ?? '',
         formato: 'solicitud', // el borrador guardado no persiste el formato de origen; no se usa tras la carga inicial
-      });
-      setRecNombre(pap.receptor_nombre ?? '');
-      setRecRut(pap.receptor_rut ?? '');
+      };
+      setDatos(datosHidratados);
+      datosRef.current = datosHidratados;
+      const recNombreHidratado = pap.receptor_nombre ?? '';
+      const recRutHidratado = pap.receptor_rut ?? '';
+      setRecNombre(recNombreHidratado);
+      setRecRut(recRutHidratado);
+      recNombreRef.current = recNombreHidratado;
+      recRutRef.current = recRutHidratado;
       setPapeletaId(pid);
       papeletaIdRef.current = pid;
 
@@ -832,7 +843,23 @@ const PostVenta: React.FC = () => {
       setPaso('revision');
       setSaveState('saved');
       // A partir de ahora esta visita también queda protegida localmente.
-      await persistirBorrador({ rev: revsHidratados });
+      // FIX: se pasan los valores recién leídos de Supabase explícitos
+      // (datos/sinPapeleta/recNombre/recRut), en vez de dejar que
+      // construirBorrador() use los refs — esos refs recién se actualizan en
+      // un useEffect posterior al setDatos/setSinPapeleta/etc. de arriba, así
+      // que en este punto todavía reflejan el valor ANTERIOR (vacío, en una
+      // reanudación fresca). Sin este fix, el guardado local (y el upsert a
+      // Supabase que dispara en segundo plano) se hacía con fecha_atencion
+      // vacía, borrando silenciosamente la fecha recién creada — la
+      // observación se seguía viendo bien en Detalle Depto, pero la papeleta
+      // desaparecía del Calendario (que sí exige fecha_atencion).
+      await persistirBorrador({
+        rev: revsHidratados,
+        datos: datosHidratados,
+        sinPapeleta: !!pap.sin_papeleta,
+        recNombre: recNombreHidratado,
+        recRut: recRutHidratado,
+      });
     } catch {
       setSaveState('error');
     }
@@ -1077,15 +1104,43 @@ const PostVenta: React.FC = () => {
 
           // Cierra el borrador: la visita queda COMPLETADA y deja de aparecer
           // como "en progreso" en DetalleDepto.
+          //
+          // FIX: antes esto era un .update(), que asume que la fila de
+          // postventa_papeletas ya existe. Con el borrador local-first, esa
+          // fila solo se crea cuando el sync de fondo (sincronizarBorradorConServidor)
+          // logra conectarse — si la visita fue corta y con señal débil todo
+          // el tiempo, esa fila puede NO existir todavía al momento de
+          // finalizar. Un update sobre una fila inexistente no da error, pero
+          // tampoco crea nada: las observaciones quedaban guardadas, pero la
+          // papeleta (de la que depende el Calendario) nunca aparecía.
+          // Un upsert con el payload COMPLETO garantiza que la fila exista sí
+          // o sí, la haya creado antes el sync de fondo o no.
           if (papeletaId) {
-            await supabase.from(T_PAPELETA).update({
+            const borradorActual = construirBorrador();
+            const { error: errPap } = await supabase.from(T_PAPELETA).upsert({
+              id: papeletaId,
+              proyecto_id: borradorActual?.proyecto_id ?? proyecto.id,
+              proyecto_codigo: borradorActual?.proyecto_codigo ?? (proyectoCodigo || proyecto.codigo || null),
+              torre_codigo: borradorActual?.torre_codigo ?? torre.nombre,
+              depto_numero: borradorActual?.depto_numero ?? depto.numero,
+              departamento_id: depto.id,
+              sin_papeleta: borradorActual?.sin_papeleta ?? sinPapeleta,
+              n_requerimiento: borradorActual?.n_requerimiento ?? (sinPapeleta ? null : (datos.requerimiento || null)),
+              fecha_registro: borradorActual?.fecha_registro ?? (datos.fechaRegistro || null),
+              fecha_atencion: borradorActual?.fecha_atencion ?? (datos.fechaAtencion || null),
+              hora_atencion: borradorActual?.hora_atencion ?? (datos.horaAtencion || null),
+              condominio: borradorActual?.condominio ?? (datos.condominio || null),
+              usuario_id: borradorActual?.usuario_id ?? user.id,
+              usuario_email: borradorActual?.usuario_email ?? (user.email ?? '').toLowerCase(),
+              usuario_nombre: borradorActual?.usuario_nombre ?? (inspectorNombre || null),
               estado: 'COMPLETADA',
               fecha_completada: new Date().toISOString(),
               receptor_nombre: recNombre.trim() || null,
               receptor_rut: recRut.trim() || null,
               receptor_firma_url: firmaUrl,
               updated_at: new Date().toISOString(),
-            }).eq('id', papeletaId);
+            }, { onConflict: 'id' });
+            if (errPap) throw new Error(errPap.message);
           }
           guardadoOnline = true;
         } catch (e) {
@@ -1096,7 +1151,19 @@ const PostVenta: React.FC = () => {
       if (!guardadoOnline) {
         // Si la firma ya se subió a Storage (firmaUrl no es null) no hace
         // falta reintentar la subida del Blob; si no, se sube al sincronizar.
-        await encolarFinalizacionPostventa(papeletaId, filas, firmaUrl ? null : firmaBlobLocal);
+        // Se agregan los campos de cabecera de la papeleta a cada fila (la
+        // cola los necesita para poder recrear postventa_papeletas completa
+        // si esa fila nunca llegó a existir en el servidor — ver
+        // flushColaPostventa en postventaOfflineQueue.ts).
+        const filasParaCola = filas.map(f => ({
+          ...f,
+          sin_papeleta: sinPapeleta,
+          fecha_registro: datos.fechaRegistro || null,
+          fecha_atencion: datos.fechaAtencion || null,
+          hora_atencion: datos.horaAtencion || null,
+          condominio: datos.condominio || null,
+        }));
+        await encolarFinalizacionPostventa(papeletaId, filasParaCola, firmaUrl ? null : firmaBlobLocal);
         setFinalizadoOffline(true);
       }
 

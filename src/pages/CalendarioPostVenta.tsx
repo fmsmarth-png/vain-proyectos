@@ -230,7 +230,18 @@ const sugerirProyectoIdConAlias = (d: TextoUbicacion, proyectos: ProyectoOpt[], 
   const t = norm(sinPrefijoProyecto(textoPdf));
   if (t) {
     const porAlias = alias.find(a => a.alias_normalizado === t);
-    if (porAlias) return porAlias.proyecto_id;
+    // FIX: proyecto_alias se lee sin filtrar por usuario (lo aprende
+    // cualquier técnico, para cualquier proyecto). Antes, si el alias
+    // apuntaba a un proyecto que no está en la lista de proyectos
+    // ASIGNADOS a este usuario (`proyectos`), la papeleta se creaba igual
+    // con ese proyecto_id — el INSERT no lo bloquea — pero después
+    // desaparecía de cualquier pantalla cuya lectura esté acotada por RLS a
+    // los proyectos asignados (como el Calendario). Se valida que el id
+    // del alias esté realmente en la lista asignada antes de usarlo; si no,
+    // se sigue con el match por nombre de siempre (ya acotado a `proyectos`).
+    if (porAlias && proyectos.some(p => p.id === porAlias.proyecto_id)) {
+      return porAlias.proyecto_id;
+    }
   }
   return sugerirProyectoId(d, proyectos);
 };
@@ -900,6 +911,11 @@ const CalendarioPostVenta: React.FC = () => {
       }
 
       const { datos: d, observaciones } = match;
+
+      // DIAGNÓSTICO TEMPORAL — borrar después de confirmar la causa real.
+      // Objetivo: ver EXACTAMENTE qué trae `d` (match.datos) en el momento
+      // de crear la papeleta, tal como lo ve el código, sin adivinar.
+      console.log('[DIAGNÓSTICO confirmarYCrear] match.datos =', JSON.stringify(d, null, 2));
 
       const { data: pap, error: errPap } = await supabase.from(T_PAPELETA).insert({
         proyecto_id: proyecto.id,

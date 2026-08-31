@@ -112,6 +112,12 @@ export function listarBorradoresLocales(): BorradorLocal[] {
  * Lanza si falla (disco lleno, etc.) para que la pantalla pueda avisar.
  */
 export async function guardarBorradorLocal(borrador: BorradorLocal): Promise<void> {
+  // TEMPORAL: mismo diagnóstico — sacar junto con el log de arriba.
+  console.log('[DEBUG postventaBorrador] Guardando borrador LOCAL', borrador.id, {
+    fecha_atencion: borrador.fecha_atencion,
+    hora_atencion: borrador.hora_atencion,
+    condominio: borrador.condominio,
+  });
   cache = [...cache.filter(b => b.id !== borrador.id), borrador];
   try {
     await dbPut(STORE, borrador);
@@ -136,6 +142,14 @@ export async function eliminarBorradorLocal(id: string): Promise<void> {
  * pierde nada por que esto falle.
  */
 export async function sincronizarBorradorConServidor(borrador: BorradorLocal): Promise<boolean> {
+  // TEMPORAL: diagnóstico del bug "fecha_atencion se pone null sola" —
+  // sacar esta línea una vez confirmado el origen del problema.
+  console.log('[DEBUG postventaBorrador] Sincronizando papeleta', borrador.id, {
+    fecha_atencion: borrador.fecha_atencion,
+    hora_atencion: borrador.hora_atencion,
+    condominio: borrador.condominio,
+    stack: new Error().stack,
+  });
   try {
     const { error: errPap } = await supabase.from(T_PAPELETA).upsert({
       id: borrador.id,

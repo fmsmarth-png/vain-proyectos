@@ -458,13 +458,13 @@ function extraerObservacionesOrdenVisita(celdas: Celda[]): ObservacionPdf[] {
   );
 
   const xIzquierda = partidaH.x - 5;
-  const area = celdas.filter(
+  const areaConEncabezado = celdas.filter(
     (c) =>
       (c.page > partidaH.page || (c.page === partidaH.page && c.y <= partidaH.y + 10)) &&
       (!footer || c.page < footer.page || (c.page === footer.page && c.y > footer.y + TOL_Y)) &&
       c.x >= xIzquierda
   );
-  if (area.length === 0) return [];
+  if (areaConEncabezado.length === 0) return [];
 
   // Límites de columna: punto medio entre encabezados consecutivos
   const colXs = comH ? [partidaH.x, recintoH.x, obsH.x, comH.x] : [partidaH.x, recintoH.x, obsH.x];
@@ -474,6 +474,30 @@ function extraerObservacionesOrdenVisita(celdas: Celda[]): ObservacionPdf[] {
     for (let i = 0; i < bordes.length; i++) if (x < bordes[i]) return i;
     return bordes.length;
   };
+
+  // El encabezado puede partirse en VARIAS líneas propias cuando una de sus
+  // columnas es más angosta que su texto (ej. "COMENTARIO" / "SUPERVISOR" /
+  // "OV", cada palabra en su propia línea dentro de la misma celda de
+  // encabezado). Antes se asumía que el encabezado ocupaba SIEMPRE una sola
+  // línea (la de mayor Y) y se descartaba con un simple slice(1) — cuando el
+  // encabezado envolvía a más líneas, esas líneas de más quedaban sueltas y
+  // se contaban como una fila de datos fantasma (comentario "OV", el resto
+  // de columnas vacío).
+  //
+  // La forma robusta de no depender de "cuántas líneas mide el encabezado"
+  // es identificarlo por CONTENIDO, no por posición: se busca dónde empieza
+  // el primer dato real de la columna PARTIDA (cualquier texto ahí que NO
+  // sea literalmente la palabra "PARTIDA" del título de columna). Todo lo
+  // que esté por encima de esa fila es encabezado — sin importar en cuántas
+  // líneas se haya partido — y se descarta de una sola vez.
+  const primeraFilaDatoY = Math.max(
+    -Infinity,
+    ...areaConEncabezado
+      .filter((c) => columnaDe(c.x) === 0 && !/^PARTIDA$/i.test(c.str))
+      .map((c) => c.y)
+  );
+  const area = areaConEncabezado.filter((c) => c.y <= primeraFilaDatoY + TOL_Y);
+  if (area.length === 0) return [];
 
   // Valores de Y únicos POR PÁGINA (nunca comparar Y entre páginas distintas).
   interface Marca { page: number; y: number }
@@ -524,8 +548,10 @@ function extraerObservacionesOrdenVisita(celdas: Celda[]): ObservacionPdf[] {
     };
   });
 
-  // La primera fila es siempre el encabezado de columnas — se descarta.
-  filas = filas.slice(1).filter((f) => f.partida || f.recinto || f.observacion || f.comentario);
+  // El encabezado ya se excluyó de `area` más arriba (por contenido, no por
+  // posición) — acá todos los grupos son filas de datos reales, ninguno se
+  // descarta.
+  filas = filas.filter((f) => f.partida || f.recinto || f.observacion || f.comentario);
 
   // Fusión de filas huérfanas por corte de página (ver comentario de la
   // función): última fila de su página, con contenido en UNA sola columna.
