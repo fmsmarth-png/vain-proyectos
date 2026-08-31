@@ -25,8 +25,20 @@ interface StockRow {
   factor_conversion: number;
   entregado: number;
   ajuste: number;
+  prestado_neto: number;
   stock_actual: number;
   bajo_stock: boolean;
+  fuente: string | null;
+}
+
+interface PrestamoRow {
+  numero_guia: string;
+  obra_destino: string;
+  fecha_prestamo: string;
+  cantidad_prestada: number;
+  cantidad_devuelta: number;
+  unidad_registro: string | null;
+  estado: string;
 }
 
 interface OcRow {
@@ -70,6 +82,20 @@ const StockBodega: React.FC = () => {
   const rojoBg     = dark ? 'rgba(239,68,68,0.08)' : '#fef2f2';
   const rojoBord   = dark ? 'rgba(239,68,68,0.25)' : '#fecaca';
 
+  // Helpers para mostrar valores según la unidad elegida para CADA material
+  const mostrarUnidad = (m: StockRow) => {
+    const pref = getUnidadDisplay(m.material_id);
+    return pref === 'compra' && m.unidad_compra && m.factor_conversion !== 1
+      ? m.unidad_compra : m.unidad;
+  };
+
+  const convertirADisplay = (valor: number, m: StockRow) => {
+    const pref = getUnidadDisplay(m.material_id);
+    return pref === 'compra' && m.factor_conversion !== 1
+      ? Math.round((valor / m.factor_conversion) * 100) / 100
+      : valor;
+  };
+
   const sCard: React.CSSProperties = {
     background: cardGrad, borderRadius: 16, border: `0.5px solid ${border}`,
     padding: '12px 14px', marginBottom: 8,
@@ -88,6 +114,11 @@ const StockBodega: React.FC = () => {
   const [soloBajoStock, setSoloBajoStock] = useState(location.state?.soloBajoStock ?? false);
   const [cargando, setCargando] = useState(true);
 
+  // Filtro por cuadrilla
+  const [cuadrillas, setCuadrillas] = useState<{ id: string; nombre: string }[]>([]);
+  const [cuadrillaSeleccionada, setCuadrillaSeleccionada] = useState('');
+  const [materialesCuadrilla, setMaterialesCuadrilla] = useState<Set<string> | null>(null);
+
   // umbral edit (solo jefe de bodega)
   const [umbralEdit, setUmbralEdit] = useState<Record<string, string>>({});
 
@@ -97,6 +128,29 @@ const StockBodega: React.FC = () => {
   const [fichaOcs, setFichaOcs] = useState<OcRow[]>([]);
   const [fichaEntregas, setFichaEntregas] = useState<EntregaRow[]>([]);
   const [fichaActividades, setFichaActividades] = useState<string[]>([]);
+  const [fichaPrestamos, setFichaPrestamos] = useState<PrestamoRow[]>([]);
+
+  // Preferencia de unidad POR MATERIAL: cada material puede verse en su propia
+  // unidad preferida, porque en obra algunos se manejan por envase y otros por kg.
+  // Se guarda en localStorage como un objeto { material_id: 'compra' | 'granular' }.
+  const [unidadPorMaterial, setUnidadPorMaterial] = useState<Record<string, 'granular' | 'compra'>>(() => {
+    try {
+      const saved = localStorage.getItem('bodega_unidades_display');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+
+  const getUnidadDisplay = (materialId: string) => unidadPorMaterial[materialId] ?? 'granular';
+
+  const toggleUnidadMaterial = (materialId: string) => {
+    setUnidadPorMaterial(prev => {
+      const actual = prev[materialId] ?? 'granular';
+      const nueva: 'granular' | 'compra' = actual === 'granular' ? 'compra' : 'granular';
+      const next: Record<string, 'granular' | 'compra'> = { ...prev, [materialId]: nueva };
+      try { localStorage.setItem('bodega_unidades_display', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const [fichaCargando, setFichaCargando] = useState(false);
   const [ajusteCantidad, setAjusteCantidad] = useState('');
   const [ajusteMotivo, setAjusteMotivo] = useState('');
@@ -111,12 +165,12 @@ const StockBodega: React.FC = () => {
   // ── carga ──────────────────────────────────────────────────────────────
   const cargarStock = useCallback(async (proyectoId: string) => {
     setCargando(true);
-    const { data } = await supabase
-      .from('bodega_stock_actual')
-      .select('*')
-      .eq('proyecto_id', proyectoId)
-      .order('nombre');
-    setMateriales((data as StockRow[] | null) ?? []);
+    const [stockRes, cuadRes] = await Promise.all([
+      supabase.from('bodega_stock_actual').select('*').eq('proyecto_id', proyectoId).order('nombre'),
+      supabase.from('bodega_cuadrillas').select('id, nombre').eq('activa', true).order('nombre'),
+    ]);
+    setMateriales((stockRes.data as StockRow[] | null) ?? []);
+    setCuadrillas(((cuadRes.data as any[]) ?? []).map(c => ({ id: c.id, nombre: c.nombre })));
     setCargando(false);
   }, []);
 
@@ -152,16 +206,40 @@ const StockBodega: React.FC = () => {
     e.detail.complete();
   };
 
+  // Al elegir una cuadrilla, cargamos los material_ids que le corresponden
+  // (cadena: cuadrilla → actividades → materiales)
+  const filtrarPorCuadrilla = async (cuadrillaId: string) => {
+    setCuadrillaSeleccionada(cuadrillaId);
+    if (!cuadrillaId) { setMaterialesCuadrilla(null); return; }
+
+    // Paso 1: actividad_ids de la cuadrilla
+    const { data: cuadActs } = await supabase
+      .from('bodega_cuadrilla_actividades')
+      .select('actividad_id')
+      .eq('cuadrilla_id', cuadrillaId);
+    const actIds = ((cuadActs as any[]) ?? []).map(r => r.actividad_id);
+    if (actIds.length === 0) { setMaterialesCuadrilla(new Set()); return; }
+
+    // Paso 2: material_ids que tienen esas actividades
+    const { data: matActs } = await supabase
+      .from('bodega_material_actividades')
+      .select('material_id')
+      .in('actividad_id', actIds);
+    const matIds = new Set(((matActs as any[]) ?? []).map(r => r.material_id));
+    setMaterialesCuadrilla(matIds);
+  };
+
   // ── filtrado ───────────────────────────────────────────────────────────
   const materialesFiltrados = useMemo(() => {
     let lista = materiales;
+    if (materialesCuadrilla) lista = lista.filter(m => materialesCuadrilla.has(m.material_id));
     if (busqueda.trim()) {
       const q = busqueda.toLowerCase();
       lista = lista.filter(m => m.nombre.toLowerCase().includes(q));
     }
     if (soloBajoStock) lista = lista.filter(m => m.bajo_stock);
     return lista.slice(0, 80);
-  }, [materiales, busqueda, soloBajoStock]);
+  }, [materiales, busqueda, soloBajoStock, materialesCuadrilla]);
 
   const totalBajoStock = useMemo(() => materiales.filter(m => m.bajo_stock).length, [materiales]);
 
@@ -186,13 +264,15 @@ const StockBodega: React.FC = () => {
     setFichaAbierta(true);
     setFichaCargando(true);
     setAjusteCantidad(''); setAjusteMotivo('');
-    const [ocs, entregas, actividades] = await Promise.all([
+    const [ocs, entregas, actividades, prestamosData] = await Promise.all([
       supabase.rpc('bodega_material_ocs', { p_material_id: m.material_id }),
       supabase.rpc('bodega_material_entregas', { p_material_id: m.material_id }),
       supabase.from('bodega_material_actividades').select('bodega_actividades ( nombre )').eq('material_id', m.material_id),
+      supabase.rpc('bodega_material_prestamos', { p_material_id: m.material_id }),
     ]);
     setFichaOcs((ocs.data as OcRow[] | null) ?? []);
     setFichaEntregas((entregas.data as EntregaRow[] | null) ?? []);
+    setFichaPrestamos((prestamosData.data as PrestamoRow[] | null) ?? []);
     const nombresActividades = ((actividades.data as any[]) ?? [])
       .map(r => r.bodega_actividades?.nombre)
       .filter(Boolean)
@@ -247,10 +327,24 @@ const StockBodega: React.FC = () => {
 
         <div style={{ padding: 16, paddingBottom: 40 }}>
 
-          {proyecto && <div style={{ fontSize: 13, color: textSecondary, marginBottom: 12 }}>{proyecto.nombre}</div>}
+          {proyecto && (
+            <div style={{ fontSize: 13, color: textSecondary, marginBottom: 12 }}>{proyecto.nombre}</div>
+          )}
 
           {/* Búsqueda y filtro */}
           <div style={sCard}>
+            {cuadrillas.length > 0 && (
+              <select
+                style={{ ...sInput, marginBottom: 8 }}
+                value={cuadrillaSeleccionada}
+                onChange={e => filtrarPorCuadrilla(e.target.value)}
+              >
+                <option value="">Todas las cuadrillas</option>
+                {cuadrillas.map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            )}
             <input style={sInput} placeholder="Buscar material..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: textSecondary, marginTop: 10, cursor: 'pointer' }}>
               <input type="checkbox" checked={soloBajoStock} onChange={e => setSoloBajoStock(e.target.checked)} />
@@ -282,16 +376,14 @@ const StockBodega: React.FC = () => {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, color: textPrimary }}>{m.nombre}</div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
-                    <span style={{ fontSize: 18, fontWeight: 600, color: m.bajo_stock ? rojo : textPrimary }}>{m.stock_actual}</span>
-                    <span style={{ fontSize: 12, color: textMuted }}>{m.unidad ?? 'sin unidad'}</span>
+                    <span style={{ fontSize: 18, fontWeight: 600, color: m.bajo_stock ? rojo : textPrimary }}>{convertirADisplay(m.stock_actual, m)}</span>
+                    <span style={{ fontSize: 12, color: textMuted }}>{mostrarUnidad(m) ?? 'sin unidad'}</span>
                   </div>
                   <div style={{ fontSize: 11, color: textMuted, marginTop: 3 }}>
-                    recibido {m.recibido_ayni}
-                    {m.factor_conversion !== 1 && m.unidad_compra && (
-                      <span> ({m.recibido_compra} {m.unidad_compra})</span>
-                    )}
-                    {m.entregado > 0 ? ` · entregado ${m.entregado}` : ''}
-                    {m.ajuste !== 0 ? ` · ajuste ${m.ajuste > 0 ? '+' : ''}${m.ajuste}` : ''}
+                    recibido {convertirADisplay(m.recibido_ayni, m)} {mostrarUnidad(m)}
+                    {m.entregado > 0 ? ` · entregado ${convertirADisplay(m.entregado, m)}` : ''}
+                    {m.prestado_neto > 0 ? ` · prestado ${convertirADisplay(m.prestado_neto, m)}` : ''}
+                    {m.ajuste !== 0 ? ` · ajuste ${m.ajuste > 0 ? '+' : ''}${convertirADisplay(m.ajuste, m)}` : ''}
                   </div>
                   {m.bajo_stock && <div style={{ fontSize: 11, color: rojo, marginTop: 2, fontWeight: 500 }}>Stock bajo el mínimo</div>}
                 </div>
@@ -327,6 +419,21 @@ const StockBodega: React.FC = () => {
                 {fichaMaterial.familia}{fichaMaterial.unidad ? ` · ${fichaMaterial.unidad}` : ''}
               </div>
 
+              {/* Toggle de unidad por material (solo si tiene conversión) */}
+              {fichaMaterial.factor_conversion !== 1 && fichaMaterial.unidad_compra && (
+                <button
+                  onClick={() => toggleUnidadMaterial(fichaMaterial.material_id)}
+                  style={{
+                    marginTop: 8, fontSize: 12, padding: '6px 14px', borderRadius: 10, cursor: 'pointer',
+                    border: `0.5px solid ${azulBord}`, background: azulBg, color: azul, fontWeight: 600,
+                  }}
+                >
+                  {getUnidadDisplay(fichaMaterial.material_id) === 'granular'
+                    ? `Cambiar a ${fichaMaterial.unidad_compra}`
+                    : `Cambiar a ${fichaMaterial.unidad}`}
+                </button>
+              )}
+
               {/* Actividades donde se usa este material */}
               {fichaActividades.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -344,21 +451,26 @@ const StockBodega: React.FC = () => {
               {/* Números clave */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '16px 0' }}>
                 <div style={{ background: azulBg, borderRadius: 12, padding: '12px', border: `0.5px solid ${azulBord}` }}>
-                  <div style={{ fontSize: 11, color: textSecondary }}>Recibido AYNI</div>
+                  <div style={{ fontSize: 11, color: textSecondary }}>Recibido{fichaMaterial.fuente === 'ayni' ? ' AYNI' : ''}</div>
                   <div style={{ fontSize: 22, fontWeight: 600, color: azul }}>
-                    {fichaMaterial.recibido_ayni} <span style={{ fontSize: 13, fontWeight: 400 }}>{fichaMaterial.unidad}</span>
+                    {convertirADisplay(fichaMaterial.recibido_ayni, fichaMaterial)} <span style={{ fontSize: 13, fontWeight: 400 }}>{mostrarUnidad(fichaMaterial)}</span>
                   </div>
                   {fichaMaterial.factor_conversion !== 1 && fichaMaterial.unidad_compra && (
                     <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>
-                      = {fichaMaterial.recibido_compra} {fichaMaterial.unidad_compra}
+                      = {getUnidadDisplay(fichaMaterial.material_id) === 'compra' ? fichaMaterial.recibido_ayni + ' ' + fichaMaterial.unidad : fichaMaterial.recibido_compra + ' ' + fichaMaterial.unidad_compra}
                     </div>
                   )}
                 </div>
                 <div style={{ background: verdeBg, borderRadius: 12, padding: '12px', border: `0.5px solid ${verdeBord}` }}>
                   <div style={{ fontSize: 11, color: textSecondary }}>Stock en obra</div>
                   <div style={{ fontSize: 22, fontWeight: 600, color: fichaMaterial.bajo_stock ? rojo : verde }}>
-                    {fichaMaterial.stock_actual} <span style={{ fontSize: 13, fontWeight: 400 }}>{fichaMaterial.unidad}</span>
+                    {convertirADisplay(fichaMaterial.stock_actual, fichaMaterial)} <span style={{ fontSize: 13, fontWeight: 400 }}>{mostrarUnidad(fichaMaterial)}</span>
                   </div>
+                  {fichaMaterial.prestado_neto > 0 && (
+                    <div style={{ fontSize: 11, color: amarillo, marginTop: 2 }}>
+                      prestado: {convertirADisplay(fichaMaterial.prestado_neto, fichaMaterial)}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -444,6 +556,35 @@ const StockBodega: React.FC = () => {
                       </span>
                     </div>
                   ))}
+
+                  {/* Préstamos entre obras */}
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: `0.5px solid ${border}` }}>
+                  <div style={{ fontSize: 11, color: textMuted, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600, marginBottom: 8 }}>
+                    Préstamos entre obras
+                  </div>
+                  {fichaPrestamos.length === 0 && <div style={{ fontSize: 13, color: textMuted, marginBottom: 14 }}>Sin préstamos registrados.</div>}
+                  {fichaPrestamos.map((p, i) => {
+                    const pendiente = p.cantidad_prestada - p.cantidad_devuelta;
+                    const uni = p.unidad_registro ?? fichaMaterial.unidad ?? '';
+                    const estColor = p.estado === 'devuelto' ? verde : p.estado === 'devuelto_parcial' ? amarillo : rojo;
+                    return (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < fichaPrestamos.length - 1 ? `0.5px solid ${border}` : 'none' }}>
+                        <div>
+                          <div style={{ fontSize: 13, color: textPrimary }}>Guía {p.numero_guia} → {p.obra_destino}</div>
+                          <div style={{ fontSize: 11, color: textMuted }}>{p.fecha_prestamo}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: 13, color: estColor, fontWeight: 600 }}>
+                            {p.estado === 'devuelto' ? 'Devuelto' : `−${pendiente} ${uni}`}
+                          </span>
+                          {p.cantidad_devuelta > 0 && p.estado !== 'devuelto' && (
+                            <div style={{ fontSize: 11, color: verde }}>dev: {p.cantidad_devuelta}</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  </div>
 
                   {/* Ajuste manual opcional */}
                   {puedeAjustar && (

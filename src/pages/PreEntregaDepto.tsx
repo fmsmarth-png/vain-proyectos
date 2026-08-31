@@ -16,7 +16,7 @@ import { comprimirImagen } from '../utils/comprimirImagen';
 import FotoAnnotator from '../components/FotoAnnotator';
 import { generarActaPreEntrega, ObsActa } from '../utils/pdfActaPreEntrega';
 import { nombreSemanaActual } from '../utils/semanasVain';
-import BottomNavBar from '../components/BottomNavBar';
+import { encolarFotoPreEntregaPendiente, flushFotosPreEntrega } from '../utils/preEntregaFotosQueue';
 
 interface FotoUploaderProps {
   preview: string | null;
@@ -126,7 +126,6 @@ const PreEntregaDepto: React.FC = () => {
   const dibujandoRef   = useRef(false);
   const mountedRef     = useRef(false);
   const inputFotoRef   = useRef<HTMLInputElement | null>(null);
-  const fotoWorkerRef  = useRef(false); // evita que el worker de subida corra dos veces a la vez
 
   const resolveNavState = () => {
     if (location.state?.depto) return location.state;
@@ -142,15 +141,15 @@ const PreEntregaDepto: React.FC = () => {
   const [proyectoCompleto, setProyectoCompleto] = useState<any>(proyectoNav);
   const proyecto = proyectoCompleto; // Usar el proyecto completo
 
-  const bg            = dark ? '#0B1220' : '#f0f4f8';
-  const card          = dark ? '#16233B'  : '#ffffff';
-  const border        = dark ? '#243550'  : '#e2e8f0';
+  const bg            = dark ? '#000000' : '#f0f4f8';
+  const card          = dark ? '#0e0e0e'  : '#ffffff';
+  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#5D728F' : '#94a3b8';
-  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
-  const inputBg       = dark ? '#1B2C48' : '#ffffff';
-  const inputBorder   = dark ? '#243550' : '#cbd5e1';
+  const textMuted     = dark ? '#444444' : '#94a3b8';
+  const toolbar       = dark ? '#000000' : '#1e3a5f';
+  const inputBg       = dark ? '#111111' : '#ffffff';
+  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
 
   const [ambientes, setAmbientes] = useState<any[]>([]);
   const [partidas, setPartidas]   = useState<any[]>([]);
@@ -425,96 +424,30 @@ const PreEntregaDepto: React.FC = () => {
 
   // ────────────────────────────────────────────────────────────────────────
   // Subida de fotos en SEGUNDO PLANO (no bloquea el registro de la obs).
-  // La foto se persiste en localStorage → sobrevive a un cierre de app y se
-  // reintenta al volver a entrar a la pantalla. La obs se inserta al toque con
-  // foto_url=null; cuando la imagen sube, se hace UPDATE de foto_url por id.
+  // La foto se persiste en IndexedDB (ver preEntregaFotosQueue.ts) → sobrevive
+  // a un cierre de app y se reintenta sola, tanto al volver a esta pantalla
+  // como desde el ciclo global de sincronización (OfflineContext), aunque el
+  // inspector ya haya avanzado a otro departamento. La obs se inserta al
+  // toque con foto_url=null; cuando la imagen sube, se hace UPDATE por id.
   // ────────────────────────────────────────────────────────────────────────
-  const FOTOS_PEND_KEY = 'pre_entrega_fotos_pendientes';
-
-  const blobToDataURL = (blob: Blob): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onloadend = () => resolve(r.result as string);
-      r.onerror = reject;
-      r.readAsDataURL(blob);
-    });
-
-  const leerFotosPendientes = (): any[] => {
-    try { return JSON.parse(localStorage.getItem(FOTOS_PEND_KEY) || '[]'); } catch { return []; }
-  };
-  const guardarFotosPendientes = (arr: any[]) => {
-    try { localStorage.setItem(FOTOS_PEND_KEY, JSON.stringify(arr)); } catch {}
-  };
-
-  // Sube UNA foto (subida + update de foto_url por id). Devuelve true si lo logró.
-  const subirUnaFoto = async (item: any): Promise<boolean> => {
-    try {
-      const blob = await (await fetch(item.base64)).blob();
-      const fileName = `pre-entrega/${item.proyectoId}/${item.deptoId}/${item.obsId}.jpg`;
-      const { error: upErr } = await supabase.storage
-        .from('fotos-registros')
-        .upload(fileName, blob, { upsert: true, contentType: 'image/jpeg' });
-      if (upErr) throw upErr;
-      const { data: { publicUrl } } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
-      const { error: updErr } = await supabase
-        .from('observacionesinformepv')
-        .update({ foto_url: publicUrl })
-        .eq('id', item.obsId);
-      if (updErr) throw updErr;
-      return true;
-    } catch (e) {
-      console.warn('[PreEntrega] Foto no subió, se reintentará:', e);
-      return false;
-    }
-  };
-
-  // WORKER: procesa la cola de fotos DE A UNA (en serie). Con red lenta, subir
-  // en paralelo es contraproducente (compiten por el ancho de banda); en serie
-  // cada foto usa todo el ancho y una falla no arrastra a las demás. Un flag
-  // impide que el worker corra dos veces a la vez aunque se registren varias obs
-  // seguidas. Las que fallan se reintentan con backoff (2s, 4s, 8s... máx 30s).
-  const procesarColaFotos = async () => {
-    if (fotoWorkerRef.current) return;      // ya hay un worker corriendo
-    if (!online) return;
-    fotoWorkerRef.current = true;
-    try {
-      let fallosSeguidos = 0;
-      while (online) {
-        const cola = leerFotosPendientes();
-        if (cola.length === 0) break;
-        const item = cola[0];
-        const ok = await subirUnaFoto(item);
-        if (ok) {
-          guardarFotosPendientes(leerFotosPendientes().filter((f: any) => f.obsId !== item.obsId));
-          fallosSeguidos = 0;
-        } else {
-          fallosSeguidos++;
-          if (fallosSeguidos >= 5) break; // cortar: se reintenta al reentrar o al recuperar señal
-          const delay = Math.min(2000 * Math.pow(2, fallosSeguidos - 1), 30000);
-          await new Promise(res => setTimeout(res, delay));
-        }
-      }
-    } finally {
-      fotoWorkerRef.current = false;
-    }
-  };
 
   // Encola la foto (persistida) y despierta al worker sin bloquear.
   const encolarFotoPendiente = async (obsId: string, fotoBlob: File | Blob) => {
     try {
-      const base64 = await blobToDataURL(fotoBlob);
-      const arr = leerFotosPendientes();
-      arr.push({ obsId, proyectoId: proyecto.id, deptoId: depto.id, base64 });
-      guardarFotosPendientes(arr);
-      void procesarColaFotos();
+      const blob = fotoBlob instanceof Blob ? fotoBlob : new Blob([fotoBlob]);
+      await encolarFotoPreEntregaPendiente(obsId, proyecto.id, depto.id, blob);
+      void flushFotosPreEntrega(() => online);
     } catch (e) {
+      // Ya no se traga en silencio: si falla el guardado local (disco lleno,
+      // etc.) el inspector ve el aviso en vez de perder la foto sin saberlo.
       console.warn('[PreEntrega] No se pudo encolar la foto:', e);
+      setError('No se pudo guardar la foto de esta observación en el dispositivo. Revisa el espacio disponible.');
     }
   };
 
   // Reintenta la cola (al entrar a la pantalla / recuperar señal).
   const reintentarFotosPendientes = () => {
-    void procesarColaFotos();
+    void flushFotosPreEntrega(() => online);
   };
 
   const guardar = async () => {
@@ -726,41 +659,25 @@ const PreEntregaDepto: React.FC = () => {
       const fileName = `Acta_PreEntrega_Depto_${depto.numero}_${Date.now()}.pdf`;
       await guardarPdf(pdf, fileName, depto.numero);
 
-      // La firma ya quedó embebida en el PDF (se generó arriba con
-      // firmaDataUrl), así que el propietario se lleva su acta firmada aunque
-      // esto falle. Pero si esta subida falla, `firma_propietario_url` queda
-      // en null en la base de datos mientras `fecha_firma` se guarda igual,
-      // como si todo hubiera salido bien — cualquiera que revise el registro
-      // después vería "firmado" sin poder ver la firma. Por eso reintentamos
-      // un par de veces antes de darnos por vencidos, y si aun así falla,
-      // avisamos explícitamente en vez de guardar silenciosamente.
       let firmaUrl: string | null = null;
-      let firmaFallo = false;
       try {
         const firmaBlob = await fetch(firmaDataUrl).then(r => r.blob());
         if (firmaBlob.size > 0) {
           const firmaFileName = `firma_depto_${depto.id}_${Date.now()}.png`;
           const firmaFile = new File([firmaBlob], firmaFileName, { type: 'image/png' });
-
-          let subida = false;
-          for (let intento = 0; intento < 3 && !subida; intento++) {
-            if (intento > 0) await new Promise(res => setTimeout(res, 1000 * intento));
-            const { error: fErr } = await supabase.storage
+          
+          const { error: fErr } = await supabase.storage
+            .from('fotos-registros')
+            .upload(`firmas/${firmaFileName}`, firmaFile, { upsert: true });
+          
+          if (!fErr) {
+            const { data } = supabase.storage
               .from('fotos-registros')
-              .upload(`firmas/${firmaFileName}`, firmaFile, { upsert: true });
-            if (!fErr) {
-              const { data } = supabase.storage
-                .from('fotos-registros')
-                .getPublicUrl(`firmas/${firmaFileName}`);
-              firmaUrl = data.publicUrl;
-              subida = true;
-            }
+              .getPublicUrl(`firmas/${firmaFileName}`);
+            firmaUrl = data.publicUrl;
           }
-          if (!subida) firmaFallo = true;
         }
-      } catch {
-        firmaFallo = true;
-      }
+      } catch {}
 
       // El RUT va solo a acta_propietario_rut. Antes también se escribía en
       // propietario_contacto, que es donde vive el teléfono, y lo destruía.
@@ -779,22 +696,12 @@ const PreEntregaDepto: React.FC = () => {
 
       try { localStorage.removeItem(datosKey(depto.id)); } catch {}
 
-      if (firmaFallo) {
-        // El acta en PDF ya se generó y descargó/compartió con la firma
-        // incluida, así que no bloqueamos eso. Pero avisamos que el enlace de
-        // la firma no quedó guardado en el sistema, para que alguien lo
-        // resuelva manualmente (volviendo a generar el acta con conexión).
-        // Mantenemos el formulario visible (no la pantalla de éxito) para
-        // que el aviso se vea, y no cerramos el modal ni salimos solos.
-        setErrorActa('El acta se generó y descargó correctamente, pero no se pudo guardar la firma en el sistema (revisa tu conexión). El PDF ya tiene la firma incluida.');
-      } else {
-        setActaGenerada(true);
-        setTimeout(() => {
-          setModalTerminar(false);
-          setActaGenerada(false);
-          salir();
-        }, 1800);
-      }
+      setActaGenerada(true);
+      setTimeout(() => { 
+        setModalTerminar(false); 
+        setActaGenerada(false); 
+        salir(); 
+      }, 1800);
 
     } catch (e: any) {
       setErrorActa('Error: ' + e.message);
@@ -806,13 +713,13 @@ const PreEntregaDepto: React.FC = () => {
   const selectStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
   const taStyle     = { width: '100%', height: 80, borderRadius: 10, padding: '10px 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, resize: 'none' as any, marginBottom: 12 };
   const inputStyle  = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
-  const sepLine     = dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
+  const sepLine     = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   if (loading && ambientes.length === 0) return (
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
           <IonTitle style={{ fontSize: 15 }}>Cargando...</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -826,7 +733,7 @@ const PreEntregaDepto: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
           <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>ACTA · TORRE {torre?.nombre} · {depto?.numero}</IonTitle>
           <div slot="end" style={{ paddingRight: 14 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
@@ -835,10 +742,10 @@ const PreEntregaDepto: React.FC = () => {
       </IonHeader>
 
       <IonContent style={{ '--background': bg }}>
-        <div style={{ padding: '16px 16px 100px' }}>
+        <div style={{ padding: 16 }}>
 
-          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2E4468' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
               {depto?.numero}
             </div>
             <div style={{ flex: 1 }}>
@@ -875,7 +782,7 @@ const PreEntregaDepto: React.FC = () => {
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Nueva observación</div>
           <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
-          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
             <label style={labelStyle}>ambiente *</label>
             <select value={ambienteId} onChange={e => setAmbienteId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar ambiente...</option>
@@ -907,7 +814,7 @@ const PreEntregaDepto: React.FC = () => {
 
             <button onClick={guardar} disabled={guardando} style={{
               width: '100%', height: 48, borderRadius: 12,
-              background: guardando ? (dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #243550, #2E4468)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+              background: guardando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
               border: guardando ? `0.5px solid ${border}` : 'none',
               color: guardando ? textMuted : '#fff',
               fontSize: 15, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer'
@@ -959,7 +866,7 @@ const PreEntregaDepto: React.FC = () => {
 
                 <button onClick={guardarDatosPropietario} disabled={guardandoDatos} style={{
                   width: '100%', height: 46, borderRadius: 12, background: 'transparent',
-                  border: `0.5px solid ${dark ? '#2E4468' : '#cbd5e1'}`,
+                  border: `0.5px solid ${dark ? '#2a2a2a' : '#cbd5e1'}`,
                   color: guardandoDatos ? textMuted : (dark ? '#93c5fd' : '#1e3a5f'),
                   fontSize: 14, fontWeight: 600, cursor: guardandoDatos ? 'not-allowed' : 'pointer', marginBottom: 8
                 }}>
@@ -1002,7 +909,7 @@ const PreEntregaDepto: React.FC = () => {
 
                 <button onClick={generarActa} disabled={generando} style={{
                   width: '100%', height: 48, borderRadius: 12,
-                  background: generando ? (dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+                  background: generando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
                   border: 'none', color: generando ? textMuted : '#fff',
                   fontSize: 14, fontWeight: 700, cursor: generando ? 'not-allowed' : 'pointer'
                 }}>
@@ -1025,12 +932,6 @@ const PreEntregaDepto: React.FC = () => {
           onCancel={() => { URL.revokeObjectURL(fotoParaAnotar); setFotoParaAnotar(null); }}
         />
       )}
-
-      <BottomNavBar
-        activeTab="inicio"
-        proyecto={proyecto}
-        proyectoNombre={proyecto?.nombre || ''}
-      />
 
     </IonPage>
   );

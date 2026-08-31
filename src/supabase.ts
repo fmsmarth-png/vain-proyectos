@@ -55,5 +55,21 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     // Nosotros controlamos el canje del token en la pantalla de restablecer.
     detectSessionInUrl: false,
+    // ------------------------------------------------------------------------
+    // FIX (ago 2026): deadlock de getSession() con React 19 StrictMode.
+    // Por defecto GoTrue usa el Navigator LockManager (navigator.locks) para
+    // serializar el acceso a la sesión. En dev, StrictMode monta→desmonta→monta
+    // los efectos muy rápido; el primer getSession() adquiere el lock y queda
+    // abortado a mitad por el desmontaje sin soltarlo, y el segundo getSession()
+    // espera ese lock para siempre → nunca resuelve → "cargando permisos" infinito
+    // y pantalla en blanco.
+    //
+    // Este lock no-op ejecuta la función directamente sin adquirir ningún lock
+    // del navegador. Es seguro en una SPA de un solo tab como esta (no hay varias
+    // pestañas compitiendo por refrescar el token al mismo tiempo).
+    // ------------------------------------------------------------------------
+    lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<any>) => {
+      return await fn();
+    },
   },
 });

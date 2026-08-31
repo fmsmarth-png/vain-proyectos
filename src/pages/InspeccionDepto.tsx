@@ -99,14 +99,14 @@ const InspeccionDepto: React.FC = () => {
   const torre    = navState?.torre    ?? null;
   const proyecto = navState?.proyecto ?? null;
 
-  const bg            = dark ? '#0B1220' : '#f0f4f8';
-  const border        = dark ? '#243550'  : '#e2e8f0';
+  const bg            = dark ? '#000000' : '#f0f4f8';
+  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#5D728F' : '#94a3b8';
-  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
-  const inputBg       = dark ? '#1B2C48' : '#ffffff';
-  const inputBorder   = dark ? '#243550' : '#cbd5e1';
+  const textMuted     = dark ? '#444444' : '#94a3b8';
+  const toolbar       = dark ? '#000000' : '#1e3a5f';
+  const inputBg       = dark ? '#111111' : '#ffffff';
+  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
 
   const [ambientes, setAmbientes]                     = useState<any[]>([]);
   const [partidas, setPartidas]                       = useState<any[]>([]);
@@ -193,14 +193,7 @@ const InspeccionDepto: React.FC = () => {
           setCausasTerceros(causas.data.filter(c => c.tipo === 'tercero').map(c => c.nombre));
           setNombresTerceros(causas.data.filter(c => c.tipo === 'nombre_tercero').map(c => c.nombre));
         }
-      } catch {
-        // Si falla y no había nada en cache, la pantalla quedaría vacía sin
-        // explicación (el usuario vería los selectores de ambiente/partida
-        // sin opciones y pensaría que no hay datos). Avisamos en ese caso.
-        if (ambCache.length === 0 && partCache.length === 0) {
-          setError('No se pudieron cargar los datos. Revisa tu conexión y vuelve a intentar.');
-        }
-      }
+      } catch {}
       try { const { count } = await supabase.from('registros').select('id', { count: 'exact' }).eq('departamento_id', deptoActual.id); if (count !== null) setRegistrosDepto(count); } catch {}
       try { const { data: { user } } = await supabase.auth.getUser(); if (user?.id) { userIdRef.current = user.id; localStorage.setItem('detalles_user_id', user.id); } } catch {}
     }
@@ -249,11 +242,11 @@ const InspeccionDepto: React.FC = () => {
     const { error: uploadError } = await supabase.storage
       .from('fotos-registros')
       .upload(fileName, file, { contentType: 'image/jpeg' });
-    // Importante: si falla la subida, lanzamos el error en vez de devolver null.
-    // Antes, devolver null hacía que el registro se guardara igual pero SIN foto,
-    // mostrando "Guardado ✓" y perdiendo la foto para siempre. Ahora el error
-    // propaga al catch de guardar(), que encola el registro (con foto) en la
-    // cola offline para reintentar más tarde, en vez de descartar la foto.
+    // Antes: si fallaba la subida (señal débil, timeout) esto devolvía null
+    // y el código seguía insertando la observación SIN foto — de forma
+    // silenciosa, sin aviso y sin reintento. Ahora se lanza el error para
+    // que el "guardar" de más abajo trate todo el registro (texto + foto)
+    // como una falla y lo mande completo a la cola offline, que sí reintenta.
     if (uploadError) throw new Error('No se pudo subir la foto: ' + uploadError.message);
     const { data: urlData } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
     return urlData.publicUrl;
@@ -305,7 +298,7 @@ const InspeccionDepto: React.FC = () => {
   const selectStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
   const taStyle     = { width: '100%', height: 80, borderRadius: 10, padding: '10px 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, resize: 'none' as any, marginBottom: 12 };
 
-  const sepLine    = dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
+  const sepLine    = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
   const etapaBg    = dark ? 'rgba(96,165,250,0.06)' : '#eff6ff';
   const etapaBord  = dark ? 'rgba(96,165,250,0.2)'  : '#bfdbfe';
   const etapaDot   = dark ? '#60a5fa' : '#3b82f6';
@@ -317,7 +310,7 @@ const InspeccionDepto: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={salirAInspeccion}>← Volver</IonButton>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salirAInspeccion}>← Volver</IonButton>
           <IonTitle style={{ fontSize: 15 }}>Cargando...</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -331,7 +324,7 @@ const InspeccionDepto: React.FC = () => {
     <IonPage id="main-content">
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }} onClick={salirAInspeccion}>← Volver</IonButton>
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salirAInspeccion}>← Volver</IonButton>
           <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>TORRE {torre?.nombre} · {depto?.numero}</IonTitle>
           <div slot="end" style={{ paddingRight: 14 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
@@ -343,8 +336,8 @@ const InspeccionDepto: React.FC = () => {
         <div style={{ padding: 16 }}>
 
           {/* Header depto */}
-          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2E4468' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
               {depto?.numero}
             </div>
             <div style={{ flex: 1 }}>
@@ -392,7 +385,7 @@ const InspeccionDepto: React.FC = () => {
           <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
           {/* Formulario */}
-          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
             <label style={labelStyle}>ambiente *</label>
             <select value={ambienteId} onChange={e => setAmbienteId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar ambiente...</option>
@@ -430,7 +423,7 @@ const InspeccionDepto: React.FC = () => {
             )}
 
             {causaSeleccionada && (
-              <div style={{ background: dark ? '#16233B' : '#f8fafc', border: `0.5px solid ${border}`, borderRadius: 10, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: textSecondary }}>
+              <div style={{ background: dark ? '#111' : '#f8fafc', border: `0.5px solid ${border}`, borderRadius: 10, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: textSecondary }}>
                 <span style={{ color: textMuted, fontSize: 9, textTransform: 'uppercase', letterSpacing: '1px' }}>CAUSA: </span>
                 {causaFinal || <span style={{ color: textMuted, fontStyle: 'italic' }}>Selecciona la cuadrilla</span>}
               </div>
@@ -452,7 +445,7 @@ const InspeccionDepto: React.FC = () => {
 
             <button onClick={guardar} disabled={guardando} style={{
               width: '100%', height: 48, borderRadius: 12,
-              background: guardando ? (dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #243550, #2E4468)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+              background: guardando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
               border: guardando ? `0.5px solid ${border}` : 'none',
               color: guardando ? textMuted : '#fff',
               fontSize: 15, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer'

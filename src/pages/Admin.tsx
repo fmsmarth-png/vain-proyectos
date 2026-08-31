@@ -947,6 +947,43 @@ const Admin: React.FC = () => {
                       </div>
                     </div>
 
+                    {/*
+                      Profesional titular de post venta del proyecto. Cuando el
+                      rol maestro_postventa cierra una visita (fotos + receptor +
+                      firma), el informe y la papeleta quedan atribuidos a este
+                      usuario, no a quien tomó las fotos. Sin esto configurado,
+                      maestro_postventa no puede finalizar ninguna visita del
+                      proyecto (ver PostVenta.tsx -> irAFirma()).
+                    */}
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={labelStyle}>profesional titular (post venta)</label>
+                      <select
+                        value={p.titular_postventa_id ?? ''}
+                        onChange={async e => {
+                          const val = e.target.value || null;
+                          await supabase.from('proyectos').update({ titular_postventa_id: val }).eq('id', p.id);
+                          cargar();
+                        }}
+                        style={{ ...inputStyle, marginBottom: 0, height: 36, fontSize: 12 }}
+                      >
+                        <option value="">Sin asignar</option>
+                        {usuarios
+                          .filter(u =>
+                            Array.isArray(u.usuario_proyectos) &&
+                            u.usuario_proyectos.some((up: any) => up.proyecto_id === p.id) &&
+                            u.rol !== 'maestro_postventa'
+                          )
+                          .map(u => (
+                            <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>
+                          ))}
+                      </select>
+                      {!p.titular_postventa_id && p.etapa === 'pre_entrega_postventa' && (
+                        <div style={{ fontSize: 10, color: dark ? '#fbbf24' : '#92400e', marginTop: 4 }}>
+                          ⚠️ Sin titular, el rol Maestro Post Venta no podrá cerrar visitas en este proyecto.
+                        </div>
+                      )}
+                    </div>
+
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
                         onClick={() => abrirActaProyecto(p)}

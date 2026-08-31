@@ -1,22 +1,11 @@
-// Build 'legacy' de pdfjs-dist (no la raíz del paquete): desde pdfjs-dist
-// 4.5 la build moderna usa Promise.withResolvers(), que no existe en Safari
-// / iOS anterior a 17.4 — y desde 5.5 además Promise.try, que exige una
-// versión todavía más nueva (ver mozilla/pdf.js#20899). En el WebView de
-// Capacitor eso revienta como "undefined is not a function" al leer una
-// papeleta en iPhones no last-gen. La build 'legacy/' es la variante que
-// el propio pdfjs-dist mantiene para estos casos — mismo paquete, sin bajar
-// de versión ni perder fixes, solo evita depender de esas APIs nuevas.
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-// El worker se importa con ?url para que Vite lo empaquete dentro de la app
-// (funciona sin conexión) y lo sirva con el Content-Type correcto en todas
-// las plataformas. La ruta estática a un .mjs suelto ('/pdf.worker.min.mjs')
-// fallaba solo en el WebView de iOS, porque Capacitor no le entrega el MIME
-// de módulo que iOS exige — por eso el PDF se leía en Android/localhost pero
-// no en iOS. Al venir del bundler, la versión del worker siempre coincide
-// con la de la librería, evitando además desajustes de versión.
-import PdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
+// pdfjs-dist se carga DINÁMICAMENTE dentro de extraerPapeletaPdf(), no aquí
+// arriba a nivel de módulo. Motivo: ProtectedRoutes importa PostVenta y
+// CalendarioPostVenta de forma estática, y esos importan este helper. Si
+// pdfjs se evalúa a nivel de módulo, se ejecuta al ARRANQUE de la app
+// (antes de que cualquier pantalla se monte), congelando Android y a veces
+// localhost. Al cargarlo solo cuando alguien realmente sube un PDF, la app
+// arranca sin tocar pdfjs. Build 'legacy' por compatibilidad con iOS < 17.4
+// (ver mozilla/pdf.js#20899).
 
 /**
  * Hay dos plantillas de papeleta distintas en circulación, con geometría y
@@ -118,6 +107,12 @@ function leerArchivoComoArrayBuffer(file: File): Promise<ArrayBuffer> {
  * detectando automáticamente cuál de las dos plantillas conocidas es.
  */
 export async function extraerPapeletaPdf(file: File): Promise<PapeletaPdf> {
+  // Carga pdfjs SOLO cuando se usa (no al arranque de la app).
+  // Build 'legacy' para iOS < 17.4; worker con ?url para Vite (offline + MIME correcto).
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const PdfWorker = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
+
   const buffer = await leerArchivoComoArrayBuffer(file);
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
 

@@ -45,32 +45,88 @@ const Home: React.FC = () => {
   const border        = '#222222';
 
   const login = async () => {
-    if (!email.trim() || !password.trim()) { setError('Ingresa tu correo y contraseña'); return; }
-    setLoading(true); setError('');
+    if (!email.trim() || !password.trim()) { 
+      setError('Ingresa tu correo y contraseña'); 
+      return; 
+    }
+    
+    setLoading(true); 
+    setError('');
     let lastError = '';
+    
     for (let intento = 0; intento < 3; intento++) {
       try {
-        const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: password.trim() });
-        if (error) {
-          lastError = error.message;
-          if (error.message.includes('Invalid login') || error.message.includes('invalid')) break;
-          await new Promise(r => setTimeout(r, 1000));
-          continue;
-        }
-        if (data.session) {
-          setSincronizando(true);
-          await sincronizarCache();
-          setSincronizando(false);
-          history.push('/dashboard');
-          setLoading(false);
-          return;
+        console.log(`[Login] Intento ${intento + 1}/3...`);
+        
+        // Agregar timeout explícito para fetch
+        const signal = AbortSignal.timeout(10000);
+        
+        try {
+          const { data, error } = await supabase.auth.signInWithPassword(
+            { 
+              email: email.trim(), 
+              password: password.trim() 
+            }
+          );
+          
+          if (error) {
+            lastError = error.message;
+            console.error(`[Login] Error auth intento ${intento + 1}:`, error.message);
+            
+            // No reintentar si es error de credenciales (no es problema de conexión)
+            if (error.message.includes('Invalid login') || 
+                error.message.includes('invalid') ||
+                error.message.includes('Email not confirmed')) {
+              setError('Email o contraseña incorrectos');
+              break;
+            }
+            
+            // Si hay error de conexión, reintentar con delay
+            if (intento < 2) {
+              const delay = 1500 * (intento + 1); // Backoff: 1.5s, 3s
+              console.log(`[Login] Reintentando en ${delay}ms...`);
+              await new Promise(r => setTimeout(r, delay));
+              continue;
+            }
+          }
+          
+          if (data.session) {
+            setSincronizando(true);
+            try {
+              await sincronizarCache();
+            } catch (syncErr) {
+              console.warn('[Login] Error sincronizando cache:', syncErr);
+              // No bloquear si falla el cache (puede ser offline)
+            }
+            setSincronizando(false);
+            history.push('/dashboard');
+            setLoading(false);
+            return;
+          }
+        } catch (fetchErr: any) {
+          lastError = fetchErr.message || 'Error de conexión';
+          
+          console.error(`[Login] Error fetch intento ${intento + 1}:`, {
+            tipo: fetchErr.name,
+            mensaje: fetchErr.message,
+            code: (fetchErr as any)?.code
+          });
+          
+          // Reintentar si hay error de conexión
+          if (intento < 2) {
+            const delay = 1500 * (intento + 1);
+            console.log(`[Login] Error conexión, reintentando en ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
         }
       } catch (e: any) {
-        lastError = e.message;
-        await new Promise(r => setTimeout(r, 1000));
+        console.error('[Login] Error inesperado:', e);
+        lastError = e.message || 'Error inesperado';
       }
     }
-    setError(lastError || 'Error al iniciar sesión');
+    
+    setError(lastError || 'Error al iniciar sesión. Verifica tu conexión e intenta nuevamente.');
     setLoading(false);
     setSincronizando(false);
   };
@@ -165,18 +221,9 @@ const Home: React.FC = () => {
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@correo.com" style={inputStyle} />
               </div>
 
-              <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 24 }}>
                 <label style={labelStyle}>contraseña</label>
                 <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" onKeyPress={e => e.key === 'Enter' && login()} style={inputStyle} />
-              </div>
-
-              <div style={{ marginBottom: 24, textAlign: 'right' }}>
-                <button
-                  onClick={() => history.push('/recuperar-contrasena')}
-                  style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: 13, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
-                >
-                  ¿Olvidaste tu contraseña?
-                </button>
               </div>
 
               {error && (

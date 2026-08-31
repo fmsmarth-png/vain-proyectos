@@ -343,6 +343,12 @@ const CalendarioPostVenta: React.FC = () => {
   const [matchActa, setMatchActa] = useState<MatchActa | null>(null);
   const [creandoActa, setCreandoActa] = useState(false);
 
+  // maestro_postventa: solo navega y visualiza el calendario. No puede subir
+  // papeleta ni Acta de Pre Entrega, no puede reagendar arrastrando un chip,
+  // y no puede eliminar eventos agendados por error.
+  const [usuarioRol, setUsuarioRol] = useState('');
+  const esMaestro = usuarioRol === 'maestro_postventa';
+
   const bg = dark ? '#0B1220' : '#f0f4f8';
   const card = dark ? '#16233B' : '#ffffff';
   const border = dark ? '#243550' : '#e2e8f0';
@@ -488,6 +494,16 @@ const CalendarioPostVenta: React.FC = () => {
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    (async () => {
+      const { data: sess } = await supabase.auth.getSession();
+      const uid = sess?.session?.user?.id;
+      if (!uid) return;
+      const { data: u } = await supabase.from('usuarios').select('rol').eq('id', uid).maybeSingle();
+      if (u?.rol) setUsuarioRol(String(u.rol));
+    })();
+  }, []);
 
   useEffect(() => {
     cargar();
@@ -674,6 +690,7 @@ const CalendarioPostVenta: React.FC = () => {
    * sin ellas, falla en silencio (RLS deniega, no hay error explícito).
    */
   const eliminarEvento = async (p: PapeletaCalendario) => {
+    if (esMaestro) return;
     const tipoTexto = p.tipo === 'pre_entrega' ? 'esta agenda de Pre Entrega' : 'esta papeleta de Post Venta';
     const confirmado = window.confirm(
       `¿Eliminar ${tipoTexto} (Torre ${p.torre_codigo ?? '—'} · Depto ${p.depto_numero ?? '—'})?\n\n` +
@@ -704,6 +721,7 @@ const CalendarioPostVenta: React.FC = () => {
 
   /* ---------- reagendar (drag) ---------- */
   const reagendar = async (p: PapeletaCalendario, nuevaFecha: Date) => {
+    if (esMaestro) return;
     const claveNueva = claveFecha(nuevaFecha);
     const fechaActual = parseFechaFlexible(p.fecha_atencion);
     if (fechaActual && claveFecha(fechaActual) === claveNueva) return; // soltó en el mismo día
@@ -1115,7 +1133,10 @@ const CalendarioPostVenta: React.FC = () => {
     let activado = false;
     let abortado = false;
 
-    const timer = setTimeout(() => {
+    // maestro_postventa solo navega tocando un chip: nunca entra en modo
+    // arrastre para reagendar. No se activa el timer del long-press; el tap
+    // normal sigue funcionando abajo en onUp (activado nunca pasa a true).
+    const timer = esMaestro ? null : setTimeout(() => {
       activado = true;
       setArrastrandoId(p.id);
       setPosArrastre({ x: startX, y: startY });
@@ -1130,7 +1151,7 @@ const CalendarioPostVenta: React.FC = () => {
         if (Math.hypot(dx, dy) > 10) {
           // Se movió antes del long-press: probablemente es scroll, no drag.
           abortado = true;
-          clearTimeout(timer);
+          if (timer) clearTimeout(timer);
           limpiar();
         }
         return;
@@ -1142,7 +1163,7 @@ const CalendarioPostVenta: React.FC = () => {
     };
 
     const onUp = (ev: PointerEvent) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (activado) {
         const el = document.elementFromPoint(ev.clientX, ev.clientY);
         const celda = el?.closest('[data-fecha-key]') as HTMLElement | null;
@@ -1270,7 +1291,7 @@ const CalendarioPostVenta: React.FC = () => {
           background: dark ? `${color}1f` : `${color}14`,
           border: `${esPreEntrega ? '1px dashed' : '0.5px solid'} ${color}55`,
           borderRadius: 4,
-          padding: '1px 4px',
+          padding: '2px 4px 3px',
           marginBottom: 2,
           color,
           cursor: 'pointer',
@@ -1282,14 +1303,13 @@ const CalendarioPostVenta: React.FC = () => {
         title={`${esPreEntrega ? 'Pre Entrega' : 'Post Venta'} · ${p.proyecto_codigo || p.condominio ? (p.proyecto_codigo || p.condominio) + ' · ' : ''}Torre ${p.torre_codigo ?? '—'} · Depto ${p.depto_numero ?? '—'}${hora ? ' · ' + hora : ''} · ${etiquetaEstado}`}
       >
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 3,
-          fontSize: 9, lineHeight: '11px', fontWeight: 700,
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          fontSize: 10, lineHeight: '13px', fontWeight: 700,
+          wordBreak: 'break-word',
         }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{linea1}</span>
+          {linea1}
         </div>
         {linea2 && (
-          <div style={{ fontSize: 8, lineHeight: '10px', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontSize: 8.5, lineHeight: '11px', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {linea2}
           </div>
         )}
@@ -1320,7 +1340,7 @@ const CalendarioPostVenta: React.FC = () => {
           background: dark ? `${color}1f` : `${color}14`,
           border: `${esPreEntrega ? '1px dashed' : '0.5px solid'} ${color}55`,
           borderRadius: 4,
-          padding: '1px 4px',
+          padding: '2px 4px 3px',
           marginBottom: 2,
           color,
           cursor: 'pointer',
@@ -1330,14 +1350,13 @@ const CalendarioPostVenta: React.FC = () => {
         title={`${grupo.length} ${esPreEntrega ? 'actas de pre entrega' : 'papeletas'} iguales (mismo depto y hora) — probablemente subidas por duplicado. Toca para verlas.`}
       >
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 3, paddingRight: 14,
-          fontSize: 9, lineHeight: '11px', fontWeight: 700,
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          fontSize: 10, lineHeight: '13px', fontWeight: 700,
+          wordBreak: 'break-word', paddingRight: 16,
         }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{linea1}</span>
+          {linea1}
         </div>
         {linea2 && (
-          <div style={{ fontSize: 8, lineHeight: '10px', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontSize: 8.5, lineHeight: '11px', fontWeight: 600, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {linea2}
           </div>
         )}
@@ -1358,14 +1377,16 @@ const CalendarioPostVenta: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#fff' } as any}>
           <IonTitle style={{ fontSize: 16, fontWeight: 700 }}>Calendario Post Venta / Pre Entrega</IonTitle>
-          <IonButtons slot="end">
-            <IonButton onClick={abrirSelectorArchivo} disabled={leyendo} title="Subir papeleta de Post Venta">
-              {leyendo ? <IonSpinner name="dots" /> : <IonIcon icon={cloudUploadOutline} style={{ fontSize: 20 }} />}
-            </IonButton>
-            <IonButton onClick={abrirSelectorArchivoActa} disabled={leyendoActa} title="Subir Acta de Pre Entrega">
-              {leyendoActa ? <IonSpinner name="dots" /> : <IonIcon icon={documentTextOutline} style={{ fontSize: 20 }} />}
-            </IonButton>
-          </IonButtons>
+          {!esMaestro && (
+            <IonButtons slot="end">
+              <IonButton onClick={abrirSelectorArchivo} disabled={leyendo} title="Subir papeleta de Post Venta">
+                {leyendo ? <IonSpinner name="dots" /> : <IonIcon icon={cloudUploadOutline} style={{ fontSize: 20 }} />}
+              </IonButton>
+              <IonButton onClick={abrirSelectorArchivoActa} disabled={leyendoActa} title="Subir Acta de Pre Entrega">
+                {leyendoActa ? <IonSpinner name="dots" /> : <IonIcon icon={documentTextOutline} style={{ fontSize: 20 }} />}
+              </IonButton>
+            </IonButtons>
+          )}
         </IonToolbar>
       </IonHeader>
 
@@ -1510,7 +1531,7 @@ const CalendarioPostVenta: React.FC = () => {
               const esHoy = esMismoDia(fecha, hoy);
               const items = porDia.get(clave) ?? [];
               const grupos = agruparPorDeptoHora(items);
-              const gruposVisibles = grupos.slice(0, 6);
+              const gruposVisibles = grupos.slice(0, 3);
               const gruposRestantes = grupos.length - gruposVisibles.length;
               const esObjetivoDrag = celdaSobre === clave;
 
@@ -1558,8 +1579,15 @@ const CalendarioPostVenta: React.FC = () => {
                     <button
                       onClick={() => { setDiaExpandido(clave); setHoraExpandida(null); }}
                       style={{
-                        background: 'transparent', border: 'none', padding: '0 0 0 2px',
-                        fontSize: 8.5, fontWeight: 700, color: textMuted, cursor: 'pointer',
+                        width: '100%',
+                        background: dark ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
+                        border: `0.5px solid ${dark ? 'rgba(96,165,250,0.25)' : 'rgba(37,99,235,0.2)'}`,
+                        borderRadius: 4,
+                        padding: '3px 0',
+                        fontSize: 9, fontWeight: 700,
+                        color: accent,
+                        cursor: 'pointer',
+                        marginTop: 1,
                       }}
                     >
                       +{gruposRestantes} más
@@ -2082,7 +2110,7 @@ const CalendarioPostVenta: React.FC = () => {
                         cursor: borrandoEvento === p.id ? 'default' : 'pointer',
                         color: dark ? '#f87171' : '#b91c1c',
                         opacity: borrandoEvento === p.id ? 0.4 : 1,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        display: esMaestro ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
                     >
                       <IonIcon icon={trashOutline} style={{ fontSize: 16 }} />

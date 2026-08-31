@@ -1,18 +1,13 @@
 import { PermisosProvider } from './Context/PermisosContext';
 import { Redirect, Route } from 'react-router-dom';
-import { IonApp, setupIonicReact } from '@ionic/react';
+import { IonApp, setupIonicReact, IonSpinner } from '@ionic/react';
 import { IonReactRouter } from '@ionic/react-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { supabase } from './supabase';
 import { SplashScreen } from '@capacitor/splash-screen';
-import Home from './pages/Home';
-import RecuperarContrasena from './pages/RecuperarContrasena';
-import RestablecerContrasena from './pages/RestablecerContrasena';
 import { ThemeProvider } from './Context/ThemeContext';
 import { OfflineProvider } from './Context/OfflineContext';
 import { CacheProvider } from './Context/CacheContext';
-import ProtectedRoutes from './components/ProtectedRoutes';
-import InformePV from './components/InformePV';
 import { registrarDeepLinkRecovery } from './helpers/deepLinkRecovery';
 
 import '@ionic/react/css/core.css';
@@ -24,14 +19,13 @@ import './theme/variables.css';
 
 setupIonicReact();
 
-// Levantamiento Cerámicos: pantalla provisoria, acceso restringido a estos dos correos
-const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
+// Todo lazy: ninguna página se evalúa al arrancar (evita el congelamiento por
+// módulos pesados como pdfjs-dist v6).
+const Home = lazy(() => import('./pages/Home'));
+const RecuperarContrasena = lazy(() => import('./pages/RecuperarContrasena'));
+const RestablecerContrasena = lazy(() => import('./pages/RestablecerContrasena'));
+const ProtectedRoutes = lazy(() => import('./components/ProtectedRoutes'));
 
-// Detección SÍNCRONA del enlace de recuperación (antes del primer render).
-// Supabase, tras verificar el token, redirige a /restablecer-contrasena con el
-// token en el hash (#access_token=...&type=recovery). Hay que detectarlo aquí
-// y no dentro de un useEffect, porque para cuando el efecto corre el router ya
-// pudo haber resuelto el <Redirect to="/home" /> y limpiado el hash.
 const esEnlaceRecovery = (): boolean => {
   const h = window.location.hash || '';
   const s = window.location.search || '';
@@ -42,6 +36,12 @@ const esEnlaceRecovery = (): boolean => {
     p.includes('/restablecer-contrasena')
   );
 };
+
+const Cargando: React.FC = () => (
+  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+    <IonSpinner name="crescent" />
+  </div>
+);
 
 const App: React.FC = () => {
   const [session, setSession]     = useState<any>(null);
@@ -81,15 +81,12 @@ const App: React.FC = () => {
   useEffect(() => {
     SplashScreen.hide().catch(() => {});
 
-    // Deep link de recuperación de contraseña en nativo (Android/iOS): cuando
-    // el correo abre la app con el token, activamos el modo recuperación y
-    // navegamos a la pantalla de nueva contraseña.
     registrarDeepLinkRecovery(() => {
       setRecoveryMode(true);
       setLoading(false);
       window.location.hash = '#/restablecer-contrasena';
     });
-    const splashMinimo = new Promise(r => setTimeout(r, 2000));
+
     const timeout = setTimeout(() => {
       const cached = localStorage.getItem('cache_usuario');
       if (cached && !usuario) setUsuario(JSON.parse(cached));
@@ -104,51 +101,43 @@ const App: React.FC = () => {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      // Si llegamos por un enlace de recuperación, no cargamos usuario ni
-      // dejamos que la sesión temporal nos lleve al Dashboard.
+    // getUser() en vez de getSession(): getSession se cuelga por el deadlock
+    // del LockManager bajo React 19 StrictMode; getUser resuelve siempre.
+    supabase.auth.getUser().then(async ({ data }) => {
       if (esEnlaceRecovery()) {
-        setSession(session);
         setRecoveryMode(true);
         setLoading(false);
         return;
       }
-      setSession(session);
-      if (session?.user) {
-        await Promise.all([cargarUsuario(session.user.id), splashMinimo]);
+      if (data?.user) {
+        setSession({ user: data.user });
+        await cargarUsuario(data.user.id);
       } else {
-        await splashMinimo;
         setLoading(false);
       }
+    }).catch(() => {
+      setLoading(false);
     });
 
-    // Si la URL trae el token de recovery (llegó desde el link del email),
-    // activamos el modo recuperación de inmediato y cortamos el loading para
-    // no quedarnos en el spinner ni caer al Dashboard/Home.
     if (esEnlaceRecovery()) {
       setRecoveryMode(true);
       setLoading(false);
     }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      // Supabase dispara PASSWORD_RECOVERY cuando el usuario llega desde el
-      // link del email. En ese caso NO lo mandamos al Dashboard: mostramos la
-      // pantalla para crear una nueva contraseña.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, sess) => {
       if (_event === 'PASSWORD_RECOVERY') {
         setRecoveryMode(true);
-        setSession(session);
+        setSession(sess);
         setLoading(false);
         return;
       }
-      // Si ya estamos en modo recuperación, ignoramos el resto de eventos de
-      // auth (la sesión temporal de recovery no debe llevarnos al Dashboard).
       if (recoveryMode) {
-        setSession(session);
+        setSession(sess);
         setLoading(false);
         return;
       }
-      setSession(session);
-      if (session?.user) await cargarUsuario(session.user.id);
+      setSession(sess);
+      if (sess?.user) await cargarUsuario(sess.user.id);
       else { setUsuario(null); setPendiente(false); setLoading(false); }
     });
 
@@ -193,26 +182,33 @@ const App: React.FC = () => {
     <ThemeProvider>
       <OfflineProvider>
         <CacheProvider>
+          {/* FIX: PermisosProvider obtiene usuarioId internamente de Supabase, no lo acepte como prop */}
           <PermisosProvider>
             <IonApp>
               <IonReactRouter>
-                {recoveryMode ? (
-                  // Llegó desde el link del email: crear nueva contraseña,
-                  // aunque exista una sesión de recovery activa.
-                  <>
-                    <Route exact path="/restablecer-contrasena" component={RestablecerContrasena} />
-                    <Redirect to="/restablecer-contrasena" />
-                  </>
-                ) : session && usuario ? (
-                  <ProtectedRoutes usuario={usuario} />
-                ) : (
-                  <>
-                    <Route exact path="/home" component={Home} />
-                    <Route exact path="/recuperar-contrasena" component={RecuperarContrasena} />
-                    <Route exact path="/restablecer-contrasena" component={RestablecerContrasena} />
-                    <Redirect to="/home" />
-                  </>
-                )}
+                <Suspense fallback={<Cargando />}>
+                  {recoveryMode ? (
+                    <>
+                      <Route exact path="/restablecer-contrasena" component={RestablecerContrasena} />
+                      <Redirect to="/restablecer-contrasena" />
+                    </>
+                  ) : session && usuario ? (
+                    <>
+                      {/* El Redirect de "/" vive aquí, a nivel del router de App,
+                          NO dentro del IonRouterOutlet de ProtectedRoutes (ahí
+                          RR v5 + Ionic no lo dispara de forma confiable). */}
+                      <Route exact path="/" render={() => <Redirect to="/dashboard" />} />
+                      <ProtectedRoutes usuario={usuario} />
+                    </>
+                  ) : (
+                    <>
+                      <Route exact path="/home" component={Home} />
+                      <Route exact path="/recuperar-contrasena" component={RecuperarContrasena} />
+                      <Route exact path="/restablecer-contrasena" component={RestablecerContrasena} />
+                      <Redirect to="/home" />
+                    </>
+                  )}
+                </Suspense>
               </IonReactRouter>
             </IonApp>
           </PermisosProvider>

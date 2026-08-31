@@ -229,7 +229,7 @@ const DeptosFiltrados: React.FC = () => {
     }
     
     cargarDatos();
-  }, []);
+  }, [cargarDatos]);
 
   const iniciarInspeccion = (depto: any) => {
     const torre = torres.find(t => t.id === depto.torre_id);

@@ -154,6 +154,9 @@ const GenerarVale: React.FC = () => {
   const [actividadesSeleccionadas, setActividadesSeleccionadas] = useState<Actividad[]>([]);
   const [actividadInput, setActividadInput] = useState('');
   const [materiales, setMateriales] = useState<Material[]>([]);
+  const [cuadrillas, setCuadrillas] = useState<{ id: string; nombre: string }[]>([]);
+  const [cuadrillaSeleccionada, setCuadrillaSeleccionada] = useState('');
+  const [materialesCuadrilla, setMaterialesCuadrilla] = useState<Set<string> | null>(null);
   const [kits, setKits] = useState<Kit[]>([]);
   const [aplicandoKit, setAplicandoKit] = useState<string | null>(null);
   const [materialInput, setMaterialInput] = useState('');
@@ -224,6 +227,13 @@ const GenerarVale: React.FC = () => {
       .eq('activo', true)
       .order('nombre');
     if (kitsData) setKits(kitsData as Kit[]);
+
+    const { data: cuadData } = await supabase
+      .from('bodega_cuadrillas')
+      .select('id, nombre')
+      .eq('activa', true)
+      .order('nombre');
+    if (cuadData) setCuadrillas((cuadData as any[]).map(c => ({ id: c.id, nombre: c.nombre })));
 
     // Sin filtro por especialidad por ahora: TODOS los roles (jefe de terreno,
     // profesionales, admin) ven TODOS los materiales del proyecto. El catálogo
@@ -333,12 +343,30 @@ const GenerarVale: React.FC = () => {
     setActividadesSeleccionadas(prev => prev.filter(a => a.id !== id));
   };
 
-  // ── materiales disponibles (especialidad del usuario + actividades elegidas) ─
+  // Sin filtro por actividad por ahora (ver comentarios en sección eliminada).
+  // Filtro por cuadrilla: cadena cuadrilla → actividades → materiales.
+  const filtrarPorCuadrilla = async (cuadrillaId: string) => {
+    setCuadrillaSeleccionada(cuadrillaId);
+    if (!cuadrillaId) { setMaterialesCuadrilla(null); return; }
+
+    const { data: cuadActs } = await supabase
+      .from('bodega_cuadrilla_actividades')
+      .select('actividad_id')
+      .eq('cuadrilla_id', cuadrillaId);
+    const actIds = ((cuadActs as any[]) ?? []).map(r => r.actividad_id);
+    if (actIds.length === 0) { setMaterialesCuadrilla(new Set()); return; }
+
+    const { data: matActs } = await supabase
+      .from('bodega_material_actividades')
+      .select('material_id')
+      .in('actividad_id', actIds);
+    setMaterialesCuadrilla(new Set(((matActs as any[]) ?? []).map(r => r.material_id)));
+  };
+
   const materialesDisponibles = useMemo(() => {
-    if (actividadesSeleccionadas.length === 0) return materiales;
-    const idsActividad = new Set(actividadesSeleccionadas.map(a => a.id));
-    return materiales.filter(m => m.actividad_id && idsActividad.has(m.actividad_id));
-  }, [materiales, actividadesSeleccionadas]);
+    if (!materialesCuadrilla) return materiales;
+    return materiales.filter(m => materialesCuadrilla.has(m.id));
+  }, [materiales, materialesCuadrilla]);
 
   const sugerenciasMaterial = useMemo(() => {
     if (!materialInput.trim()) return [];
@@ -563,17 +591,22 @@ const GenerarVale: React.FC = () => {
                       const todosSeleccionados = idsGrupo.every(id => deptosSeleccionados.has(id));
                       const algunoSeleccionado = idsGrupo.some(id => deptosSeleccionados.has(id));
                       return (
-                        <div key={frente} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 2px', borderBottom: `0.5px solid ${border}` }}>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 600, color: textPrimary, cursor: 'pointer', flexShrink: 0 }}>
+                        <div
+                          key={frente}
+                          onClick={() => toggleFrenteCompleto(deptos)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 2px', borderBottom: `0.5px solid ${border}`, cursor: 'pointer' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 600, color: textPrimary, flexShrink: 0 }}>
                             <input
                               type="checkbox"
                               checked={todosSeleccionados}
                               ref={el => { if (el) el.indeterminate = !todosSeleccionados && algunoSeleccionado; }}
                               onChange={() => toggleFrenteCompleto(deptos)}
-                              style={{ width: 18, height: 18 }}
+                              onClick={e => e.stopPropagation()}
+                              style={{ width: 18, height: 18, pointerEvents: 'auto' }}
                             />
                             {frente}
-                          </label>
+                          </div>
 
                           {/* Deptos individuales: acción secundaria, para pedir
                               solo uno del frente en vez del frente completo */}
@@ -584,7 +617,7 @@ const GenerarVale: React.FC = () => {
                               return (
                                 <span
                                   key={d.id}
-                                  onClick={() => toggleDepto(d.id)}
+                                  onClick={e => { e.stopPropagation(); toggleDepto(d.id); }}
                                   title={`${d.id_obra} (depto ${d.numero})`}
                                   style={{
                                     fontSize: 11, padding: '3px 8px', borderRadius: 8, cursor: 'pointer',
@@ -610,39 +643,27 @@ const GenerarVale: React.FC = () => {
             </div>
           )}
 
-          {/* ── Filtro de actividad ────────────────────────────── */}
-          <div style={sCard}>
-            <div style={sSecLabel}>Filtrar por actividad (opcional)</div>
-            {actividadesSeleccionadas.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                {actividadesSeleccionadas.map(a => (
-                  <span key={a.id} style={chip}>
-                    {a.nombre}
-                    <span onClick={() => quitarActividad(a.id)} style={{ cursor: 'pointer', fontWeight: 700 }}> ×</span>
-                  </span>
+          {/* ── Filtro por cuadrilla ──────────────────────────── */}
+          {cuadrillas.length > 0 && (
+            <div style={sCard}>
+              <div style={sSecLabel}>Filtrar por cuadrilla</div>
+              <select
+                style={sInput}
+                value={cuadrillaSeleccionada}
+                onChange={e => filtrarPorCuadrilla(e.target.value)}
+              >
+                <option value="">Todas las cuadrillas</option>
+                {cuadrillas.map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
-              </div>
-            )}
-            <input
-              style={sInput}
-              placeholder="Buscar actividad..."
-              value={actividadInput}
-              onChange={e => setActividadInput(e.target.value)}
-            />
-            {sugerenciasActividad.length > 0 && (
-              <div style={{ border: `0.5px solid ${border}`, borderRadius: 10, marginTop: 4, overflow: 'hidden' }}>
-                {sugerenciasActividad.map(a => (
-                  <div
-                    key={a.id}
-                    onClick={() => agregarActividad(a)}
-                    style={{ padding: '8px 12px', fontSize: 13, color: textPrimary, cursor: 'pointer', borderBottom: `0.5px solid ${border}` }}
-                  >
-                    {a.nombre}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+              </select>
+              {materialesCuadrilla && (
+                <div style={{ fontSize: 11, color: textMuted, marginTop: 6 }}>
+                  {materialesCuadrilla.size} material{materialesCuadrilla.size !== 1 ? 'es' : ''} de esta cuadrilla
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── Kits de materiales ─────────────────────────────── */}
           {kits.length > 0 && (
@@ -732,34 +753,45 @@ const GenerarVale: React.FC = () => {
             )}
 
             <button style={sBtnSecondary} onClick={agregarMaterialCarrito}>+ Agregar a la lista</button>
-
-            {carrito.length > 0 && (
-              <>
-                <div style={{ height: '0.5px', background: sepLine, margin: '14px 0' }} />
-                <div style={{ fontSize: 12, color: textMuted, marginBottom: 8 }}>Materiales en esta solicitud</div>
-                {carrito.map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: idx < carrito.length - 1 ? `0.5px solid ${border}` : 'none' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, color: textPrimary }}>{item.nombre}</div>
-                      {item.notaOriginal && (
-                        <div style={{ fontSize: 11, color: textMuted }}>ingresado como {item.notaOriginal}</div>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                      <input
-                        type="number" min="0"
-                        value={item.cantidad}
-                        onChange={e => actualizarCantidadCarrito(idx, e.target.value)}
-                        style={{ ...sInputSmall, width: 64, height: 32, padding: '4px 8px', textAlign: 'right' }}
-                      />
-                      {item.unidad && <span style={{ fontSize: 12, color: textSecondary }}>{item.unidad}</span>}
-                      <span onClick={() => quitarDelCarrito(idx)} style={{ color: rojo, cursor: 'pointer', fontSize: 13 }}>Quitar</span>
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
           </div>
+
+          {/* ── Carrito / Materiales en esta solicitud ──────────── */}
+          {carrito.length > 0 && (
+            <div style={{
+              ...sCard,
+              border: `1px solid ${azul}40`,
+              background: dark ? 'linear-gradient(135deg, #0d1a2e 0%, #162544 100%)' : 'linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: azul }}>
+                  Materiales en esta solicitud
+                </div>
+                <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 10, background: azulBg, color: azul, border: `0.5px solid ${azul}40`, fontWeight: 600 }}>
+                  {carrito.length}
+                </span>
+              </div>
+              {carrito.map((item, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: idx < carrito.length - 1 ? `0.5px solid ${border}` : 'none' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, color: textPrimary }}>{item.nombre}</div>
+                    {item.notaOriginal && (
+                      <div style={{ fontSize: 11, color: textMuted }}>ingresado como {item.notaOriginal}</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                    <input
+                      type="number" min="0"
+                      value={item.cantidad}
+                      onChange={e => actualizarCantidadCarrito(idx, e.target.value)}
+                      style={{ ...sInputSmall, width: 64, height: 32, padding: '4px 8px', textAlign: 'right' }}
+                    />
+                    {item.unidad && <span style={{ fontSize: 12, color: textSecondary }}>{item.unidad}</span>}
+                    <span onClick={() => quitarDelCarrito(idx)} style={{ color: rojo, cursor: 'pointer', fontSize: 13 }}>Quitar</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <button style={sBtnPrimary} disabled={guardando} onClick={handleEmitir}>
             {guardando ? 'Emitiendo...' : 'Emitir solicitud de material'}

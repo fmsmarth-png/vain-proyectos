@@ -109,15 +109,18 @@ export const sincronizarCache = async () => {
       }));
     }));
 
-    // Cachear último depto inspeccionado
-    const { data: ultimoReg } = await supabase
-      .from('registros')
-      .select(`departamento_id, departamentos(numero, id_obra), torres(nombre, frente), proyectos(nombre)`)
-      .eq('creado_por', user.id)
-      .order('creado_en', { ascending: false })
-      .limit(1)
-      .single();
-    if (ultimoReg) cache.setUltimoDepto(ultimoReg);
+    // Cachear último depto inspeccionado (solo roles que crean registros)
+    const rolesConRegistros = ['jefe_terreno', 'prof_terminaciones', 'administrador', 'staff'];
+    if (rolesConRegistros.includes(perfil?.rol ?? '')) {
+      const { data: ultimoReg } = await supabase
+        .from('registros')
+        .select(`departamento_id, departamentos(numero, id_obra), torres(nombre, frente), proyectos(nombre)`)
+        .eq('creado_por', user.id)
+        .order('creado_en', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (ultimoReg) cache.setUltimoDepto(ultimoReg);
+    }
 
     console.log('✅ Cache completo sincronizado');
   } catch (e) {

@@ -187,6 +187,15 @@ const Revision: React.FC = () => {
   useEffect(() => { cargar(); }, []);
   useAppFocus(() => { cargar(); });
 
+  // Resguardo: maestro_postventa no tiene pestaña "obra" en la UI, pero si
+  // el estado quedara en 'obra' por algún otro camino (ej. estado heredado),
+  // se corrige a 'todas' apenas se conoce el rol.
+  useEffect(() => {
+    if (usuario?.rol === 'maestro_postventa' && filtroEtapa === 'obra') {
+      setFiltroEtapa('todas');
+    }
+  }, [usuario?.rol, filtroEtapa]);
+
   useEffect(() => {
     if (proyectoId) { cargarTorres(proyectoId); setTorreId(''); setDeptoId(''); setRegistros([]); setObservacionesInforme([]); setEsZC(false); }
   }, [proyectoId]);
@@ -589,6 +598,12 @@ const Revision: React.FC = () => {
   const puedeSolucionar   = ['jefe_terreno', 'prof_terminaciones', 'director_obra', 'administrador'].includes(usuario?.rol);
   const puedeRecibirInmob = ['vendedor_inmobiliaria', 'administrador'].includes(usuario?.rol);
   const puedeEntregarProp = ['vendedor_inmobiliaria', 'administrador'].includes(usuario?.rol);
+  // maestro_postventa: solo puede alternar PENDIENTE <-> SOLUCIONADO en
+  // observaciones de PRE-ENTREGA (tipo 'PRE-E'), para dejar registro de
+  // avance. No aprueba, no rechaza, no edita/elimina, no ve el PDF, y en
+  // Post Venta (tipo 'PV') no cambia estados desde acá — eso se hace desde
+  // el propio flujo de PostVenta.tsx (fotos + receptor + firma).
+  const esMaestro = usuario?.rol === 'maestro_postventa';
 
   // Generar PDF de observaciones Pre Entrega
   const generarPDFObservaciones = async () => {
@@ -654,9 +669,11 @@ const Revision: React.FC = () => {
   const registrosObraOnly = registros.filter(r => r.etapa === 'obra' || !r.etapa);
 
   if (filtroEtapa === 'todas') {
-    // Mezclar: registros de obra + todas las observaciones de informe
+    // Mezclar: registros de obra + todas las observaciones de informe.
+    // maestro_postventa no tiene ningún rol en el módulo de obra, así que su
+    // "Todas" solo mezcla Pre Entrega + Post Venta, sin registros de obra.
     registrosFiltradosPorEtapa = [
-      ...registrosObraOnly,
+      ...(esMaestro ? [] : registrosObraOnly),
       ...observacionesConEtapa
     ];
   } else if (filtroEtapa === 'obra') {
@@ -784,7 +801,18 @@ const Revision: React.FC = () => {
     // Si viene de ObservacionesInformePV, adaptar campos
     const esDelInforme: boolean = r.usuario_email !== undefined && r.partida_afectada !== undefined;
     const esCreador: boolean = esDelInforme ? r.usuario_id === usuario?.id : r.usuarios?.id === usuario?.id;
-    const puedeEditarEliminar: boolean = esCreador && (r.estado === 'PENDIENTE' || r.estado === 'pendiente');
+    // maestro_postventa nunca edita/elimina observaciones, aunque por algún
+    // motivo figurara como "creador" de la fila (no debería pasar, ya que no
+    // tiene acceso a crear observaciones de pre entrega ni de post venta
+    // desde acá).
+    const puedeEditarEliminar: boolean = !esMaestro && esCreador && (r.estado === 'PENDIENTE' || r.estado === 'pendiente');
+    // Observación de Pre Entrega proveniente de observacionesinformepv — el
+    // único tipo de fila donde maestro_postventa puede tocar el estado.
+    const esObsPreEntrega: boolean = esDelInforme && (r.tipo === 'PRE-E' || r.etapa === 'pre_entrega');
+    const puedeSolucionarComoMaestro: boolean =
+      esMaestro && esObsPreEntrega && (r.estado === 'PENDIENTE' || r.estado === 'pendiente');
+    const puedeReabrirComoMaestro: boolean =
+      esMaestro && esObsPreEntrega && (r.estado === 'SOLUCIONADO' || r.estado === 'solucionado');
     const estado: string = r.estado?.toLowerCase() || 'pendiente';
     const eColor: string = estadoColors[estado] || '#94a3b8';
     const pill: any = etapaPill(r.etapa || (r.tipo === 'PRE-E' ? 'pre_entrega' : 'postventa'));
@@ -832,6 +860,12 @@ const Revision: React.FC = () => {
           )}
           {puedeSolucionar && ((r.estado === 'PENDIENTE' || r.estado === 'pendiente') || r.estado === 'rechazado') && (
             <button onClick={() => cambiarEstado(r, 'solucionado')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>🔧 Solucionado</button>
+          )}
+          {puedeSolucionarComoMaestro && (
+            <button onClick={() => cambiarEstado(r, 'solucionado')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>🔧 Marcar solucionado</button>
+          )}
+          {puedeReabrirComoMaestro && (
+            <button onClick={() => cambiarEstado(r, 'pendiente')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>↩ Volver a pendiente</button>
           )}
           {puedeAprobar && (r.estado === 'SOLUCIONADO' || r.estado === 'solucionado') && (
             <button onClick={() => cambiarEstado(r, 'aprobado')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', color: dark ? '#4ade80' : '#15803d', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>✓ Aprobar</button>
@@ -999,7 +1033,7 @@ const Revision: React.FC = () => {
               {deptoId && (
                 <>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                    {(['todas', 'obra', 'pre_entrega', 'postventa'] as const).map((e: any) => (
+                    {(esMaestro ? ['todas', 'pre_entrega', 'postventa'] : ['todas', 'obra', 'pre_entrega', 'postventa'] as const).map((e: any) => (
                       <button key={e} onClick={() => setFiltroEtapa(e)} style={{ flex: 1, height: 30, borderRadius: 8, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: filtroEtapa === e ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent', color: filtroEtapa === e ? '#fff' : textMuted, border: `0.5px solid ${filtroEtapa === e ? (dark ? '#2E4468' : '#1e3a5f') : border}` }}>
                         {e === 'todas' ? '📋 Todas' : e === 'obra' ? '🏗️ Obra' : e === 'pre_entrega' ? '🏠 Pre-E' : '🔧 PV'}
                       </button>
@@ -1036,7 +1070,7 @@ const Revision: React.FC = () => {
                   </div>
                 </>
               )}
-              {filtroEtapa === 'pre_entrega' && registrosFiltradosPorEtapa.length > 0 && (
+              {!esMaestro && filtroEtapa === 'pre_entrega' && registrosFiltradosPorEtapa.length > 0 && (
                 <button onClick={generarPDFObservaciones} disabled={generandoPDF} style={{
                   width: '100%', height: 42, borderRadius: 10, marginBottom: 14,
                   background: dark ? 'rgba(59,130,246,0.08)' : '#eff6ff',

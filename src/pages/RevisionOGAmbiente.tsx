@@ -19,7 +19,7 @@ import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
 import { getToleranciaCache, getImagenAmbienteCache, getElementosAmbienteCache } from '../utils/Ogcache';          // ← FMS offline OG
 import { getImagenUrlDB } from '../utils/ogImageDB';                                                                // ← FMS offline OG (imágenes IndexedDB)
-import { encolarRegistroOG, blobABase64 } from '../utils/Ogofflinequeue'; // ← FMS offline OG
+import { encolarRegistroOG } from '../utils/Ogofflinequeue'; // ← FMS offline OG
 import { useOffline }                   from '../Context/OfflineContext';  // ← FMS offline OG
 import { comprimirImagen }              from '../utils/comprimirImagen';   // ← FMS offline OG
 
@@ -108,15 +108,15 @@ const RevisionOGAmbiente: React.FC = () => {
   };
 
   // ── tokens ──────────────────────────────────────────────────────────────────
-  const bg            = dark ? '#0B1220' : '#f0f4f8';
-  const cardGrad      = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
-  const border        = dark ? '#243550'  : '#e2e8f0';
+  const bg            = dark ? '#000000' : '#f0f4f8';
+  const cardGrad      = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
+  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb'  : '#0f172a';
-  const textMuted     = dark ? '#5D728F'  : '#94a3b8';
-  const toolbar       = dark ? '#0E1728'  : '#1e3a5f';
+  const textMuted     = dark ? '#444444'  : '#94a3b8';
+  const toolbar       = dark ? '#000000'  : '#1e3a5f';
   const textSecondary = dark ? '#6b7280'  : '#64748b';
-  const inputBg       = dark ? '#1B2C48'  : '#ffffff';
-  const inputBorder   = dark ? '#243550'  : '#cbd5e1';
+  const inputBg       = dark ? '#111111'  : '#ffffff';
+  const inputBorder   = dark ? '#1e1e1e'  : '#cbd5e1';
   const rojo          = dark ? '#f87171'  : '#b91c1c';
   const rojoBg        = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
   const rojoBord      = dark ? 'rgba(239,68,68,0.15)' : '#fecaca';
@@ -419,16 +419,14 @@ const RevisionOGAmbiente: React.FC = () => {
 
       if (!online) {
         // ── MODO OFFLINE ────────────────────────────────────────────────────
-        let foto_base64: string | null = null;
-        if (fotoBlob) {
-          foto_base64 = await blobABase64(fotoBlob);
-        }
-
         // getSession() lee del localStorage — no requiere red, funciona offline
         const userId = userIdRef.current ||
           (await supabase.auth.getSession()).data.session?.user?.id || '';
 
-        encolarRegistroOG({
+        // await: ahora sí persiste en IndexedDB antes de seguir. Si falla
+        // (por ejemplo, disco lleno), el catch de abajo lo muestra en
+        // pantalla en vez de que la observación se pierda en silencio.
+        await encolarRegistroOG({
           proyecto_id:      proyecto.id,
           torre_id:         torre.id,
           departamento_id:  depto.id,
@@ -442,7 +440,7 @@ const RevisionOGAmbiente: React.FC = () => {
           tolerancia:       tolSel,
           comentario:       comentario || '',
           foto_url:         null,
-          foto_base64,
+          foto_blob:        fotoBlob ?? null,
           usuario_id:       userId,
           sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
         });
@@ -454,41 +452,72 @@ const RevisionOGAmbiente: React.FC = () => {
       }
 
       // ── MODO ONLINE ─────────────────────────────────────────────────────────
-      let foto_url: string | null = null;
+      try {
+        let foto_url: string | null = null;
 
-      if (fotoBlob) {
-        const path = `og/${depto.id}/${ambiente.ambiente_cod}_${Date.now()}.jpg`;
-        const { error: storageErr } = await supabase.storage
-          .from('fotos-registros')
-          .upload(path, fotoBlob, { contentType: 'image/jpeg', upsert: false });
-        if (!storageErr) {
+        if (fotoBlob) {
+          const path = `og/${depto.id}/${ambiente.ambiente_cod}_${Date.now()}.jpg`;
+          const { error: storageErr } = await supabase.storage
+            .from('fotos-registros')
+            .upload(path, fotoBlob, { contentType: 'image/jpeg', upsert: false });
+          // Antes: si fallaba la subida (señal débil, timeout) esto seguía
+          // igual e insertaba la observación SIN foto, en silencio. Ahora se
+          // lanza el error para que la observación completa (con su foto)
+          // caiga a la cola offline en vez de perder la foto para siempre.
+          if (storageErr) throw new Error('No se pudo subir la foto: ' + storageErr.message);
           const { data: { publicUrl } } = supabase.storage
             .from('fotos-registros')
             .getPublicUrl(path);
           foto_url = publicUrl;
         }
+
+        const { error } = await supabase.from('og_registros').insert({
+          proyecto_id:      proyecto.id,
+          torre_id:         torre.id,
+          departamento_id:  depto.id,
+          tipo_depto:       depto.tipo_depto ?? null,
+          plano_version_id: ambiente.plano_version_id,
+          ambiente:         ambiente.titulo,
+          tipo_elemento:    elSel.tipo_elemento,
+          tipo_revision:    revisionReal,
+          subtipo_cod:      tipoSel.item,
+          elemento:         elSel.elemento,
+          tolerancia:       tolSel,
+          comentario:       comentario || null,
+          foto_url,
+          usuario_id:       userIdRef.current,
+          sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
+        });
+        if (error) throw error;
+
+        setStatus({ msg: '✓ Observación registrada', ok: true });
+      } catch (e: any) {
+        // Falló la subida de la foto o el insert (señal cortada a medio
+        // camino, típico en obra): en vez de mostrar solo un error y perder
+        // la observación, se encola completa (con su foto) para reintentar
+        // sola al reconectar — igual que en modo offline explícito.
+        console.warn('[RevisionOGAmbiente] Falló guardado online, se encola offline:', e?.message);
+        await encolarRegistroOG({
+          proyecto_id:      proyecto.id,
+          torre_id:         torre.id,
+          departamento_id:  depto.id,
+          tipo_depto:       depto.tipo_depto ?? '',
+          plano_version_id: ambiente.plano_version_id,
+          ambiente:         ambiente.titulo,
+          tipo_elemento:    elSel.tipo_elemento,
+          tipo_revision:    revisionReal,
+          subtipo_cod:      tipoSel.item,
+          elemento:         elSel.elemento,
+          tolerancia:       tolSel,
+          comentario:       comentario || '',
+          foto_url:         null,
+          foto_blob:        fotoBlob ?? null,
+          usuario_id:       userIdRef.current || '',
+          sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
+        });
+        setStatus({ msg: '✓ Guardado offline — se sincronizará al reconectarte', ok: true });
       }
 
-      const { error } = await supabase.from('og_registros').insert({
-        proyecto_id:      proyecto.id,
-        torre_id:         torre.id,
-        departamento_id:  depto.id,
-        tipo_depto:       depto.tipo_depto ?? null,
-        plano_version_id: ambiente.plano_version_id,
-        ambiente:         ambiente.titulo,
-        tipo_elemento:    elSel.tipo_elemento,
-        tipo_revision:    revisionReal,
-        subtipo_cod:      tipoSel.item,
-        elemento:         elSel.elemento,
-        tolerancia:       tolSel,
-        comentario:       comentario || null,
-        foto_url,
-        usuario_id:       userIdRef.current,
-        sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
-      });
-      if (error) throw error;
-
-      setStatus({ msg: '✓ Observación registrada', ok: true });
       setElementosConObs(prev => new Set(prev).add(elSel.elemento));
       resetRegistro();
     } catch (e: any) {
@@ -527,7 +556,7 @@ const RevisionOGAmbiente: React.FC = () => {
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
             <button slot="start" onClick={() => history.goBack()}
-              style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+              style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
               ‹
             </button>
             <IonTitle style={{ fontSize: 16 }}>Revisión OG</IonTitle>
@@ -552,7 +581,7 @@ const RevisionOGAmbiente: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <button slot="start" onClick={volverADetalle}
-            style={{ background: 'transparent', border: 'none', color: dark ? '#6E86A6' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
             ‹
           </button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>
@@ -917,7 +946,7 @@ const RevisionOGAmbiente: React.FC = () => {
                     border: 'none', fontSize: 15, fontWeight: 700,
                     // FMS: color distinto en modo offline para feedback visual
                     background: !puedeGuardar
-                      ? (dark ? '#16233B' : '#e2e8f0')
+                      ? (dark ? '#111' : '#e2e8f0')
                       : online
                         ? '#1e3a5f'
                         : '#92400e', // naranja oscuro = modo offline

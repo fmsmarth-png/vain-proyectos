@@ -12,9 +12,12 @@ import { comprimirImagen } from '../utils/comprimirImagen';
 import FotoAnnotator from '../components/FotoAnnotator';
 import { generatePdfPostventa } from '../helpers/pdfPostventa';
 import { extraerPapeletaPdf, ObservacionPdf, DatosSolicitud } from '../helpers/extraerPapeletaPdf';
-import { RESUME_KEY } from '../helpers/postventaSession';
 import { nombreSemana, fechaDesdeDdMmAaaa } from '../utils/semanasVain';
-import BottomNavBar from '../components/BottomNavBar';
+import { encolarFinalizacionPostventa } from '../utils/postventaOfflineQueue';
+import {
+  BorradorLocal, guardarBorradorLocal, leerBorradorLocal, eliminarBorradorLocal,
+  sincronizarBorradorConServidor,
+} from '../utils/postventaBorradorLocal';
 
 const SESSION_KEY = 'post_venta_depto_state';
 const OTRO = '__OTRO__';
@@ -22,8 +25,8 @@ const OTRO = '__OTRO__';
 // Guardado automático: el borrador de una visita vive en tablas propias,
 // separadas de `observacionesinformepv`. Una visita en progreso NO aparece
 // en Revision ni en Reportes hasta que se finaliza (ahí se hace el INSERT
-// de siempre). RESUME_KEY es el id de borrador que DetalleDepto (y
-// CalendarioPostVenta, al crear una papeleta nueva) piden reanudar.
+// de siempre). RESUME_KEY es el id de borrador que DetalleDepto pide reanudar.
+const RESUME_KEY = 'postventa_papeleta_id';
 const T_PAPELETA = 'postventa_papeletas';
 const T_BORRADOR = 'postventa_obs_borrador';
 
@@ -41,7 +44,7 @@ interface RevisionObs {
   observacion: string;
   partida: string;
   causa: string;
-  estado: 'PENDIENTE' | 'EN_PROCESO' | 'SOLUCIONADO';
+  estado: 'PENDIENTE' | 'SOLUCIONADO';
   fotoAntes: string | null;
   fotoDespues: string | null;
   // Origen de la observación:
@@ -52,9 +55,9 @@ interface RevisionObs {
 }
 
 const DATOS_VACIOS: DatosSolicitud = {
-  formato: 'solicitud',
   condominio: '', depto: '', torre: '', requerimiento: '',
   fechaRegistro: '', fechaAtencion: '', horaAtencion: '',
+  formato: 'solicitud',
 };
 
 const GRUPOS_CAUSA: { tipo: Causa['tipo']; label: string }[] = [
@@ -72,46 +75,20 @@ const norm = (s: any) =>
     .replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 
 /**
- * El texto de la papeleta (ambiente, partida) lo escribe el propietario o
- * viene de la plantilla de la constructora y es solo contexto: puede
- * confundir baño 1 con baño 2, o referirse a algo que ni siquiera está en el
- * catálogo (estacionamiento, bodega). Por eso nunca se transforma ni se
- * fuerza. Si hay parecido claro con una opción del catálogo se pre-selecciona
- * como guía; si no, el inspector elige a mano.
- *
- * El fallback sin número final existe porque algunos catálogos listan los
- * ambientes/partidas SIN numerar ("BAÑO" en vez de "BAÑO 1", "BAÑO 2"...),
- * mientras que la papeleta sí trae el número. Sin este fallback, cualquier
- * papeleta con ambientes numerados nunca preseleccionaría nada.
+ * El ambiente de la papeleta lo escribe el propietario y es solo contexto:
+ * puede confundir baño 1 con baño 2, o referirse a algo que ni siquiera está
+ * en el catálogo (estacionamiento, bodega). Por eso nunca se transforma ni se
+ * fuerza. Si hay parecido claro con un ambiente del catálogo se pre-selecciona
+ * como guía; si no, el inspector elige — incluida la opción "Otro".
  */
-const sinNumeroFinal = (s: string) => s.replace(/\s*n?[°ºo]?\s*\d+\s*$/i, '').trim();
-
-const sugerirDeCatalogo = (textoPdf: string, catalogo: Catalogo[]): string => {
+const sugerirAmbiente = (textoPdf: string, catalogo: Catalogo[]): string => {
   const t = norm(textoPdf);
   if (!t) return '';
-
-  const buscar = (texto: string) =>
-    catalogo.find(a => norm(a.nombre) === texto) ??
-    catalogo.find(a => texto.includes(norm(a.nombre)) || norm(a.nombre).includes(texto));
-
-  const directo = buscar(t);
-  if (directo) return directo.nombre;
-
-  const tSinNumero = norm(sinNumeroFinal(textoPdf));
-  if (tSinNumero && tSinNumero !== t) {
-    const sinNumero = buscar(tSinNumero);
-    if (sinNumero) return sinNumero.nombre;
-  }
-
-  return '';
+  const exacto = catalogo.find(a => norm(a.nombre) === t);
+  if (exacto) return exacto.nombre;
+  const parcial = catalogo.find(a => t.includes(norm(a.nombre)) || norm(a.nombre).includes(t));
+  return parcial ? parcial.nombre : '';
 };
-
-const sugerirAmbiente = (textoPdf: string, catalogo: Catalogo[]): string =>
-  sugerirDeCatalogo(textoPdf, catalogo);
-
-/** Solo viene poblado cuando la papeleta es formato 'orden_visita' (trae columna PARTIDA). */
-const sugerirPartida = (textoPdf: string | undefined, catalogo: Catalogo[]): string =>
-  sugerirDeCatalogo(textoPdf ?? '', catalogo);
 
 const formatRut = (value: string): string => {
   const clean = value.replace(/[^0-9kK]/g, '').toUpperCase();
@@ -219,6 +196,7 @@ const PostVenta: React.FC = () => {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   const [listo, setListo] = useState(false);
+  const [finalizadoOffline, setFinalizadoOffline] = useState(false);
 
   const [anotando, setAnotando] = useState<{ idx: number; tipo: 'antes' | 'despues'; src: string } | null>(null);
 
@@ -228,27 +206,39 @@ const PostVenta: React.FC = () => {
   const [reanudando, setReanudando] = useState(false);
   // Refs para leer el estado más reciente dentro de callbacks con debounce
   const revRef = useRef<RevisionObs[]>([]);
+  const obsRef = useRef<ObservacionPdf[]>([]);
+  const datosRef = useRef<DatosSolicitud>(DATOS_VACIOS);
+  const recNombreRef = useRef('');
+  const recRutRef = useRef('');
+  const sinPapeletaRef = useRef(false);
+  const usuarioIdRef = useRef<string | null>(null);
+  const usuarioEmailRef = useRef<string | null>(null);
+  const creadoEnServidorRef = useRef(false);
+  const syncTimerRef = useRef<any>(null);
   const papeletaIdRef = useRef<string | null>(null);
-  const saveTimers = useRef<Record<string, any>>({});
   const receptorTimer = useRef<any>(null);
-  const fechaHoraTimer = useRef<any>(null);
   const reanudadoRef = useRef(false);
   useEffect(() => { revRef.current = rev; }, [rev]);
+  useEffect(() => { obsRef.current = obs; }, [obs]);
+  useEffect(() => { datosRef.current = datos; }, [datos]);
+  useEffect(() => { recNombreRef.current = recNombre; }, [recNombre]);
+  useEffect(() => { recRutRef.current = recRut; }, [recRut]);
+  useEffect(() => { sinPapeletaRef.current = sinPapeleta; }, [sinPapeleta]);
   useEffect(() => { papeletaIdRef.current = papeletaId; }, [papeletaId]);
 
   /* ---------- paleta ---------- */
-  const bg = dark ? '#0B1220' : '#f0f4f8';
-  const cardGrad = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
-  const border = dark ? '#243550' : '#e2e8f0';
+  const bg = dark ? '#000000' : '#f0f4f8';
+  const cardGrad = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
+  const border = dark ? '#1e1e1e' : '#e2e8f0';
   const textPrimary = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted = dark ? '#5D728F' : '#94a3b8';
-  const toolbar = dark ? '#0E1728' : '#1e3a5f';
-  const inputBg = dark ? '#1B2C48' : '#ffffff';
-  const inputBorder = dark ? '#243550' : '#cbd5e1';
+  const textMuted = dark ? '#444444' : '#94a3b8';
+  const toolbar = dark ? '#000000' : '#1e3a5f';
+  const inputBg = dark ? '#111111' : '#ffffff';
+  const inputBorder = dark ? '#1e1e1e' : '#cbd5e1';
   const accent = dark ? '#60a5fa' : '#2563eb';
   const sepLine = dark
-    ? 'linear-gradient(90deg, transparent, #243550, transparent)'
+    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
     : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   const labelStyle: React.CSSProperties = {
@@ -268,8 +258,8 @@ const PostVenta: React.FC = () => {
   const btnPrimary = (disabled: boolean): React.CSSProperties => ({
     width: '100%', height: 48, borderRadius: 12,
     background: disabled
-      ? (dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : '#f1f5f9')
-      : (dark ? 'linear-gradient(135deg, #243550, #2E4468)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+      ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9')
+      : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
     border: disabled ? `0.5px solid ${border}` : 'none',
     color: disabled ? textMuted : '#fff',
     fontSize: 15, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
@@ -287,6 +277,17 @@ const PostVenta: React.FC = () => {
   });
 
   useEffect(() => { if (tieneContexto) cargar(); /* eslint-disable-next-line */ }, []);
+
+  // Si se recupera la señal mientras esta pantalla sigue abierta, intenta
+  // reflejar el avance en Supabase al toque en vez de esperar el próximo
+  // ciclo de OfflineContext (que igual lo cubre si la pantalla ya se cerró).
+  useEffect(() => {
+    if (online && papeletaId) {
+      const borrador = construirBorrador();
+      if (borrador) void sincronizarBorradorConServidor(borrador).then(ok => { if (ok) creadoEnServidorRef.current = true; });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
 
   const cargar = async () => {
     setLoading(true);
@@ -341,10 +342,11 @@ const PostVenta: React.FC = () => {
   const salir = () => history.goBack();
 
   const reiniciar = () => {
-    Object.values(saveTimers.current).forEach(clearTimeout);
-    saveTimers.current = {};
     clearTimeout(receptorTimer.current);
+    clearTimeout(syncTimerRef.current);
     reanudadoRef.current = false;
+    creadoEnServidorRef.current = false;
+    papeletaIdRef.current = null;
     sessionStorage.removeItem(RESUME_KEY);
     setPapeletaId(null); setSaveState('idle');
     setDatos(DATOS_VACIOS); setObs([]); setRev([]); setAbierta(null);
@@ -377,17 +379,9 @@ const PostVenta: React.FC = () => {
     try {
       const { datos: d, observaciones } = await extraerPapeletaPdf(file);
 
-      console.log(`=== ${file.name} (formato: ${d.formato}) ===`);
+      console.log(`=== ${file.name} ===`);
       console.log(`Req ${d.requerimiento} · Torre ${d.torre} · Depto ${d.depto} · Registro ${d.fechaRegistro} · Atención ${d.fechaAtencion} ${d.horaAtencion} · ${observaciones.length} obs`);
-      observaciones.forEach(o => {
-        const ambienteSugerido = sugerirAmbiente(o.ambiente, ambientes);
-        const partidaSugerida = sugerirPartida(o.partida, partidas);
-        console.log(
-          `  #${o.numero} [${o.ambiente}${o.partida ? ' / ' + o.partida : ''}] → ${o.descripcion}` +
-          ` (ambiente match: ${ambienteSugerido || '— sin match en catálogo —'}` +
-          `${o.partida ? `, partida match: ${partidaSugerida || '— sin match en catálogo —'}` : ''})`
-        );
-      });
+      observaciones.forEach(o => console.log(`  #${o.numero} [${o.ambiente}] → ${o.descripcion}`));
 
       if (observaciones.length === 0) {
         setError('No se extrajeron observaciones del PDF. Verifica el formato.');
@@ -408,14 +402,8 @@ const PostVenta: React.FC = () => {
       const revsIniciales: RevisionObs[] = observaciones.map(o => ({
         ambienteSel: sugerirAmbiente(o.ambiente, ambientes),
         ambienteLibre: '',
-        observacion: '',
-        partida: sugerirPartida(o.partida, partidas),
-        causa: '',
-        // PENDIENTE, no SOLUCIONADO: recién se está leyendo la papeleta, el
-        // inspector todavía no ha revisado ni resuelto nada — asumir
-        // "solucionado" por defecto ocultaba observaciones reales que nunca
-        // se llegaron a mirar.
-        estado: 'PENDIENTE' as const,
+        observacion: '', partida: '', causa: '',
+        estado: 'SOLUCIONADO' as const,
         fotoAntes: null, fotoDespues: null,
         origen: 'papeleta' as const,
       }));
@@ -425,7 +413,7 @@ const PostVenta: React.FC = () => {
       setAbierta(0);
       setPaso('revision');
       // Crea el borrador en la BD → desde aquí todo se guarda solo.
-      crearBorrador(d, observaciones, revsIniciales, false);
+      iniciarBorrador(d, observaciones, revsIniciales, false);
     } catch (e: any) {
       setError(e?.message ?? 'No se pudo leer el PDF');
     }
@@ -442,9 +430,7 @@ const PostVenta: React.FC = () => {
   const revVacia = (origen: RevisionObs['origen'] = 'adicional'): RevisionObs => ({
     ambienteSel: '', ambienteLibre: '',
     observacion: '', partida: '', causa: '',
-    // Mismo criterio que revsIniciales: una observación recién creada no
-    // está resuelta todavía.
-    estado: 'PENDIENTE' as const,
+    estado: 'SOLUCIONADO' as const,
     fotoAntes: null, fotoDespues: null,
     origen,
   });
@@ -460,97 +446,173 @@ const PostVenta: React.FC = () => {
     setAbierta(0);
     setError('');
     setPaso('revision');
-    crearBorrador(DATOS_VACIOS, o, r, true);
+    iniciarBorrador(DATOS_VACIOS, o, r, true);
   };
 
-  const agregarObs = async () => {
+  const agregarObs = () => {
     const nObs = obsVacia(obs.length + 1);
-    const nRev = revVacia('adicional');
+    const nRev: RevisionObs = { ...revVacia('adicional'), id: nuevoId() };
     const idx = obs.length;
-    setObs(prev => [...prev, nObs]);
-    setRev(prev => [...prev, nRev]);
+    const nextObs = [...obs, nObs];
+    const nextRev = [...rev, nRev];
+    setObs(nextObs); obsRef.current = nextObs;
+    setRev(nextRev); revRef.current = nextRev;
     setAbierta(idx);
-    const id = await insertarFilaBorrador(nObs, nRev, idx);
-    if (id) setRev(prev => prev.map((r, i) => (i === idx ? { ...r, id } : r)));
+    void persistirBorrador({ rev: nextRev, obs: nextObs });
   };
 
   // Con papeleta: separa un problema adicional dentro de la MISMA solicitud del
   // cliente. La nueva obs hereda la descripción del PDF de la obs padre para que
   // solicitud_cliente quede igual. Se inserta justo después de su padre.
-  const derivarObs = async (idxPadre: number) => {
+  const derivarObs = (idxPadre: number) => {
     const nObs = { ...obs[idxPadre] };
     const nRev: RevisionObs = {
       ...revVacia('derivada'),
+      id: nuevoId(),
       ambienteSel: rev[idxPadre].ambienteSel,
       ambienteLibre: rev[idxPadre].ambienteLibre,
     };
-    setObs(prev => { const c = [...prev]; c.splice(idxPadre + 1, 0, nObs); return c; });
-    setRev(prev => { const c = [...prev]; c.splice(idxPadre + 1, 0, nRev); return c; });
+    const nextObs = [...obs]; nextObs.splice(idxPadre + 1, 0, nObs);
+    const nextRev = [...rev]; nextRev.splice(idxPadre + 1, 0, nRev);
+    setObs(nextObs); obsRef.current = nextObs;
+    setRev(nextRev); revRef.current = nextRev;
     setAbierta(idxPadre + 1);
-    const id = await insertarFilaBorrador(nObs, nRev, idxPadre + 1);
-    if (id) setRev(prev => prev.map((r, i) => (i === idxPadre + 1 ? { ...r, id } : r)));
+    void persistirBorrador({ rev: nextRev, obs: nextObs });
   };
 
   // Con papeleta: agrega un trabajo NO registrado en la papeleta (se hizo en la
   // misma visita). No tiene solicitud del cliente → se guarda con null.
-  const agregarAdicional = async () => {
+  const agregarAdicional = () => {
     const nObs = obsVacia(obs.length + 1);
-    const nRev = revVacia('adicional');
+    const nRev: RevisionObs = { ...revVacia('adicional'), id: nuevoId() };
     const idx = obs.length;
-    setObs(prev => [...prev, nObs]);
-    setRev(prev => [...prev, nRev]);
+    const nextObs = [...obs, nObs];
+    const nextRev = [...rev, nRev];
+    setObs(nextObs); obsRef.current = nextObs;
+    setRev(nextRev); revRef.current = nextRev;
     setAbierta(idx);
-    const id = await insertarFilaBorrador(nObs, nRev, idx);
-    if (id) setRev(prev => prev.map((r, i) => (i === idx ? { ...r, id } : r)));
+    void persistirBorrador({ rev: nextRev, obs: nextObs });
   };
 
-  const quitarObs = async (idx: number) => {
+  const quitarObs = (idx: number) => {
     if (obs.length <= 1) return; // siempre queda al menos una
     const id = rev[idx]?.id;
-    setObs(prev => prev.filter((_, i) => i !== idx));
-    setRev(prev => prev.filter((_, i) => i !== idx));
+    const nextObs = obs.filter((_, i) => i !== idx);
+    const nextRev = rev.filter((_, i) => i !== idx);
+    setObs(nextObs); obsRef.current = nextObs;
+    setRev(nextRev); revRef.current = nextRev;
     setAbierta(null);
-    if (id) {
-      clearTimeout(saveTimers.current[id]);
-      try { await supabase.from(T_BORRADOR).delete().eq('id', id); } catch {}
+    void persistirBorrador({ rev: nextRev, obs: nextObs });
+    // Best-effort: si esa fila ya se había reflejado en Supabase, se borra
+    // allá también. Si falla por estar offline, no se pierde nada del lado
+    // local (ya se quitó de aquí); solo puede quedar una fila huérfana en el
+    // borrador remoto hasta la próxima revisión manual — caso raro.
+    if (id && online) {
+      supabase.from(T_BORRADOR).delete().eq('id', id).then(() => {}, () => {});
     }
-  };
-
-  /* ---------- edición ---------- */
-  // Cambio puro en memoria (sin tocar la BD).
-  const setCampoLocal = (idx: number, campo: keyof RevisionObs, valor: any) => {
-    setRev(prev => prev.map((r, i) => (i === idx ? { ...r, [campo]: valor } : r)));
-  };
-  // Edición con guardado automático (debounce) del borrador.
-  const setCampo = (idx: number, campo: keyof RevisionObs, valor: any) => {
-    setCampoLocal(idx, campo, valor);
-    guardarFilaDebounced(idx);
   };
 
   const ambienteFinal = (r: RevisionObs) =>
     (r.ambienteSel === OTRO ? r.ambienteLibre : r.ambienteSel).trim();
 
-  /**
-   * En la plantilla "orden_visita" (Aconcagua), la OBSERVACIÓN del PDF sola
-   * no da contexto completo — "FILTRA" no dice de qué (cielo, ventana,
-   * cañería...). El PDF sí trae esa pieza en la columna PARTIDA ("CIELO"),
-   * pero el parser la expone aparte (o.partida) en vez de mezclarla con la
-   * descripción. Se combinan acá, en el único punto de donde sale
-   * "solicitud del cliente" (para mostrar Y para guardar), así el contexto
-   * completo queda disponible en todos lados que lean solicitud_cliente
-   * después (el PDF final, el informe, el modal del calendario) sin tener
-   * que tocar cada uno por separado.
-   * En la plantilla vieja ("solicitud") o.partida no existe — queda igual
-   * que antes, solo la descripción.
-   */
-  const contextoObs = (o: ObservacionPdf) =>
-    o.partida ? `${o.partida}: ${o.descripcion}` : o.descripcion;
+  const nuevoId = (): string =>
+    (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   /* ------------------------------------------------------------------ */
-  /*  Guardado automático del borrador (crear / actualizar / reanudar)   */
+  /*  Guardado LOCAL-FIRST del borrador (crear / actualizar / reanudar)  */
+  /*                                                                      */
+  /*  Cada edición se guarda PRIMERO en IndexedDB (siempre funciona, no  */
+  /*  depende de la red) y, aparte, con su propio debounce, se intenta   */
+  /*  reflejar en Supabase para que la tarjeta de "visita en progreso"   */
+  /*  en DetalleDepto se vea al día. Si ese reflejo falla (sin señal),   */
+  /*  no se pierde nada: el dato ya está a salvo en el borrador local y  */
+  /*  el ciclo global de OfflineContext lo reintenta solo más adelante,  */
+  /*  esté o no esta pantalla abierta.                                   */
   /* ------------------------------------------------------------------ */
 
   const idxPorId = (id: string) => revRef.current.findIndex(r => r.id === id);
+
+  // Arma el snapshot completo del borrador a partir del estado actual, con
+  // overrides puntuales para no depender de que React ya haya re-renderizado
+  // cuando se llama justo después de un setX() (los refs se actualizan en un
+  // efecto, un paso después).
+  const construirBorrador = (over: {
+    rev?: RevisionObs[]; obs?: ObservacionPdf[]; datos?: DatosSolicitud;
+    recNombre?: string; recRut?: string; sinPapeleta?: boolean;
+  } = {}): BorradorLocal | null => {
+    const pid = papeletaIdRef.current;
+    if (!pid) return null;
+    const revActual = over.rev ?? revRef.current;
+    const obsActual = over.obs ?? obsRef.current;
+    const sinPapeletaActual = over.sinPapeleta ?? sinPapeletaRef.current;
+    const datosActual = over.datos ?? datosRef.current;
+    return {
+      id: pid,
+      depto_id: depto.id,
+      proyecto_id: proyecto.id,
+      proyecto_codigo: proyectoCodigo || proyecto.codigo || null,
+      torre_codigo: torre.nombre,
+      depto_numero: depto.numero,
+      sin_papeleta: sinPapeletaActual,
+      n_requerimiento: sinPapeletaActual ? null : (datosActual.requerimiento || null),
+      fecha_registro: datosActual.fechaRegistro || null,
+      fecha_atencion: datosActual.fechaAtencion || null,
+      hora_atencion: datosActual.horaAtencion || null,
+      condominio: datosActual.condominio || null,
+      receptor_nombre: over.recNombre ?? recNombreRef.current,
+      receptor_rut: over.recRut ?? recRutRef.current,
+      usuario_id: usuarioIdRef.current,
+      usuario_email: usuarioEmailRef.current,
+      usuario_nombre: inspectorNombre || null,
+      filas: revActual.filter(r => r.id).map((r, i) => ({
+        id: r.id!,
+        orden: i,
+        origen: r.origen ?? 'papeleta',
+        solicitud_cliente: (sinPapeletaActual || r.origen === 'adicional') ? null : (obsActual[i]?.descripcion ?? null),
+        solicitud_ambiente: obsActual[i]?.ambiente ?? null,
+        ambiente: ambienteFinal(r) || null,
+        observacion: r.observacion.trim() || null,
+        partida_afectada: r.partida || null,
+        causa: r.causa || null,
+        estado: r.estado,
+        foto_antes: r.fotoAntes ?? null,
+        foto_despues: r.fotoDespues ?? null,
+      })),
+      estado: 'EN_PROGRESO',
+      creadoEnServidor: creadoEnServidorRef.current,
+      actualizado_en: new Date().toISOString(),
+    };
+  };
+
+  // Guarda el snapshot en IndexedDB de inmediato (sin debounce: es barato y
+  // siempre funciona) y programa, aparte, un intento de reflejarlo en
+  // Supabase con un pequeño debounce para no saturar la red con cada tecleo.
+  const persistirBorrador = async (over: Parameters<typeof construirBorrador>[0] = {}) => {
+    const borrador = construirBorrador(over);
+    if (!borrador) return; // aún no se ha creado el borrador (crearBorrador no ha corrido)
+    try {
+      await guardarBorradorLocal(borrador);
+      setSaveState('saved');
+    } catch (e) {
+      console.error('[PostVenta] No se pudo guardar el borrador local:', e);
+      setSaveState('error');
+      return; // si ni siquiera el guardado local funcionó, no tiene sentido intentar la red
+    }
+    clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      if (!online) return; // se reintentará solo al reconectar (OfflineContext)
+      void sincronizarBorradorConServidor(borrador).then(ok => {
+        if (ok) creadoEnServidorRef.current = true;
+      });
+    }, 700);
+  };
+
+  // Fuerza el guardado local + intento de sync antes de finalizar.
+  const flushGuardadoFilas = async () => {
+    clearTimeout(syncTimerRef.current);
+    await persistirBorrador();
+    if (online) await sincronizarBorradorConServidor(construirBorrador()!);
+  };
 
   // Sube una foto al bucket y devuelve la URL pública. Si falla (sin conexión),
   // el llamador guarda el data URL directo como respaldo.
@@ -573,197 +635,85 @@ const PostVenta: React.FC = () => {
     } catch { return undefined; }
   };
 
-  // Guarda un solo campo del borrador (usado por fotos, inmediato).
-  const guardarCampoDB = async (id: string, campo: string, valor: any) => {
-    setSaveState('saving');
-    const { data, error } = await supabase.from(T_BORRADOR)
-      .update({ [campo]: valor, updated_at: new Date().toISOString() })
-      .eq('id', id).select('id').maybeSingle();
-    setSaveState(error || !data ? 'error' : 'saved');
+  // Edición con guardado automático (local-first) del borrador.
+  const setCampo = (idx: number, campo: keyof RevisionObs, valor: any) => {
+    setRev(prev => {
+      const next = prev.map((r, i) => (i === idx ? { ...r, [campo]: valor } : r));
+      revRef.current = next; // fresco de inmediato, sin esperar el efecto
+      void persistirBorrador({ rev: next });
+      return next;
+    });
   };
 
-  // Guarda los campos editables de una fila del borrador (por id, robusto a reordenamientos).
-  const guardarFilaPorId = async (id: string) => {
-    const idx = idxPorId(id);
-    if (idx < 0) return;
-    const r = revRef.current[idx];
-    setSaveState('saving');
-    const { data, error } = await supabase.from(T_BORRADOR)
-      .update({
-        ambiente: ambienteFinal(r) || null,
-        observacion: r.observacion.trim() || null,
-        partida_afectada: r.partida || null,
-        causa: r.causa || null,
-        estado: r.estado,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id).select('id').maybeSingle();
-    setSaveState(error || !data ? 'error' : 'saved');
-  };
-
-  const guardarFilaDebounced = (idx: number) => {
-    const id = revRef.current[idx]?.id ?? rev[idx]?.id;
-    if (!id) return;
-    clearTimeout(saveTimers.current[id]);
-    saveTimers.current[id] = setTimeout(() => guardarFilaPorId(id), 700);
-  };
-
-  // Fuerza el guardado de todas las filas pendientes (antes de finalizar).
-  const flushGuardadoFilas = async () => {
-    Object.values(saveTimers.current).forEach(clearTimeout);
-    saveTimers.current = {};
-    await Promise.all(revRef.current.filter(r => r.id).map(r => guardarFilaPorId(r.id!)));
-  };
-
-  // Preview instantáneo + subida a Storage + guardado inmediato en el borrador.
-  // Sin conexión: guarda el data URL directo como respaldo (se sube al reintentar).
+  // Preview instantáneo + guardado local inmediato + subida a Storage en
+  // segundo plano. Sin conexión: el data URL queda guardado como respaldo en
+  // el borrador local y se reemplaza por la URL de Storage cuando se pueda.
   const setFotoYGuardar = async (idx: number, tipo: 'antes' | 'despues', dataUrl: string | null) => {
     const campo = tipo === 'antes' ? 'fotoAntes' : 'fotoDespues';
-    const campoDB = tipo === 'antes' ? 'foto_antes' : 'foto_despues';
     setCampoLocal(idx, campo, dataUrl);
-    const id = revRef.current[idx]?.id ?? rev[idx]?.id;
-    if (!id) return;
-    if (!dataUrl) { await guardarCampoDB(id, campoDB, null); return; }
-    setSaveState('saving');
-    let valor = dataUrl;
+    const next = revRef.current.map((r, i) => (i === idx ? { ...r, [campo]: dataUrl } : r));
+    revRef.current = next;
+    await persistirBorrador({ rev: next });
+
+    if (!dataUrl || !online) return; // sin conexión, el data URL local ya quedó a salvo arriba
     try {
-      valor = await subirFotoBorrador(dataUrl);
-      const i = idxPorId(id);
-      if (i >= 0) setCampoLocal(i, campo, valor); // reemplaza preview por URL de Storage
+      const url = await subirFotoBorrador(dataUrl);
+      const i = idxPorId(revRef.current[idx]?.id ?? '');
+      if (i >= 0) {
+        setCampoLocal(i, campo, url);
+        const next2 = revRef.current.map((r, j) => (j === i ? { ...r, [campo]: url } : r));
+        revRef.current = next2;
+        await persistirBorrador({ rev: next2 });
+      }
     } catch {
-      /* sin conexión: se conserva el data URL como respaldo */
+      /* sin conexión a mitad de camino: se conserva el data URL como respaldo */
     }
-    await guardarCampoDB(id, campoDB, valor);
   };
 
-  // Crea el borrador (papeleta padre + una fila por observación) apenas se
-  // inicia la visita. Desde este momento, cada cambio se persiste solo.
-  const crearBorrador = async (
+  // Cambio puro en memoria (sin persistir) — usado como paso intermedio por
+  // setFotoYGuardar, que persiste explícitamente después.
+  function setCampoLocal(idx: number, campo: keyof RevisionObs, valor: any) {
+    setRev(prev => prev.map((r, i) => (i === idx ? { ...r, [campo]: valor } : r)));
+  }
+
+  // Crea el borrador LOCAL apenas se inicia la visita: el id se genera en el
+  // cliente (no depende de la red), así que la visita queda protegida desde
+  // el primer instante, incluso si se inicia completamente sin conexión.
+  // El reflejo en Supabase se intenta aparte, en segundo plano.
+  const iniciarBorrador = async (
     d: DatosSolicitud,
     observaciones: ObservacionPdf[],
     revs: RevisionObs[],
     esSinPapeleta: boolean,
   ) => {
+    const pid = nuevoId();
+    const revsConId = revs.map(r => ({ ...r, id: r.id ?? nuevoId() }));
+
     try {
       const { data: sess } = await supabase.auth.getSession();
-      const user = sess?.session?.user;
+      usuarioIdRef.current = sess?.session?.user?.id ?? null;
+      usuarioEmailRef.current = (sess?.session?.user?.email ?? '').toLowerCase() || null;
+    } catch { /* offline: sigue sin usuario resuelto, se completa al sincronizar */ }
 
-      const { data: pap, error: errPap } = await supabase.from(T_PAPELETA).insert({
-        proyecto_id: proyecto.id,
-        proyecto_codigo: proyectoCodigo || proyecto.codigo || null,
-        torre_codigo: torre.nombre,
-        depto_numero: depto.numero,
-        departamento_id: depto.id,
-        sin_papeleta: esSinPapeleta,
-        n_requerimiento: esSinPapeleta ? null : (d.requerimiento || null),
-        fecha_registro: d.fechaRegistro || null,
-        fecha_atencion: d.fechaAtencion || null,
-        hora_atencion: d.horaAtencion || null,
-        condominio: d.condominio || null,
-        estado: 'EN_PROGRESO',
-        usuario_id: user?.id ?? null,
-        usuario_email: (user?.email ?? '').toLowerCase() || null,
-        usuario_nombre: inspectorNombre || null,
-      }).select('id').maybeSingle();
+    creadoEnServidorRef.current = false;
+    setPapeletaId(pid);
+    papeletaIdRef.current = pid;
+    setRev(revsConId);
+    revRef.current = revsConId;
+    setObs(observaciones);
+    obsRef.current = observaciones;
+    sinPapeletaRef.current = esSinPapeleta;
+    datosRef.current = d;
 
-      if (errPap || !pap) { setSaveState('error'); return; }
-
-      const filas = revs.map((r, i) => ({
-        papeleta_id: pap.id,
-        orden: i,
-        origen: r.origen ?? 'papeleta',
-        solicitud_cliente: (esSinPapeleta || r.origen === 'adicional') ? null : (observaciones[i] ? contextoObs(observaciones[i]) : null),
-        solicitud_ambiente: observaciones[i]?.ambiente ?? null,
-        ambiente: ambienteFinal(r) || null,
-        observacion: r.observacion.trim() || null,
-        partida_afectada: r.partida || null,
-        causa: r.causa || null,
-        estado: r.estado,
-      }));
-
-      const { data: hijos, error: errHijos } = await supabase.from(T_BORRADOR)
-        .insert(filas).select('id, orden');
-
-      if (errHijos || !hijos) { setSaveState('error'); return; }
-
-      const idPorOrden = new Map<number, string>(hijos.map((h: any) => [h.orden, h.id]));
-      setRev(prev => prev.map((r, i) => ({ ...r, id: idPorOrden.get(i) })));
-      setPapeletaId(pap.id);
-      setSaveState('saved');
-    } catch {
-      setSaveState('error');
-    }
-  };
-
-  // Inserta una fila nueva en el borrador (obs derivada / adicional) y devuelve su id.
-  const insertarFilaBorrador = async (rObs: ObservacionPdf, r: RevisionObs, orden: number): Promise<string | null> => {
-    const pid = papeletaIdRef.current;
-    if (!pid) return null;
-    const { data, error } = await supabase.from(T_BORRADOR).insert({
-      papeleta_id: pid,
-      orden,
-      origen: r.origen ?? 'adicional',
-      solicitud_cliente: (sinPapeleta || r.origen === 'adicional') ? null : (rObs.descripcion ? contextoObs(rObs) : null),
-      solicitud_ambiente: rObs.ambiente ?? null,
-      ambiente: ambienteFinal(r) || null,
-      observacion: r.observacion.trim() || null,
-      partida_afectada: r.partida || null,
-      causa: r.causa || null,
-      estado: r.estado,
-    }).select('id').maybeSingle();
-    if (error || !data) { setSaveState('error'); return null; }
-    return data.id;
+    await persistirBorrador({ rev: revsConId, obs: observaciones, sinPapeleta: esSinPapeleta, datos: d });
   };
 
   const guardarReceptorDebounced = (nombre: string, rut: string) => {
-    const pid = papeletaIdRef.current;
-    if (!pid) return;
+    if (!papeletaIdRef.current) return;
     clearTimeout(receptorTimer.current);
-    receptorTimer.current = setTimeout(async () => {
-      setSaveState('saving');
-      const { error } = await supabase.from(T_PAPELETA)
-        .update({ receptor_nombre: nombre.trim() || null, receptor_rut: rut.trim() || null, updated_at: new Date().toISOString() })
-        .eq('id', pid);
-      setSaveState(error ? 'error' : 'saved');
-    }, 700);
-  };
-
-  /**
-   * La fecha/hora de atención que trae la papeleta "orden_visita" no
-   * siempre es confiable como hora real de la visita (ver el comentario en
-   * extraerPapeletaPdf.ts: esa plantilla no imprime ninguna hora de visita,
-   * solo la de registro del pedido) — por eso quedan editables acá, con el
-   * mismo guardado automático que ya usan receptor_nombre/receptor_rut.
-   * Se guarda tal cual se ve en pantalla (texto), sin normalizar formato:
-   * el resto de la app (calendario, informe) ya sabe leer los formatos que
-   * el usuario probablemente escriba.
-   */
-  const guardarFechaHoraDebounced = (fecha: string, hora: string) => {
-    const pid = papeletaIdRef.current;
-    if (!pid) return;
-    clearTimeout(fechaHoraTimer.current);
-    fechaHoraTimer.current = setTimeout(async () => {
-      setSaveState('saving');
-      const { error } = await supabase.from(T_PAPELETA)
-        .update({ fecha_atencion: fecha.trim() || null, hora_atencion: hora.trim() || null, updated_at: new Date().toISOString() })
-        .eq('id', pid);
-      setSaveState(error ? 'error' : 'saved');
-    }, 700);
-  };
-
-  /** "DD-MM-YYYY" o "DD/MM/YYYY" -> "YYYY-MM-DD" (lo que exige <input type="date">). '' si no calza. */
-  const fechaTextoAIso = (texto: string): string => {
-    const m = (texto || '').trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (!m) return '';
-    const [, d, mo, y] = m;
-    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  };
-  /** "YYYY-MM-DD" -> "DD-MM-YYYY" (formato de guardado, consistente con la plantilla nueva). */
-  const isoAFechaTexto = (iso: string): string => {
-    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return '';
-    const [, y, mo, d] = m;
-    return `${d}-${mo}-${y}`;
+    receptorTimer.current = setTimeout(() => {
+      void persistirBorrador({ recNombre: nombre, recRut: rut });
+    }, 300);
   };
 
   // Reconstruye ambienteSel / ambienteLibre a partir del ambiente guardado.
@@ -774,10 +724,62 @@ const PostVenta: React.FC = () => {
     return match ? { sel: match.nombre, libre: '' } : { sel: OTRO, libre: val };
   };
 
-  // Reanuda un borrador EN_PROGRESO: hidrata datos, obs, rev y receptor.
+  // Reanuda un borrador EN_PROGRESO: primero intenta desde el borrador LOCAL
+  // (IndexedDB) — funciona sin conexión y siempre trae lo último tecleado,
+  // incluso si nunca llegó a reflejarse en Supabase. Si no hay copia local
+  // (dispositivo distinto, reinstalación de la app), cae a Supabase como
+  // respaldo — y de ahí en adelante ya queda protegido localmente también.
   const hidratarBorrador = async (pid: string, catalogo: Catalogo[]) => {
     setReanudando(true);
     try {
+      const local = leerBorradorLocal(pid);
+
+      if (local) {
+        creadoEnServidorRef.current = local.creadoEnServidor;
+        usuarioIdRef.current = local.usuario_id;
+        usuarioEmailRef.current = local.usuario_email;
+        setSinPapeleta(local.sin_papeleta);
+        setDatos({
+          condominio: local.condominio ?? '', depto: String(local.depto_numero ?? ''), torre: local.torre_codigo ?? '',
+          requerimiento: local.n_requerimiento ?? '', fechaRegistro: local.fecha_registro ?? '',
+          fechaAtencion: local.fecha_atencion ?? '', horaAtencion: local.hora_atencion ?? '',
+          formato: 'solicitud', // el borrador no persiste el formato de origen; no se usa tras la carga inicial
+        });
+        setRecNombre(local.receptor_nombre ?? '');
+        setRecRut(local.receptor_rut ?? '');
+        setPapeletaId(pid);
+        papeletaIdRef.current = pid;
+
+        setObs(local.filas.map((h, i) => ({
+          numero: String(i + 1), ambiente: h.solicitud_ambiente ?? '', descripcion: h.solicitud_cliente ?? '',
+        } as ObservacionPdf)));
+
+        setRev(local.filas.map(h => {
+          const a = reconstruirAmbiente(h.ambiente, catalogo);
+          return {
+            id: h.id,
+            ambienteSel: a.sel, ambienteLibre: a.libre,
+            observacion: h.observacion ?? '',
+            partida: h.partida_afectada ?? '',
+            causa: h.causa ?? '',
+            estado: (h.estado ?? 'SOLUCIONADO') as RevisionObs['estado'],
+            fotoAntes: h.foto_antes ?? null,
+            fotoDespues: h.foto_despues ?? null,
+            origen: h.origen as RevisionObs['origen'],
+          } as RevisionObs;
+        }));
+
+        setAbierta(0);
+        setPaso('revision');
+        setSaveState('saved');
+        // Aprovecha para intentar ponerse al día con el servidor si hay señal.
+        if (online) void sincronizarBorradorConServidor(local);
+        sessionStorage.removeItem(RESUME_KEY);
+        setReanudando(false);
+        return;
+      }
+
+      // Sin copia local: reanudación desde otro dispositivo o app reinstalada.
       const { data: pap } = await supabase.from(T_PAPELETA).select('*').eq('id', pid).maybeSingle();
       if (!pap) { sessionStorage.removeItem(RESUME_KEY); setReanudando(false); return; }
       // Una visita ya cerrada no se reabre para editar (evita reinsertar en BD).
@@ -788,16 +790,20 @@ const PostVenta: React.FC = () => {
         .order('orden', { ascending: true }).order('created_at', { ascending: true });
       const filas = hijos ?? [];
 
+      creadoEnServidorRef.current = true;
+      usuarioIdRef.current = pap.usuario_id ?? null;
+      usuarioEmailRef.current = pap.usuario_email ?? null;
       setSinPapeleta(!!pap.sin_papeleta);
       setDatos({
-        formato: 'solicitud', // el borrador guardado no persiste el formato de origen; no se usa tras la carga inicial
         condominio: pap.condominio ?? '', depto: pap.depto_numero ?? '', torre: pap.torre_codigo ?? '',
         requerimiento: pap.n_requerimiento ?? '', fechaRegistro: pap.fecha_registro ?? '',
         fechaAtencion: pap.fecha_atencion ?? '', horaAtencion: pap.hora_atencion ?? '',
+        formato: 'solicitud', // el borrador guardado no persiste el formato de origen; no se usa tras la carga inicial
       });
       setRecNombre(pap.receptor_nombre ?? '');
       setRecRut(pap.receptor_rut ?? '');
       setPapeletaId(pid);
+      papeletaIdRef.current = pid;
 
       setObs(filas.map((h: any, i: number) => ({
         numero: String(i + 1),
@@ -805,7 +811,7 @@ const PostVenta: React.FC = () => {
         descripcion: h.solicitud_cliente ?? '',
       } as ObservacionPdf)));
 
-      setRev(filas.map((h: any) => {
+      const revsHidratados = filas.map((h: any) => {
         const a = reconstruirAmbiente(h.ambiente, catalogo);
         return {
           id: h.id,
@@ -813,18 +819,20 @@ const PostVenta: React.FC = () => {
           observacion: h.observacion ?? '',
           partida: h.partida_afectada ?? '',
           causa: h.causa ?? '',
-          // Fallback defensivo si la fila no trajera estado por algún
-          // motivo: PENDIENTE, nunca asumir que algo ya se resolvió.
-          estado: (h.estado ?? 'PENDIENTE') as RevisionObs['estado'],
+          estado: (h.estado ?? 'SOLUCIONADO') as RevisionObs['estado'],
           fotoAntes: h.foto_antes ?? null,
           fotoDespues: h.foto_despues ?? null,
           origen: (h.origen ?? 'papeleta') as RevisionObs['origen'],
         } as RevisionObs;
-      }));
+      });
+      setRev(revsHidratados);
+      revRef.current = revsHidratados;
 
       setAbierta(0);
       setPaso('revision');
       setSaveState('saved');
+      // A partir de ahora esta visita también queda protegida localmente.
+      await persistirBorrador({ rev: revsHidratados });
     } catch {
       setSaveState('error');
     }
@@ -949,7 +957,7 @@ const PostVenta: React.FC = () => {
   const finalizar = async () => {
     if (!firmaDataUrl) { setError('La firma de quien recibe es obligatoria'); return; }
 
-    setGuardando(true); setError('');
+    setGuardando(true); setError(''); setFinalizadoOffline(false);
     try {
       // Asegura que lo último tecleado quede persistido antes de cerrar.
       await flushGuardadoFilas();
@@ -968,20 +976,25 @@ const PostVenta: React.FC = () => {
         console.warn('Fecha fuera del calendario de semanas VAIN:', datos.fechaAtencion);
       }
 
-      // Firma → storage. No bloquea: si falla, igual queda embebida en el PDF.
+      // Blob de la firma, listo para subir a Storage o para guardar en la cola
+      // offline si no hay (o se pierde) la conexión.
+      const firmaBlobLocal = await fetch(firmaDataUrl).then(r => r.blob());
+
+      // Firma → storage. Solo se intenta si hay conexión; si falla o estamos
+      // offline, el Blob local se guarda en la cola y se sube al reconectar
+      // (mientras tanto, el PDF de abajo ya la incluye embebida igual).
       let firmaUrl: string | null = null;
-      try {
-        const firmaBlob = await fetch(firmaDataUrl).then(r => r.blob());
-        if (firmaBlob.size > 0) {
+      if (online && firmaBlobLocal.size > 0) {
+        try {
           const nombre = `firma_pv_${depto.id}_${Date.now()}.png`;
           const { error: upErr } = await supabase.storage
             .from('fotos-registros')
-            .upload(`firmas/${nombre}`, new File([firmaBlob], nombre, { type: 'image/png' }), { upsert: true });
+            .upload(`firmas/${nombre}`, firmaBlobLocal, { contentType: 'image/png', upsert: true });
           if (!upErr) {
             firmaUrl = supabase.storage.from('fotos-registros').getPublicUrl(`firmas/${nombre}`).data.publicUrl;
           }
-        }
-      } catch { /* ignorado a propósito */ }
+        } catch { /* se reintenta en la cola offline más abajo */ }
+      }
 
       // Los datos del propietario NO se repiten acá: viven en `departamentos`
       // y se alcanzan por departamento_id. Lo que sí es propio de esta visita
@@ -994,13 +1007,13 @@ const PostVenta: React.FC = () => {
           torre_codigo: torre.nombre,
           depto_numero: depto.numero,
           departamento_id: depto.id,
-          tipo: 'PV',
+          tipo: 'PV' as const,
           estado: rev[i].estado,
           // Trabajo no registrado en la papeleta → sin número de requerimiento.
           n_requerimiento: (sinPapeleta || esAdicional) ? null : (datos.requerimiento || null),
           // Sin solicitud del cliente para urgencias y trabajos adicionales.
           // Las derivadas heredan la descripción del padre (viene en o.descripcion).
-          solicitud_cliente: (sinPapeleta || esAdicional) ? null : contextoObs(o),
+          solicitud_cliente: (sinPapeleta || esAdicional) ? null : o.descripcion,
           observacion: rev[i].observacion.trim(),
           ambiente: ambienteFinal(rev[i]),
           partida_afectada: rev[i].partida || null,
@@ -1016,9 +1029,8 @@ const PostVenta: React.FC = () => {
         };
       });
 
-      const { error: insErr } = await supabase.from('observacionesinformepv').insert(filas);
-      if (insErr) throw new Error(insErr.message);
-
+      // ── El PDF se genera y se guarda SIEMPRE, sin depender de la red ──
+      // Así el técnico nunca se queda sin su informe, tenga o no señal.
       // Las fotos pueden estar como URL de Storage (visita reanudada) o como
       // data URL (recién tomadas). jsPDF necesita base64, así que convertimos.
       const fotosAntes = await Promise.all(rev.map(r => (r.fotoAntes ? urlADataUrl(r.fotoAntes) : Promise.resolve(undefined))));
@@ -1037,7 +1049,7 @@ const PostVenta: React.FC = () => {
         observaciones: obs.map((o, i) => ({
           numero: String(i + 1),
           ambiente: ambienteFinal(rev[i]),
-          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : contextoObs(o),
+          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : o.descripcion,
           observacion: rev[i].observacion.trim(),
           partida: rev[i].partida || undefined,
           causa: rev[i].causa || undefined,
@@ -1052,19 +1064,46 @@ const PostVenta: React.FC = () => {
       const fileName = `PostVenta_${torre.nombre}_${depto.numero}_${datos.requerimiento || Date.now()}.pdf`;
       await guardarPdfBlob(pdfBlob, fileName, `Post venta · Torre ${torre.nombre} · Depto ${depto.numero}`);
 
-      // Cierra el borrador: la visita queda COMPLETADA y deja de aparecer como
-      // "en progreso" en DetalleDepto. Los datos definitivos ya están en
-      // observacionesinformepv (INSERT de arriba).
-      if (papeletaId) {
-        await supabase.from(T_PAPELETA).update({
-          estado: 'COMPLETADA',
-          fecha_completada: new Date().toISOString(),
-          receptor_nombre: recNombre.trim() || null,
-          receptor_rut: recRut.trim() || null,
-          receptor_firma_url: firmaUrl,
-          updated_at: new Date().toISOString(),
-        }).eq('id', papeletaId);
+      // ── Guardado en el servidor: online primero, cola offline si falla ──
+      // Antes, si esto fallaba por falta de señal, toda la visita (incluida
+      // la firma ya capturada) se perdía con un error en pantalla. Ahora, si
+      // no hay conexión o la subida falla, se encola completa en el
+      // dispositivo y se sincroniza sola al reconectar.
+      let guardadoOnline = false;
+      if (online) {
+        try {
+          const { error: insErr } = await supabase.from('observacionesinformepv').insert(filas);
+          if (insErr) throw new Error(insErr.message);
+
+          // Cierra el borrador: la visita queda COMPLETADA y deja de aparecer
+          // como "en progreso" en DetalleDepto.
+          if (papeletaId) {
+            await supabase.from(T_PAPELETA).update({
+              estado: 'COMPLETADA',
+              fecha_completada: new Date().toISOString(),
+              receptor_nombre: recNombre.trim() || null,
+              receptor_rut: recRut.trim() || null,
+              receptor_firma_url: firmaUrl,
+              updated_at: new Date().toISOString(),
+            }).eq('id', papeletaId);
+          }
+          guardadoOnline = true;
+        } catch (e) {
+          console.warn('[PostVenta] No se pudo guardar en el servidor, se encola offline:', e);
+        }
       }
+
+      if (!guardadoOnline) {
+        // Si la firma ya se subió a Storage (firmaUrl no es null) no hace
+        // falta reintentar la subida del Blob; si no, se sube al sincronizar.
+        await encolarFinalizacionPostventa(papeletaId, filas, firmaUrl ? null : firmaBlobLocal);
+        setFinalizadoOffline(true);
+      }
+
+      // La visita ya quedó cerrada (en el servidor o en la cola de
+      // finalización offline, que la lleva completa); el borrador local de
+      // avance ya no hace falta.
+      if (papeletaId) await eliminarBorradorLocal(papeletaId);
 
       setListo(true);
       setTimeout(() => { setListo(false); reiniciar(); }, 2000);
@@ -1088,7 +1127,7 @@ const PostVenta: React.FC = () => {
 
   const metaChip = (label: string, valor: string) => (
     <div style={{
-      background: dark ? '#1B2C48' : '#f8fafc', border: `0.5px solid ${border}`,
+      background: dark ? '#111111' : '#f8fafc', border: `0.5px solid ${border}`,
       borderRadius: 10, padding: '6px 10px', flex: '1 1 auto', minWidth: 96,
     }}>
       <div style={{ fontSize: 8, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 600, marginBottom: 2 }}>{label}</div>
@@ -1096,33 +1135,12 @@ const PostVenta: React.FC = () => {
     </div>
   );
 
-  /**
-   * Variante editable de metaChip, para fecha/hora de atención: la
-   * papeleta "orden_visita" no siempre trae la hora real de la visita (ver
-   * extraerPapeletaPdf.ts), así que el profesional necesita poder
-   * corregirla — no alcanza con mostrarla como texto fijo.
-   */
-  const metaChipEditable = (label: string, input: React.ReactNode) => (
-    <div style={{
-      background: dark ? '#1B2C48' : '#f8fafc', border: `0.5px solid ${border}`,
-      borderRadius: 10, padding: '6px 10px', flex: '1 1 auto', minWidth: 96,
-    }}>
-      <div style={{ fontSize: 8, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 600, marginBottom: 2 }}>{label}</div>
-      {input}
-    </div>
-  );
-
-  const inputMetaStyle: React.CSSProperties = {
-    width: '100%', border: 'none', background: 'transparent', padding: 0,
-    fontSize: 12, color: textPrimary, fontWeight: 600, fontFamily: 'inherit',
-  };
-
   const tarjetaDepto = (
-    <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 14, background: dark ? 'linear-gradient(135deg, #16233B 0%, #1E2E4A 100%)' : '#fff' }}>
+    <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 14, background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff' }}>
       <div style={{
         width: 46, height: 46, borderRadius: 12,
-        background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
-        border: dark ? '0.5px solid #2E4468' : 'none',
+        background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+        border: dark ? '0.5px solid #2a2a2a' : 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0,
       }}>{depto?.numero}</div>
@@ -1199,7 +1217,7 @@ const PostVenta: React.FC = () => {
       <IonPage id="main-content">
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' } as any}>
-            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' } as any}
+            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any}
               onClick={() => history.push('/dashboard')}>← Volver</IonButton>
             <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>POST VENTA</IonTitle>
           </IonToolbar>
@@ -1225,7 +1243,7 @@ const PostVenta: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' } as any}>
           <IonButton slot="start" fill="clear"
-            style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' } as any}
+            style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any}
             onClick={() => (paso === 'carga' ? salir() : paso === 'firma' ? setPaso('revision') : reiniciar())}>
             ← Volver
           </IonButton>
@@ -1245,7 +1263,7 @@ const PostVenta: React.FC = () => {
       </IonHeader>
 
       <IonContent style={{ '--background': bg } as any}>
-        <div style={{ padding: '16px 16px 100px' }}>
+        <div style={{ padding: 16 }}>
 
           {/* ============ PASO 1 · CARGA ============ */}
           {paso === 'carga' && (
@@ -1326,31 +1344,8 @@ const PostVenta: React.FC = () => {
               {!sinPapeleta && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                   {metaChip('registro', datos.fechaRegistro)}
-                  {metaChipEditable('atención', (
-                    <input
-                      type="date"
-                      value={fechaTextoAIso(datos.fechaAtencion)}
-                      onChange={e => {
-                        const nueva = isoAFechaTexto(e.target.value);
-                        setDatos(d => ({ ...d, fechaAtencion: nueva }));
-                        guardarFechaHoraDebounced(nueva, datos.horaAtencion);
-                      }}
-                      style={inputMetaStyle}
-                    />
-                  ))}
-                  {metaChipEditable('horario', (
-                    <input
-                      type="text"
-                      value={datos.horaAtencion}
-                      placeholder="Ej: 10:30"
-                      onChange={e => {
-                        const nueva = e.target.value;
-                        setDatos(d => ({ ...d, horaAtencion: nueva }));
-                        guardarFechaHoraDebounced(datos.fechaAtencion, nueva);
-                      }}
-                      style={inputMetaStyle}
-                    />
-                  ))}
+                  {metaChip('atención', datos.fechaAtencion)}
+                  {metaChip('horario', datos.horaAtencion)}
                 </div>
               )}
 
@@ -1382,7 +1377,7 @@ const PostVenta: React.FC = () => {
                       style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
                       <div style={{
                         width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                        background: ok ? (dark ? 'rgba(74,222,128,0.12)' : '#dcfce7') : (dark ? '#1E2E4A' : '#f1f5f9'),
+                        background: ok ? (dark ? 'rgba(74,222,128,0.12)' : '#dcfce7') : (dark ? '#161616' : '#f1f5f9'),
                         border: `0.5px solid ${ok ? (dark ? 'rgba(74,222,128,0.3)' : '#bbf7d0') : border}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11, fontWeight: 700,
@@ -1401,7 +1396,7 @@ const PostVenta: React.FC = () => {
                         <div style={{ fontSize: 11, color: textMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {(sinPapeleta || r.origen === 'adicional')
                             ? (r.observacion.trim() || 'Sin descripción aún')
-                            : contextoObs(o)}
+                            : o.descripcion}
                         </div>
                       </div>
                       {(sinPapeleta || r.origen === 'derivada' || r.origen === 'adicional') && obs.length > 1 && (
@@ -1425,7 +1420,7 @@ const PostVenta: React.FC = () => {
                               border: `0.5px solid ${dark ? 'rgba(96,165,250,0.15)' : '#bfdbfe'}`,
                               borderRadius: 10, padding: '10px 12px', marginBottom: 6,
                               fontSize: 13, lineHeight: 1.5, color: textPrimary,
-                            }}>{contextoObs(o)}</div>
+                            }}>{o.descripcion}</div>
                             <div style={{ fontSize: 10, color: textMuted, marginBottom: 14 }}>
                               Ubicación indicada por el cliente: <strong>{o.ambiente || '—'}</strong>
                             </div>
@@ -1482,7 +1477,6 @@ const PostVenta: React.FC = () => {
                         <label style={labelStyle}>estado</label>
                         <select value={r.estado} onChange={e => setCampo(idx, 'estado', e.target.value)} style={inputStyle}>
                           <option value="SOLUCIONADO">Solucionado</option>
-                          <option value="EN_PROCESO">En Proceso</option>
                           <option value="PENDIENTE">Pendiente</option>
                         </select>
 
@@ -1559,8 +1553,12 @@ const PostVenta: React.FC = () => {
           {paso === 'firma' && (
             listo ? (
               <div style={{ textAlign: 'center', paddingTop: 80 }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-                <div style={{ fontSize: 16, fontWeight: 500, color: dark ? '#4ade80' : '#15803d' }}>Informe generado correctamente</div>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>{finalizadoOffline ? '📴' : '✅'}</div>
+                <div style={{ fontSize: 16, fontWeight: 500, color: dark ? '#4ade80' : '#15803d' }}>
+                  {finalizadoOffline
+                    ? 'Guardado en el dispositivo — se enviará solo cuando haya conexión'
+                    : 'Informe generado correctamente'}
+                </div>
               </div>
             ) : (
               <>
@@ -1607,12 +1605,6 @@ const PostVenta: React.FC = () => {
       {anotando && (
         <FotoAnnotator imageSrc={anotando.src} onConfirm={confirmarAnotacion} onCancel={() => setAnotando(null)} />
       )}
-
-      <BottomNavBar
-        activeTab="calendario"
-        proyecto={proyecto}
-        proyectoNombre={proyecto?.nombre || proyectoCodigo || ''}
-      />
     </IonPage>
   );
 };

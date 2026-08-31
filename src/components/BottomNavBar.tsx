@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { IonIcon, IonModal } from '@ionic/react';
-import { homeOutline, searchOutline, barChartOutline, calendarOutline, documentTextOutline } from 'ionicons/icons';
+import { homeOutline, searchOutline, barChartOutline, calendarOutline, documentTextOutline, chevronDownOutline } from 'ionicons/icons';
+import { Keyboard } from '@capacitor/keyboard';
+import { Capacitor } from '@capacitor/core';
+import { supabase } from '../supabase';
 
 interface BottomNavBarProps {
   activeTab: 'inicio' | 'buscar' | 'informes' | 'reportes' | 'calendario';
@@ -30,6 +33,145 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   const textSecondary = dark ? '#6b7280' : '#666666';
   const textMuted = dark ? '#5D728F' : '#999999';
 
+  // Estado del teclado — ocultar barra cuando el teclado está abierto
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const showListener = Keyboard.addListener('keyboardWillShow', () => {
+      setKeyboardVisible(true);
+    });
+    const hideListener = Keyboard.addListener('keyboardWillHide', () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      showListener.then(h => h.remove());
+      hideListener.then(h => h.remove());
+    };
+  }, []);
+
+  // Datos locales — se usan cuando los props vienen vacíos
+  const [localProyecto, setLocalProyecto] = useState<any>(null);
+  const [localTorres, setLocalTorres] = useState<any[]>([]);
+  const [localDeptos, setLocalDeptos] = useState<any[]>([]);
+  const [localProyectoNombre, setLocalProyectoNombre] = useState('');
+  const [cargandoBusqueda, setCargandoBusqueda] = useState(false);
+
+  // Lista de proyectos asignados al usuario (para cambiar desde el buscador)
+  const [proyectosDisponibles, setProyectosDisponibles] = useState<any[]>([]);
+  const [busquedaProyectoId, setBusquedaProyectoId] = useState<string>('');
+  const [mostrarSelectorProyecto, setMostrarSelectorProyecto] = useState(false);
+
+  // Datos efectivos: usa props si el proyecto del modal coincide con el de PreEntrega, sino los locales
+  const usandoPropsDirectos = proyecto && torres.length > 0 && deptos.length > 0
+    && (!busquedaProyectoId || busquedaProyectoId === proyecto?.id);
+  const torresEfectivas = usandoPropsDirectos ? torres : localTorres;
+  const deptosEfectivos = usandoPropsDirectos ? deptos : localDeptos;
+  const proyectoEfectivo = usandoPropsDirectos ? proyecto : localProyecto;
+  const nombreEfectivo = usandoPropsDirectos ? proyectoNombre : localProyectoNombre;
+
+  // Cargar proyectos asignados al usuario
+  const cargarProyectosDisponibles = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userEmail = session?.user?.email?.toLowerCase();
+      if (!userEmail) return;
+
+      const { data: usuarioData } = await supabase
+        .from('usuarios')
+        .select('id')
+        .eq('email', userEmail)
+        .maybeSingle();
+
+      if (!usuarioData) return;
+
+      const { data: asignaciones } = await supabase
+        .from('usuario_proyectos')
+        .select('proyecto_id, proyectos(id, nombre, codigo, etapa)')
+        .eq('usuario_id', usuarioData.id);
+
+      const proyectos = (asignaciones
+        ?.map((a: any) => a.proyectos as any)
+        .filter((p: any) => p !== null && p.etapa === 'pre_entrega_postventa')
+        .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre)) || []) as any[];
+
+      setProyectosDisponibles(proyectos);
+    } catch (err) {
+      console.error('[BottomNavBar] Error cargando proyectos:', err);
+    }
+  };
+
+  // Cargar torres y deptos de un proyecto específico
+  const cargarDatosDeProyecto = async (proyectoId: string) => {
+    setCargandoBusqueda(true);
+    try {
+      const { data: proy } = await supabase
+        .from('proyectos')
+        .select('*')
+        .eq('id', proyectoId)
+        .maybeSingle();
+
+      if (proy) {
+        setLocalProyecto(proy);
+        setLocalProyectoNombre(proy.nombre || '');
+      }
+
+      const { data: torresList } = await supabase
+        .from('torres')
+        .select('*')
+        .eq('proyecto_id', proyectoId)
+        .order('nombre');
+
+      setLocalTorres(torresList || []);
+
+      if (torresList && torresList.length > 0) {
+        const torreIds = torresList.map((t: any) => t.id);
+        const { data: deptosData } = await supabase
+          .from('departamentos')
+          .select('id, numero, piso, torre_id, preentrega_estado')
+          .in('torre_id', torreIds)
+          .order('numero');
+
+        setLocalDeptos(deptosData || []);
+      } else {
+        setLocalDeptos([]);
+      }
+    } catch (err) {
+      console.error('[BottomNavBar] Error cargando datos de proyecto:', err);
+    }
+    setCargandoBusqueda(false);
+  };
+
+  // Cargar datos iniciales al abrir el modal
+  const cargarDatosBusqueda = async () => {
+    // Determinar el proyecto default: el de props o el de localStorage
+    const defaultId = proyecto?.id || localStorage.getItem('preentrega_proyecto_id') || '';
+    setBusquedaProyectoId(defaultId);
+
+    // Cargar lista de proyectos disponibles
+    await cargarProyectosDisponibles();
+
+    // Si ya tiene datos por props y es el mismo proyecto, no hace falta cargar
+    if (proyecto && torres.length > 0 && deptos.length > 0) return;
+
+    if (defaultId) {
+      await cargarDatosDeProyecto(defaultId);
+    }
+  };
+
+  // Cambiar proyecto desde el selector del modal
+  const cambiarProyectoBusqueda = async (nuevoProyectoId: string) => {
+    setBusquedaProyectoId(nuevoProyectoId);
+    setMostrarSelectorProyecto(false);
+    setBusqueda('');
+    setDeptosResultado([]);
+    setTorreSelBusqueda(null);
+    // NO toca localStorage — PreEntrega sigue siendo el default
+    await cargarDatosDeProyecto(nuevoProyectoId);
+  };
+
   // Estado del modal
   const [modalBusqueda, setModalBusqueda] = useState(false);
   const [busqueda, setBusqueda] = useState('');
@@ -48,7 +190,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
 
     const numBuscado = parseInt(texto, 10);
     if (!isNaN(numBuscado)) {
-      const resultado = deptos.filter(d => {
+      const resultado = deptosEfectivos.filter(d => {
         const numDepto = typeof d.numero === 'string' ? parseInt(d.numero, 10) : d.numero;
         return numDepto === numBuscado;
       });
@@ -60,13 +202,13 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
 
   // Navegar a detalle depto - IDÉNTICO a PreEntregaDashboard
   const irADetalleDepto = (depto: any) => {
-    const torre = torres.find(t => t.id === depto.torre_id);
+    const torre = torresEfectivas.find(t => t.id === depto.torre_id);
     if (!torre) return;
     
     history.push(`/detalle-depto/${depto.id}`, {
       depto,
       torre,
-      proyecto
+      proyecto: proyectoEfectivo
     });
     setModalBusqueda(false);
     setBusqueda('');
@@ -75,10 +217,12 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
 
   // Abrir modal - IDÉNTICO a PreEntregaDashboard
   const abrirModalBusqueda = () => {
-    setModalBusqueda(true);
     setBusqueda('');
     setDeptosResultado([]);
     setTorreSelBusqueda(null);
+    setMostrarSelectorProyecto(false);
+    setModalBusqueda(true);
+    cargarDatosBusqueda();
   };
 
   // Click en botón Reportes
@@ -131,17 +275,8 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   return (
     <>
       {/* BOTTOM NAVIGATION — pastilla flotante centrada.
-          Dos fixes sobre el diseño original:
-          1) El inset de zona segura (notch/home indicator) ahora se suma al
-             `bottom` (margen POR AFUERA de la caja) en vez de vivir como
-             `height`+`paddingBottom` DENTRO de la caja — así queda espacio
-             transparente real debajo de la pastilla en vez de que el fondo
-             traslúcido se estire hasta casi tocar el borde de la pantalla.
-          2) `left:20, right:20` estiraba la barra a (ancho de pantalla - 40px)
-             y `justifyContent: space-around` repartía esos 5 botones en todo
-             ese ancho. Ahora el ancho es `fit-content` (se ajusta al tamaño
-             real de los 5 botones) y queda centrada con left:50%+transform. */}
-      <div style={{
+          Se oculta cuando el teclado nativo está abierto. */}
+      {!keyboardVisible && <div style={{
         position: 'fixed',
         left: '50%',
         bottom: 'calc(20px + var(--ion-safe-area-bottom, env(safe-area-inset-bottom, 0px)))',
@@ -178,7 +313,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           icon={barChartOutline}
           label="Informes"
           isActive={activeTab === 'informes'}
-          onClick={() => history.push('/informe-pv', { proyecto })}
+          onClick={() => history.push('/informe-pv', { proyecto: proyectoEfectivo || proyecto })}
         />
 
         <NavButton
@@ -194,9 +329,9 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           isActive={activeTab === 'calendario'}
           onClick={() => history.push('/calendario-postventa')}
         />
-      </div>
+      </div>}
 
-      {/* MODAL BÚSQUEDA - IDÉNTICO A PREENTREGA */}
+      {/* MODAL BÚSQUEDA */}
       <IonModal 
         isOpen={modalBusqueda} 
         onDidDismiss={() => setModalBusqueda(false)} 
@@ -205,7 +340,93 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
       >
         <div style={{ padding: 24, background: card, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>Buscar Departamento</div>
-          <div style={{ fontSize: 12, color: textSecondary, marginBottom: 16 }}>Proyecto: {proyectoNombre}</div>
+
+          {/* Selector de proyecto */}
+          <div style={{ position: 'relative', marginBottom: 16 }}>
+            <button
+              onClick={() => setMostrarSelectorProyecto(!mostrarSelectorProyecto)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                fontSize: 12,
+                color: textSecondary
+              }}
+            >
+              <span>Proyecto: <strong style={{ color: textPrimary }}>{nombreEfectivo || '...'}</strong></span>
+              {proyectosDisponibles.length > 1 && (
+                <IonIcon
+                  icon={chevronDownOutline}
+                  style={{
+                    fontSize: 14,
+                    color: textMuted,
+                    transition: 'transform 0.2s',
+                    transform: mostrarSelectorProyecto ? 'rotate(180deg)' : 'rotate(0deg)'
+                  }}
+                />
+              )}
+            </button>
+
+            {/* Dropdown de proyectos */}
+            {mostrarSelectorProyecto && proyectosDisponibles.length > 1 && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                marginTop: 6,
+                background: dark ? '#1B2C48' : '#ffffff',
+                border: `0.5px solid ${border}`,
+                borderRadius: 12,
+                boxShadow: dark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.12)',
+                zIndex: 10,
+                overflow: 'hidden',
+                maxHeight: 200,
+                overflowY: 'auto'
+              }}>
+                {proyectosDisponibles.map((proy, idx) => {
+                  const isActive = proy.id === busquedaProyectoId;
+                  return (
+                    <button
+                      key={proy.id}
+                      onClick={() => cambiarProyectoBusqueda(proy.id)}
+                      style={{
+                        width: '100%',
+                        padding: '12px 14px',
+                        background: isActive
+                          ? (dark ? 'rgba(37, 99, 235, 0.2)' : 'rgba(37, 99, 235, 0.08)')
+                          : 'transparent',
+                        border: 'none',
+                        borderBottom: idx < proyectosDisponibles.length - 1 ? `0.5px solid ${border}` : 'none',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        transition: 'background 0.15s'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: isActive ? '#2563eb' : textPrimary }}>
+                          {proy.nombre}
+                        </div>
+                        {proy.codigo && (
+                          <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>{proy.codigo}</div>
+                        )}
+                      </div>
+                      {isActive && (
+                        <span style={{ fontSize: 12, color: '#2563eb', fontWeight: 700 }}>✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Input búsqueda directa */}
           <input
@@ -229,6 +450,12 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
             autoFocus
           />
 
+          {cargandoBusqueda && (
+            <div style={{ textAlign: 'center', padding: '20px 0', color: textMuted, fontSize: 13 }}>
+              Cargando datos del proyecto...
+            </div>
+          )}
+
           {/* Resultados de búsqueda por número */}
           {busqueda && deptosResultado.length > 0 && (
             <>
@@ -247,7 +474,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
                   const colorText = isCompleted
                     ? (dark ? '#4ade80' : '#15803d')
                     : textPrimary;
-                  const torre = torres.find(t => t.id === depto.torre_id);
+                  const torre = torresEfectivas.find(t => t.id === depto.torre_id);
 
                   return (
                     <button
@@ -306,8 +533,8 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
               O selecciona una torre:
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {torres.map(torre => {
-                const deptosDelaTorre = deptos.filter(d => d.torre_id === torre.id);
+              {torresEfectivas.map(torre => {
+                const deptosDelaTorre = deptosEfectivos.filter(d => d.torre_id === torre.id);
                 const isSelected = torreSelBusqueda?.id === torre.id;
 
                 return (

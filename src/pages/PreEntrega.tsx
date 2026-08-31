@@ -279,13 +279,13 @@ const PreEntregaDashboard: React.FC = () => {
         setProyectos(proyectosData);
 
         // Seleccionar proyecto: preferencia guardada o el primero
-        const proyectoGuardado = sessionStorage.getItem('preentrega_proyecto_id');
+        const proyectoGuardado = localStorage.getItem('preentrega_proyecto_id');
         
         if (proyectoGuardado && proyectosData.some(p => p.id === proyectoGuardado)) {
           setProyectoId(proyectoGuardado);
         } else if (proyectosData.length > 0) {
           setProyectoId(proyectosData[0].id);
-          sessionStorage.setItem('preentrega_proyecto_id', proyectosData[0].id);
+          localStorage.setItem('preentrega_proyecto_id', proyectosData[0].id);
         }
       } catch (err) {
         console.error('[PreEntrega] Error:', err);
@@ -300,7 +300,7 @@ const PreEntregaDashboard: React.FC = () => {
 
   useEffect(() => {
     if (proyectoId) {
-      sessionStorage.setItem('preentrega_proyecto_id', proyectoId);
+      localStorage.setItem('preentrega_proyecto_id', proyectoId);
     }
   }, [proyectoId]);
 

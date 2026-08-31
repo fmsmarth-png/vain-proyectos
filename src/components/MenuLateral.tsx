@@ -33,6 +33,8 @@ import {
   Upload,
   Package,
   Lock,
+  Warehouse,
+  ArrowLeftRight,
 } from 'lucide-react';
 
 interface Props { usuario: any; }
@@ -104,6 +106,11 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
 
   const rol = usuario?.rol;
   const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(rol ?? '');
+  // Este rol solo navega dentro de Pre Entrega/Post Venta (ver
+  // ProtectedRoutes.tsx). "Proyectos" pertenece al módulo de obra y su ruta
+  // ya está bloqueada ahí — se oculta también acá para no dejar un enlace
+  // que rebota al tocarlo.
+  const esMaestroPostventa = rol === 'maestro_postventa';
 
   // ========================================================================
   // PERMISOS DINÁMICOS
@@ -117,11 +124,17 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   const puedePostventa = tienePermiso('postventa_ver');
   const puedePreEntrega = tienePermiso('preentrega_ver');
   const puedeOG = tienePermiso('og_ver');
-  const puedeGenerarVale = tienePermiso('bodega_ver');
+  // Generar Vale: todos los roles de bodega EXCEPTO ayudante_bodega (que solo
+  // aprueba y ve stock, no emite). Se controla por rol porque bodega_ver es un
+  // permiso compartido con Stock de bodega, que sí ve el ayudante.
+  const ROLES_EMISORES = ['jefe_terreno', 'prof_obra_gruesa', 'prof_terminaciones', 'jefe_de_terreno_obra_gruesa', 'director_obra', 'jefe_bodega', 'administrador', 'staff'];
+  const puedeGenerarVale = ROLES_EMISORES.includes(rol ?? '');
   const puedeAprobarBodega = tienePermiso('bodega_aprobar');
   const puedeVerStock = tienePermiso('bodega_ver');
   const puedeCargarAyni = tienePermiso('bodega_cargar_ayni');
   const puedeGestionarKits = tienePermiso('bodega_gestionar_kits');
+  const puedeBodegaCentral = tienePermiso('bodega_central');
+  const puedePrestamos = tienePermiso('bodega_prestamos');
   const puedeCeramicos = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
   const puedeAdmin = tienePermiso('admin_permisos');
 
@@ -184,7 +197,7 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   // Ítems sueltos (fuera de categorías)
   const itemsSueltos: MenuItem[] = [];
   itemsSueltos.push({ icon: Home, label: 'Inicio', ruta: '/dashboard', permiso: true });
-  if (!esRolBodega) itemsSueltos.push({ icon: Building2, label: 'Proyectos', ruta: '/proyectos', permiso: true });
+  if (!esRolBodega && !esMaestroPostventa) itemsSueltos.push({ icon: Building2, label: 'Proyectos', ruta: '/proyectos', permiso: true });
   if (puedeVisitar) itemsSueltos.push({ icon: Search, label: 'Visita de obra', ruta: '/visita-obra', permiso: true });
 
   // Bodega
@@ -194,6 +207,8 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   if (puedeVerStock) itemsBodega.push({ icon: BarChart3, label: 'Stock de bodega', ruta: '/bodega/stock', permiso: true });
   if (puedeCargarAyni) itemsBodega.push({ icon: Upload, label: 'Cargar planilla AYNI', ruta: '/bodega/cargar-ayni', permiso: true });
   if (puedeGestionarKits) itemsBodega.push({ icon: Package, label: 'Kits de materiales', ruta: '/bodega/kits', permiso: true });
+  if (puedeBodegaCentral) itemsBodega.push({ icon: Warehouse, label: 'Bodega central', ruta: '/bodega/central', permiso: true });
+  if (puedePrestamos) itemsBodega.push({ icon: ArrowLeftRight, label: 'Préstamos entre obras', ruta: '/bodega/prestamos', permiso: true });
 
   // Cerámicos
   const itemsCeramicos: MenuItem[] = [];

@@ -1,4 +1,4 @@
-// src/hooks/usePermiso.ts
+// src/context/usePermiso.ts
 // FMS — Julio 2026
 // Hook simple para verificar permisos en componentes
 

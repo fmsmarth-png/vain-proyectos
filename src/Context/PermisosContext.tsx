@@ -102,9 +102,13 @@ export const PermisosProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Cargar permisos del usuario (rol + adicionales específicos)
   // ========================================================================
   const recargarPermisos = useCallback(async () => {
+    // IMPORTANTE: No hacer queries si no hay usuarioId válido
     if (!usuarioId) {
+      console.log('[PermisosContext] Sin usuarioId, limpiando permisos');
       setPermisos([]);
+      setRoles([]);
       setCargando(false);
+      setError(undefined);
       return;
     }
 
@@ -178,10 +182,17 @@ export const PermisosProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const permisosUnicos = Array.from(permisosSet.values());
       setPermisos(permisosUnicos);
+      console.log('[PermisosContext] Permisos cargados:', permisosUnicos.length);
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'Error desconocido';
       setError(mensaje);
-      console.error('Error en recargarPermisos:', err);
+      // Limpiar permisos en caso de error
+      setPermisos([]);
+      console.error('[PermisosContext] Error completo:', {
+        codigo: (err as any)?.code,
+        estado: (err as any)?.status,
+        mensaje: mensaje
+      });
     } finally {
       setCargando(false);
     }

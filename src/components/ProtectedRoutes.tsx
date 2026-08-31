@@ -51,6 +51,8 @@ import StockBodega from '../pages/StockBodega';
 import DashboardBodega from '../pages/DashboardBodega';
 import CargarAyni from '../pages/CargarAyni';
 import GestionKits from '../pages/GestionKits';
+import BodegaCentral from '../pages/BodegaCentral';
+import PrestamosMaterial from '../pages/PrestamosMaterial';
 import LevantamientoCeramicos from '../pages/LevantamientoCeramicos';
 import LevantamientoCeramicosDetalle from '../pages/LevantamientoCeramicosDetalle';
 import LevantamientoCeramicosChecklist from '../pages/LevantamientoCeramicosChecklist';
@@ -90,6 +92,14 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
 
   const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
   const puedeCeramicos = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
+  // maestro_postventa: solo navega Pre Entrega (hub) + Deptos Filtrados +
+  // Detalle Depto + Revisión (para marcar solucionado) + Calendario/Post
+  // Venta. Varias rutas de abajo comparten el mismo permiso ('preentrega_ver'
+  // cubre tanto /pre-entrega como /pre-entrega/:deptoId, /informe-pv y
+  // /pre-entrega-reportes; 'revision_ver' cubre tanto /revision como
+  // /reportes) así que no basta con otorgarle el permiso en la tabla
+  // rol_permisos: hay que excluirlo a mano de las rutas que no debe ver.
+  const esMaestroPostventa = usuario?.rol === 'maestro_postventa';
 
   return (
     <IonSplitPane contentId="main-content" when="false">
@@ -97,19 +107,21 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
       <NotificacionModal />
       <IonRouterOutlet id="main-content">
         <Route exact path="/dashboard" render={() =>
-          esRolBodega ? <DashboardBodega /> : <Dashboard />
+          esMaestroPostventa ? <Redirect to="/pre-entrega" />
+          : esRolBodega ? <DashboardBodega />
+          : <Dashboard />
         } />
 
         <Route exact path="/proyectos" render={() =>
-          !esRolBodega ? <Proyectos /> : <Redirect to="/dashboard" />
+          (!esRolBodega && !esMaestroPostventa) ? <Proyectos /> : <Redirect to="/dashboard" />
         } />
 
         <Route exact path="/proyectos/:id" render={() =>
-          !esRolBodega ? <DetalleProyecto /> : <Redirect to="/dashboard" />
+          (!esRolBodega && !esMaestroPostventa) ? <DetalleProyecto /> : <Redirect to="/dashboard" />
         } />
 
         <Route exact path="/registros/:id" render={() =>
-          !esRolBodega ? <DetalleRegistro /> : <Redirect to="/dashboard" />
+          (!esRolBodega && !esMaestroPostventa) ? <DetalleRegistro /> : <Redirect to="/dashboard" />
         } />
 
         {/* Inspección */}
@@ -146,8 +158,13 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
           tienePermiso('preentrega_ver') ? <PreEntrega /> : <Redirect to="/dashboard" />
         } />
 
+        {/*
+          PreEntregaDepto comparte el permiso 'preentrega_ver' con el hub
+          /pre-entrega, pero maestro_postventa no debe poder editar el acta
+          de pre entrega ni le debe aparecer esa opción — se excluye a mano.
+        */}
         <Route path="/pre-entrega/:deptoId" render={() =>
-          tienePermiso('preentrega_ver') ? <PreEntregaDepto /> : <Redirect to="/dashboard" />
+          (tienePermiso('preentrega_ver') && !esMaestroPostventa) ? <PreEntregaDepto /> : <Redirect to="/dashboard" />
         } />
 
         <Route exact path="/deptos-filtrados" render={() =>
@@ -156,14 +173,20 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
 
         <Route path="/detalle-depto/:id" component={DetalleDepto} />
 
-        {/* Informe PV — Indicador de Producción */}
+        {/*
+          Informe PV — Indicador de Producción. Es un informe: maestro_postventa
+          no debe acceder aunque comparta el permiso 'preentrega_ver' con el hub.
+        */}
         <Route exact path="/informe-pv" render={() =>
-          tienePermiso('preentrega_ver') ? <InformePV /> : <Redirect to="/dashboard" />
+          (tienePermiso('preentrega_ver') && !esMaestroPostventa) ? <InformePV /> : <Redirect to="/dashboard" />
         } />
 
-        {/* Reportes Pre Entrega */}
+        {/*
+          Reportes Pre Entrega. maestro_postventa no tiene acceso a páginas de
+          reportes; se excluye aunque comparta 'preentrega_ver' con el hub.
+        */}
         <Route exact path="/pre-entrega-reportes" render={() =>
-          tienePermiso('preentrega_ver') ? <PreEntregaReportes /> : <Redirect to="/dashboard" />
+          (tienePermiso('preentrega_ver') && !esMaestroPostventa) ? <PreEntregaReportes /> : <Redirect to="/dashboard" />
         } />
 
         {/* Revisión OG */}
@@ -209,7 +232,7 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
 
         {/* Bodega */}
         <Route exact path="/bodega/generar-vale" render={() =>
-          tienePermiso('bodega_ver') ? <GenerarVale /> : <Redirect to="/dashboard" />
+          (tienePermiso('bodega_ver') && usuario?.rol !== 'ayudante_bodega') ? <GenerarVale /> : <Redirect to="/dashboard" />
         } />
 
         <Route exact path="/bodega/aprobacion" render={() =>
@@ -226,6 +249,14 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
 
         <Route exact path="/bodega/kits" render={() =>
           tienePermiso('bodega_gestionar_kits') ? <GestionKits /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/bodega/central" render={() =>
+          tienePermiso('bodega_central') ? <BodegaCentral /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/bodega/prestamos" render={() =>
+          tienePermiso('bodega_prestamos') ? <PrestamosMaterial /> : <Redirect to="/dashboard" />
         } />
 
         {/* Levantamiento Cerámicos */}
@@ -246,9 +277,13 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
           tienePermiso('admin_permisos') ? <Admin /> : <Redirect to="/dashboard" />
         } />
 
-        {/* Reportes */}
+        {/*
+          Reportes. maestro_postventa no tiene acceso a la página de reportes,
+          aunque comparta el permiso 'revision_ver' con /revision (que sí
+          necesita, para marcar observaciones como solucionadas).
+        */}
         <Route exact path="/reportes" render={() =>
-          tienePermiso('revision_ver') ? <Reportes /> : <Redirect to="/dashboard" />
+          (tienePermiso('revision_ver') && !esMaestroPostventa) ? <Reportes /> : <Redirect to="/dashboard" />
         } />
 
         {/* Admin Notificaciones */}
@@ -259,7 +294,7 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
         {/* Cambiar Contraseña */}
         <Route exact path="/cambiar-contrasena" component={CambiarContrasena} />
 
-        <Redirect exact from="/" to="/dashboard" />
+        <Redirect exact from="/" to={esMaestroPostventa ? '/pre-entrega' : '/dashboard'} />
       </IonRouterOutlet>
     </IonSplitPane>
   );

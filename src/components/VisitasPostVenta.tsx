@@ -44,6 +44,10 @@ interface Props {
   dark?: boolean;
   obsCount?: number;        // obs PV ya registradas (para el subtítulo), opcional
   rutaBase?: string;        // por defecto '/post-venta'
+  // Rol del usuario logueado (viene de DetalleDepto.tsx, que ya lo consulta).
+  // maestro_postventa solo puede retomar visitas EN_PROGRESO creadas por
+  // otro usuario: no inicia visitas nuevas y no puede eliminarlas.
+  rol?: string;
 }
 
 const fmtFecha = (iso: string | null) => {
@@ -54,12 +58,13 @@ const fmtFecha = (iso: string | null) => {
 };
 
 const VisitasPostVenta: React.FC<Props> = ({
-  proyecto, torre, depto, dark = false, obsCount = 0, rutaBase = '/post-venta',
+  proyecto, torre, depto, dark = false, obsCount = 0, rutaBase = '/post-venta', rol,
 }) => {
   const history = useHistory();
   const [visitas, setVisitas] = useState<Visita[]>([]);
   const [borrando, setBorrando] = useState<string | null>(null);
   const [historialAbierto, setHistorialAbierto] = useState(false);
+  const esMaestro = rol === 'maestro_postventa';
 
   const textMuted = dark ? '#6b7280' : '#94a3b8';
   const border = dark ? '#243550' : '#e2e8f0';
@@ -82,14 +87,14 @@ const VisitasPostVenta: React.FC<Props> = ({
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [proyecto.id, depto.numero]);
 
   // Guarda el contexto del depto (igual que hoy) y navega a la ruta de siempre.
-  const abrir = (papeletaId?: string) => {
+  const abrir = (papeletaId?: string, soloLectura = false) => {
     // Quita el foco del botón antes de la transición de Ionic: evita el warning
     // "Blocked aria-hidden on an element because its descendant retained focus".
     (document.activeElement as HTMLElement | null)?.blur();
-    const ctx = { depto, torre, proyecto };
+    const ctx = { depto, torre, proyecto, soloLectura };
     try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(ctx)); } catch {}
     if (papeletaId) {
-      try { sessionStorage.setItem(RESUME_KEY, papeletaId); } catch {}   // -> reanuda
+      try { sessionStorage.setItem(RESUME_KEY, papeletaId); } catch {}   // -> reanuda / consulta
     } else {
       try { sessionStorage.removeItem(RESUME_KEY); } catch {}            // -> visita nueva
     }
@@ -101,6 +106,7 @@ const VisitasPostVenta: React.FC<Props> = ({
   // visitas_delete_rls.sql: sin esas policies de DELETE, esto falla en
   // silencio (RLS deniega la fila, no hay error explícito de permisos).
   const eliminarVisita = async (v: Visita) => {
+    if (esMaestro) return;
     const confirmado = window.confirm(
       'Esta visita en progreso se va a eliminar junto con sus observaciones y fotos cargadas hasta ahora. Esta acción no se puede deshacer.\n\n¿Continuar?'
     );
@@ -197,19 +203,21 @@ const VisitasPostVenta: React.FC<Props> = ({
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <button
-                onClick={(e) => { e.stopPropagation(); if (!estaBorrando) eliminarVisita(v); }}
-                disabled={estaBorrando}
-                title="Eliminar visita en progreso"
-                style={{
-                  background: 'transparent', border: 'none', padding: 6,
-                  cursor: estaBorrando ? 'default' : 'pointer',
-                  color: dark ? '#f87171' : '#b91c1c',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <Trash2 size={16} strokeWidth={1.5} />
-              </button>
+              {!esMaestro && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (!estaBorrando) eliminarVisita(v); }}
+                  disabled={estaBorrando}
+                  title="Eliminar visita en progreso"
+                  style={{
+                    background: 'transparent', border: 'none', padding: 6,
+                    cursor: estaBorrando ? 'default' : 'pointer',
+                    color: dark ? '#f87171' : '#b91c1c',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Trash2 size={16} strokeWidth={1.5} />
+                </button>
+              )}
               <span style={{ fontSize: 18, color: dark ? '#fbbf24' : '#92400e' }}>›</span>
             </div>
           </div>
@@ -245,25 +253,30 @@ const VisitasPostVenta: React.FC<Props> = ({
           {historialAbierto && completadas.map(v => (
             <div
               key={v.id}
+              onClick={() => abrir(v.id, true)}
               style={{
                 borderRadius: 10, padding: '10px 14px', marginBottom: 8,
+                cursor: 'pointer',
                 background: dark ? 'rgba(74,222,128,0.05)' : '#f0fdf4',
                 border: `0.5px solid ${dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0'}`,
-                display: 'flex', alignItems: 'center', gap: 12,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
               }}
             >
-              <CheckCircle2 size={18} strokeWidth={1.5} style={{ color: dark ? '#4ade80' : '#15803d', flexShrink: 0 }} />
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: dark ? '#4ade80' : '#15803d' }}>
-                  {v.sin_papeleta ? 'Sin papeleta' : `Req. ${v.n_requerimiento || '—'}`}
-                </div>
-                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>
-                  {v.obs_resueltas}/{v.obs_total} obs · 📷 {v.con_foto_antes}/{v.con_foto_despues}
-                </div>
-                <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>
-                  Completada {fmtFecha(v.fecha_completada)}{v.usuario_nombre ? ` · ${v.usuario_nombre}` : ''}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                <CheckCircle2 size={18} strokeWidth={1.5} style={{ color: dark ? '#4ade80' : '#15803d', flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: dark ? '#4ade80' : '#15803d' }}>
+                    {v.sin_papeleta ? 'Sin papeleta' : `Req. ${v.n_requerimiento || '—'}`}
+                  </div>
+                  <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>
+                    {v.obs_resueltas}/{v.obs_total} obs · 📷 {v.con_foto_antes}/{v.con_foto_despues}
+                  </div>
+                  <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>
+                    Completada {fmtFecha(v.fecha_completada)}{v.usuario_nombre ? ` · ${v.usuario_nombre}` : ''}
+                  </div>
                 </div>
               </div>
+              <span style={{ fontSize: 18, color: dark ? '#4ade80' : '#15803d', flexShrink: 0 }}>›</span>
             </div>
           ))}
         </div>

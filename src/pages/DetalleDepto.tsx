@@ -74,6 +74,12 @@ const DetalleDepto: React.FC = () => {
   }, [location.state?.depto?.id]); // Solo reaccionar si el ID del depto cambia
 
   const esAdmin = rolUsuario === 'administrador';
+  // maestro_postventa navega este detalle en modo solo lectura: no edita
+  // datos del propietario/teléfono, no ve el menú de cambio de estado de
+  // entrega, y no tiene acceso a "Pre Entrega Depto" (eso lo maneja
+  // preentrega_editar/preentrega_ver + la exclusión de rol en
+  // ProtectedRoutes.tsx; acá solo se oculta el botón que lleva ahí).
+  const esMaestro = rolUsuario === 'maestro_postventa';
 
   const bg            = dark ? '#0B1220' : '#f0f4f8';
   const card          = dark ? '#16233B'  : '#ffffff';
@@ -386,7 +392,7 @@ const DetalleDepto: React.FC = () => {
                   onChange={e => setPropietarioTelefono(e.target.value)}
                   placeholder={editando ? '+56 9 1234 5678' : 'Sin teléfono registrado'}
                   style={{ ...inputStyle, marginBottom: 0, flex: 1, opacity: editando || propietarioTelefono ? 1 : 0.6 }}
-                  disabled={!editando}
+                  disabled={!editando || esMaestro}
                   inputMode="tel"
                 />
                 {/* Se usa un <a href="tel:"> en vez de un onClick: es lo que el
@@ -410,7 +416,7 @@ const DetalleDepto: React.FC = () => {
               </div>
 
               {/* Editar / Guardar */}
-              {(
+              {!esMaestro && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                   {editando && (
                     <button
@@ -473,8 +479,8 @@ const DetalleDepto: React.FC = () => {
 
             {/* Timeline visual con líneas conectoras */}
             <div style={{ background: card, borderRadius: 14, padding: 20, border: `0.5px solid ${border}`, marginBottom: 12, position: 'relative' }}>
-              {/* Botón de 3 puntos - visible si estado es 3 o 4 (sin restricción de admin) */}
-              {(preentregaEstado === 3 || preentregaEstado === 4) && (
+              {/* Botón de 3 puntos - visible si estado es 3 o 4 (sin restricción de admin, salvo maestro_postventa que no puede accionar ninguna opción de este menú) */}
+              {!esMaestro && (preentregaEstado === 3 || preentregaEstado === 4) && (
                 <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
                   <button
                     onClick={() => setMenuAbierto(!menuAbierto)}
@@ -641,25 +647,27 @@ const DetalleDepto: React.FC = () => {
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: textPrimary, marginBottom: 12 }}>Acciones</div>
 
-            <button
-              onClick={() => history.push(`/pre-entrega/${depto.id}`, { depto, torre, proyecto })}
-              style={{
-                width: '100%', height: 56, borderRadius: 12,
-                background: card, border: `0.5px solid ${border}`,
-                color: dark ? '#60a5fa' : '#1e3a5f',
-                fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 10,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 16, paddingRight: 16
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <FileText size={20} strokeWidth={1.5} />
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>Pre Entrega</div>
-                  <div style={{ fontSize: 10, color: textMuted }}>Generar / Editar Pre Entrega</div>
+            {!esMaestro && (
+              <button
+                onClick={() => history.push(`/pre-entrega/${depto.id}`, { depto, torre, proyecto })}
+                style={{
+                  width: '100%', height: 56, borderRadius: 12,
+                  background: card, border: `0.5px solid ${border}`,
+                  color: dark ? '#60a5fa' : '#1e3a5f',
+                  fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 10,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 16, paddingRight: 16
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <FileText size={20} strokeWidth={1.5} />
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>Pre Entrega</div>
+                    <div style={{ fontSize: 10, color: textMuted }}>Generar / Editar Pre Entrega</div>
+                  </div>
                 </div>
-              </div>
-              <span style={{ fontSize: 18 }}>›</span>
-            </button>
+                <span style={{ fontSize: 18 }}>›</span>
+              </button>
+            )}
 
             <VisitasPostVenta
               proyecto={proyecto}
@@ -667,6 +675,7 @@ const DetalleDepto: React.FC = () => {
               depto={depto}
               dark={dark}
               obsCount={obsPostVenta}
+              rol={rolUsuario}
             />
 
             <button

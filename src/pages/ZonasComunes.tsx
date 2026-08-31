@@ -43,17 +43,17 @@ const ZonasComunes: React.FC = () => {
 
   const dark = theme === 'dark';
 
-  const bg            = dark ? '#0B1220' : '#f0f4f8';
-  const card          = dark ? '#16233B'  : '#ffffff';
-  const border        = dark ? '#243550'  : '#e2e8f0';
+  const bg            = dark ? '#000000' : '#f0f4f8';
+  const card          = dark ? '#0e0e0e'  : '#ffffff';
+  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
   const textPrimary   = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#5D728F' : '#94a3b8';
-  const toolbar       = dark ? '#0E1728' : '#1e3a5f';
-  const inputBg       = dark ? '#1B2C48' : '#ffffff';
-  const inputBorder   = dark ? '#243550' : '#cbd5e1';
+  const textMuted     = dark ? '#444444' : '#94a3b8';
+  const toolbar       = dark ? '#000000' : '#1e3a5f';
+  const inputBg       = dark ? '#111111' : '#ffffff';
+  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
   const sepLine       = dark
-    ? 'linear-gradient(90deg, transparent, #243550, transparent)'
+    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
     : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   const [ambientesZC, setAmbientesZC]         = useState<any[]>([]);
@@ -196,13 +196,7 @@ const ZonasComunes: React.FC = () => {
       } else {
         mostrarPendientesLocales(torreActual);
       }
-    } catch (e) {
-      // Antes solo se logueaba en consola: el usuario veía la pantalla vacía
-      // (sin ambientes, partidas ni registros) sin ninguna pista de que algo
-      // había fallado, y podía confundirlo con "no hay datos".
-      console.error('Error general en cargar():', e);
-      setError('No se pudieron cargar los datos de la zona común. Revisa tu conexión y vuelve a intentar.');
-    }
+    } catch (e) { console.error('Error general en cargar():', e); }
   };
 
   const mostrarPendientesLocales = (torreData?: any) => {
@@ -315,9 +309,10 @@ const ZonasComunes: React.FC = () => {
     const { error } = await supabase.storage
       .from('fotos-registros')
       .upload(fileName, file, { contentType: 'image/jpeg' });
-    // Si falla la subida, lanzamos el error (en vez de devolver null) para que
-    // el catch de guardarObs() encole el registro con la foto en la cola
-    // offline, en vez de guardarlo sin foto mostrando éxito.
+    // Antes: si fallaba la subida esto devolvía null y la observación se
+    // guardaba de todas formas SIN foto, en silencio. Ahora se lanza el
+    // error para que el registro completo (texto + foto) caiga a la cola
+    // offline, que sí lo reintenta hasta lograrlo.
     if (error) throw new Error('No se pudo subir la foto: ' + error.message);
     const { data } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
     return data.publicUrl;
@@ -404,7 +399,7 @@ const ZonasComunes: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#6E86A6' : 'rgba(255,255,255,0.7)' }}
+          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }}
             onClick={salirAProyecto}>
             ← Volver
           </IonButton>
@@ -419,8 +414,8 @@ const ZonasComunes: React.FC = () => {
         <div style={{ padding: 16 }}>
 
           {/* Banner torre */}
-          <div style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1E2E4A)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 16, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: dark ? '#6E86A6' : '#fff', flexShrink: 0 }}>
+          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #161616)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 16, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: dark ? '#666' : '#fff', flexShrink: 0 }}>
               {torre?.nombre}
             </div>
             <div>
@@ -452,7 +447,7 @@ const ZonasComunes: React.FC = () => {
               { key: 'obs',       label: '📋 Observaciones' },
               { key: 'planos',    label: '📄 Planos' },
             ] as const).map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, height: 36, borderRadius: 10, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: tab === t.key ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent', color: tab === t.key ? '#fff' : textMuted, border: `0.5px solid ${tab === t.key ? (dark ? '#2E4468' : '#1e3a5f') : border}` }}>
+              <button key={t.key} onClick={() => setTab(t.key)} style={{ flex: 1, height: 36, borderRadius: 10, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: tab === t.key ? (dark ? '#1a1a1a' : '#1e3a5f') : 'transparent', color: tab === t.key ? '#fff' : textMuted, border: `0.5px solid ${tab === t.key ? (dark ? '#2a2a2a' : '#1e3a5f') : border}` }}>
                 {t.label}
               </button>
             ))}
@@ -463,13 +458,13 @@ const ZonasComunes: React.FC = () => {
             <>
               <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Checklist Sala de Basura</div>
               <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
-              <div style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 16, border: `0.5px solid ${border}` }}>
+              <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 16, border: `0.5px solid ${border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: textPrimary }}>{totalOk} / {totalItems} ítems OK</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: totalOk === totalItems ? (dark ? '#4ade80' : '#15803d') : textMuted }}>{totalItems > 0 ? Math.round((totalOk / totalItems) * 100) : 0}%</span>
                 </div>
-                <div style={{ height: 4, background: dark ? '#16233B' : '#f1f5f9', borderRadius: 2, marginBottom: 14 }}>
-                  <div style={{ height: 4, borderRadius: 2, background: totalOk === totalItems ? (dark ? '#4ade80' : '#22c55e') : (dark ? 'linear-gradient(90deg, #333, #6E86A6)' : 'linear-gradient(90deg, #bfdbfe, #2563eb)'), width: `${totalItems > 0 ? (totalOk / totalItems) * 100 : 0}%`, transition: 'width 0.3s' }} />
+                <div style={{ height: 4, background: dark ? '#111' : '#f1f5f9', borderRadius: 2, marginBottom: 14 }}>
+                  <div style={{ height: 4, borderRadius: 2, background: totalOk === totalItems ? (dark ? '#4ade80' : '#22c55e') : (dark ? 'linear-gradient(90deg, #333, #555)' : 'linear-gradient(90deg, #bfdbfe, #2563eb)'), width: `${totalItems > 0 ? (totalOk / totalItems) * 100 : 0}%`, transition: 'width 0.3s' }} />
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => marcarTodos(true)} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0', color: dark ? '#4ade80' : '#15803d', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>✓ Marcar todos OK</button>
@@ -479,9 +474,9 @@ const ZonasComunes: React.FC = () => {
 
               <div style={{ fontSize: 9, color: dark ? '#60a5fa' : '#2563eb', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 10 }}>Sección A — Equipamiento instalador sistema basura</div>
               {checkItems.filter(i => i.seccion === 'A').map(item => (
-                <div key={item.numero} style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 14, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${checkEstados[item.numero] ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0') : border}` }}>
+                <div key={item.numero} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 14, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${checkEstados[item.numero] ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0') : border}` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <button onClick={() => toggleCheck(item.numero)} style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: checkEstados[item.numero] ? (dark ? 'rgba(74,222,128,0.15)' : '#f0fdf4') : (dark ? '#16233B' : '#f8fafc'), border: `1.5px solid ${checkEstados[item.numero] ? (dark ? '#4ade80' : '#22c55e') : inputBorder}`, color: checkEstados[item.numero] ? (dark ? '#4ade80' : '#15803d') : textMuted, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <button onClick={() => toggleCheck(item.numero)} style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: checkEstados[item.numero] ? (dark ? 'rgba(74,222,128,0.15)' : '#f0fdf4') : (dark ? '#111' : '#f8fafc'), border: `1.5px solid ${checkEstados[item.numero] ? (dark ? '#4ade80' : '#22c55e') : inputBorder}`, color: checkEstados[item.numero] ? (dark ? '#4ade80' : '#15803d') : textMuted, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {checkEstados[item.numero] ? '✓' : ''}
                     </button>
                     <div style={{ flex: 1 }}>
@@ -496,9 +491,9 @@ const ZonasComunes: React.FC = () => {
 
               <div style={{ fontSize: 9, color: dark ? '#a78bfa' : '#7c3aed', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, margin: '16px 0 10px' }}>Sección B — Equipamiento emp. const. o inmobiliaria</div>
               {checkItems.filter(i => i.seccion === 'B').map(item => (
-                <div key={item.numero} style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 14, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${checkEstados[item.numero] ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0') : border}` }}>
+                <div key={item.numero} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 14, padding: '12px 14px', marginBottom: 8, border: `0.5px solid ${checkEstados[item.numero] ? (dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0') : border}` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <button onClick={() => toggleCheck(item.numero)} style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: checkEstados[item.numero] ? (dark ? 'rgba(74,222,128,0.15)' : '#f0fdf4') : (dark ? '#16233B' : '#f8fafc'), border: `1.5px solid ${checkEstados[item.numero] ? (dark ? '#4ade80' : '#22c55e') : inputBorder}`, color: checkEstados[item.numero] ? (dark ? '#4ade80' : '#15803d') : textMuted, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <button onClick={() => toggleCheck(item.numero)} style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, background: checkEstados[item.numero] ? (dark ? 'rgba(74,222,128,0.15)' : '#f0fdf4') : (dark ? '#111' : '#f8fafc'), border: `1.5px solid ${checkEstados[item.numero] ? (dark ? '#4ade80' : '#22c55e') : inputBorder}`, color: checkEstados[item.numero] ? (dark ? '#4ade80' : '#15803d') : textMuted, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {checkEstados[item.numero] ? '✓' : ''}
                     </button>
                     <div style={{ flex: 1 }}>
@@ -518,7 +513,7 @@ const ZonasComunes: React.FC = () => {
                 </div>
               )}
 
-              <button onClick={guardarChecklist} disabled={guardandoCheck || !online} style={{ width: '100%', height: 48, borderRadius: 12, background: (guardandoCheck || !online) ? (dark ? '#16233B' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: (guardandoCheck || !online) ? textMuted : '#fff', fontSize: 14, fontWeight: 700, cursor: (guardandoCheck || !online) ? 'not-allowed' : 'pointer', marginTop: 8 }}>
+              <button onClick={guardarChecklist} disabled={guardandoCheck || !online} style={{ width: '100%', height: 48, borderRadius: 12, background: (guardandoCheck || !online) ? (dark ? '#111' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: (guardandoCheck || !online) ? textMuted : '#fff', fontSize: 14, fontWeight: 700, cursor: (guardandoCheck || !online) ? 'not-allowed' : 'pointer', marginTop: 8 }}>
                 {!online ? 'Sin conexión — checklist no disponible offline' : guardandoCheck ? 'Guardando...' : '💾 Guardar checklist'}
               </button>
             </>
@@ -537,7 +532,7 @@ const ZonasComunes: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 20 }}>
+              <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 20 }}>
                 <label style={labelStyle}>piso *</label>
                 <select value={pisoSel} onChange={e => { setPisoSel(e.target.value); setAmbienteZCId(''); }} style={selectStyle}>
                   <option value="">Seleccionar piso...</option>
@@ -602,7 +597,7 @@ const ZonasComunes: React.FC = () => {
                   <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px', borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca' }}>{error}</div>
                 )}
 
-                <button onClick={guardarObs} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: guardando ? (dark ? '#16233B' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: guardando ? textMuted : '#fff', fontSize: 14, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer' }}>
+                <button onClick={guardarObs} disabled={guardando} style={{ width: '100%', height: 48, borderRadius: 12, background: guardando ? (dark ? '#111' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: 'none', color: guardando ? textMuted : '#fff', fontSize: 14, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer' }}>
                   {guardando ? 'Guardando...' : '✓ Registrar observación'}
                 </button>
               </div>
@@ -617,7 +612,7 @@ const ZonasComunes: React.FC = () => {
               ) : registros.length === 0 ? (
                 <div style={{ textAlign: 'center', marginTop: 40, color: textMuted, fontSize: 13 }}>Sin observaciones registradas</div>
               ) : registros.map(r => (
-                <div key={r.id} style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 10, border: `0.5px solid ${r._local ? (dark ? 'rgba(251,191,36,0.3)' : '#fde68a') : border}` }}>
+                <div key={r.id} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 10, border: `0.5px solid ${r._local ? (dark ? 'rgba(251,191,36,0.3)' : '#fde68a') : border}` }}>
                   {r._local && (
                     <div style={{ fontSize: 10, color: dark ? '#fbbf24' : '#a16207', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
                       <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#fbbf24' }} />
@@ -663,13 +658,13 @@ const ZonasComunes: React.FC = () => {
                   <div style={{ fontSize: 12, color: textMuted, marginTop: 4 }}>El administrador puede subir planos desde el panel de administración</div>
                 </div>
               ) : planos.map(p => (
-                <div key={p.id} onClick={() => abrirPlano(p)} style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 10, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
+                <div key={p.id} onClick={() => abrirPlano(p)} style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e, #141414)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 10, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
                   <div style={{ width: 44, height: 44, borderRadius: 12, background: dark ? 'rgba(96,165,250,0.08)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📄</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: textPrimary }}>{p.nombre}</div>
                     <div style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>Toca para abrir</div>
                   </div>
-                  <div style={{ fontSize: 18, color: dark ? '#2E4468' : '#bfdbfe' }}>›</div>
+                  <div style={{ fontSize: 18, color: dark ? '#2a2a2a' : '#bfdbfe' }}>›</div>
                 </div>
               ))}
             </>
@@ -679,7 +674,7 @@ const ZonasComunes: React.FC = () => {
         </div>
 
         <IonModal isOpen={!!fotoModal} onDidDismiss={() => setFotoModal('')}>
-          <div style={{ background: '#0B1220', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div style={{ background: '#000', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
             <button onClick={() => setFotoModal('')} style={{ position: 'absolute', top: 48, right: 16, background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: '50%', width: 36, height: 36, color: '#fff', fontSize: 20, cursor: 'pointer' }}>×</button>
             <img src={fotoModal} style={{ width: '100%', maxHeight: '90vh', objectFit: 'contain' }} />
           </div>

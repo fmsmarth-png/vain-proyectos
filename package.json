@@ -35,7 +35,7 @@
     "ionicons": "^7.4.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.25.0",
-    "pdfjs-dist": "^6.1.200",
+    "pdfjs-dist": "4.10.38",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-router": "^5.3.4",

@@ -22,7 +22,7 @@ interface ItemVale {
   estado: EstadoItem;
   motivo_rechazo: string | null;
   observacion: string | null;
-  bodega_materiales: { nombre: string; unidad: string | null } | null;
+  bodega_materiales: { nombre: string; unidad: string | null; unidad_solicitud: string | null } | null;
 }
 
 interface DeptoVale {
@@ -95,7 +95,12 @@ const AprobacionBodega: React.FC = () => {
   };
 
   const { tienePermiso } = usePermiso();
-  const puedeAprobar = tienePermiso('bodega_aprobar');
+  const ROLES_APROBADORES = ['ayudante_bodega', 'jefe_bodega', 'director_obra', 'administrador', 'staff'];
+  const [rolUsuario, setRolUsuario] = useState<string>('');
+  // Solo estos roles aprueban. Se valida por rol además del permiso porque, si
+  // bodega_aprobar quedó mal asignado a un rol de terreno, el permiso solo no
+  // basta — los íconos de aprobar/rechazar no deben aparecerle a terreno.
+  const puedeAprobar = tienePermiso('bodega_aprobar') && ROLES_APROBADORES.includes(rolUsuario);
 
   // ── estado ─────────────────────────────────────────────────────────────
   const [proyecto, setProyecto] = useState<Proyecto | null>(location.state?.proyecto ?? null);
@@ -120,7 +125,7 @@ const AprobacionBodega: React.FC = () => {
         usuarios ( nombre ),
         torres ( nombre, frente ),
         vales_bodega_deptos ( departamentos ( id_obra, frente_depto ) ),
-        vales_bodega_items ( id, material_id, cantidad_solicitada, cantidad_entregada, estado, motivo_rechazo, observacion, bodega_materiales ( nombre, unidad ) )
+        vales_bodega_items ( id, material_id, cantidad_solicitada, cantidad_entregada, estado, motivo_rechazo, observacion, bodega_materiales ( nombre, unidad, unidad_solicitud ) )
       `)
       .eq('proyecto_id', proyectoId)
       .order('fecha_emision', { ascending: false })
@@ -133,9 +138,19 @@ const AprobacionBodega: React.FC = () => {
   });
 
   const cargarInicial = async () => {
+    const { data: authData } = await supabase.auth.getUser();
+    if (authData?.user) {
+      // Cargar el rol del usuario (para saber si puede aprobar o solo ver).
+      const { data: usuarioRow } = await supabase
+        .from('usuarios')
+        .select('rol')
+        .eq('id', authData.user.id)
+        .single();
+      if (usuarioRow?.rol) setRolUsuario(usuarioRow.rol as string);
+    }
+
     let proy = proyecto;
     if (!proy) {
-      const { data: authData } = await supabase.auth.getUser();
       if (authData?.user) {
         const { data: up } = await supabase
           .from('usuario_proyectos')
@@ -418,12 +433,20 @@ const AprobacionBodega: React.FC = () => {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div>
                             <div style={{ fontSize: 14, color: textPrimary }}>{item.bodega_materiales?.nombre ?? 'Material'}</div>
-                            <div style={{ fontSize: 12, color: textSecondary, marginTop: 1 }}>
-                              Solicitado: {item.cantidad_solicitada}{item.bodega_materiales?.unidad ? ` ${item.bodega_materiales.unidad}` : ''}
-                              {item.estado !== 'pendiente' && item.cantidad_entregada !== null && item.cantidad_entregada !== item.cantidad_solicitada && (
-                                <> · Entregado: {item.cantidad_entregada}{item.bodega_materiales?.unidad ? ` ${item.bodega_materiales.unidad}` : ''}</>
-                              )}
-                            </div>
+                            {(() => {
+                              // La cantidad del vale está en unidad granular (así se
+                              // guardó al emitir). Se muestra con unidad_solicitud;
+                              // unidad de compra solo como respaldo si no hay conversión.
+                              const uni = item.bodega_materiales?.unidad_solicitud ?? item.bodega_materiales?.unidad ?? '';
+                              return (
+                                <div style={{ fontSize: 12, color: textSecondary, marginTop: 1 }}>
+                                  Solicitado: {item.cantidad_solicitada}{uni ? ` ${uni}` : ''}
+                                  {item.estado !== 'pendiente' && item.cantidad_entregada !== null && item.cantidad_entregada !== item.cantidad_solicitada && (
+                                    <> · Entregado: {item.cantidad_entregada}{uni ? ` ${uni}` : ''}</>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
 
                           {item.estado === 'pendiente' ? (
