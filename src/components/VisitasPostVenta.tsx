@@ -87,14 +87,14 @@ const VisitasPostVenta: React.FC<Props> = ({
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [proyecto.id, depto.numero]);
 
   // Guarda el contexto del depto (igual que hoy) y navega a la ruta de siempre.
-  const abrir = (papeletaId?: string, soloLectura = false) => {
+  const abrir = (papeletaId?: string) => {
     // Quita el foco del botón antes de la transición de Ionic: evita el warning
     // "Blocked aria-hidden on an element because its descendant retained focus".
     (document.activeElement as HTMLElement | null)?.blur();
-    const ctx = { depto, torre, proyecto, soloLectura };
+    const ctx = { depto, torre, proyecto };
     try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(ctx)); } catch {}
     if (papeletaId) {
-      try { sessionStorage.setItem(RESUME_KEY, papeletaId); } catch {}   // -> reanuda / consulta
+      try { sessionStorage.setItem(RESUME_KEY, papeletaId); } catch {}   // -> reanuda
     } else {
       try { sessionStorage.removeItem(RESUME_KEY); } catch {}            // -> visita nueva
     }
@@ -253,30 +253,27 @@ const VisitasPostVenta: React.FC<Props> = ({
           {historialAbierto && completadas.map(v => (
             <div
               key={v.id}
-              onClick={() => abrir(v.id, true)}
+              onClick={() => abrir(v.id)}
               style={{
-                borderRadius: 10, padding: '10px 14px', marginBottom: 8,
-                cursor: 'pointer',
+                borderRadius: 10, padding: '10px 14px', marginBottom: 8, cursor: 'pointer',
                 background: dark ? 'rgba(74,222,128,0.05)' : '#f0fdf4',
                 border: `0.5px solid ${dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0'}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                display: 'flex', alignItems: 'center', gap: 12,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                <CheckCircle2 size={18} strokeWidth={1.5} style={{ color: dark ? '#4ade80' : '#15803d', flexShrink: 0 }} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: dark ? '#4ade80' : '#15803d' }}>
-                    {v.sin_papeleta ? 'Sin papeleta' : `Req. ${v.n_requerimiento || '—'}`}
-                  </div>
-                  <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>
-                    {v.obs_resueltas}/{v.obs_total} obs · 📷 {v.con_foto_antes}/{v.con_foto_despues}
-                  </div>
-                  <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>
-                    Completada {fmtFecha(v.fecha_completada)}{v.usuario_nombre ? ` · ${v.usuario_nombre}` : ''}
-                  </div>
+              <CheckCircle2 size={18} strokeWidth={1.5} style={{ color: dark ? '#4ade80' : '#15803d', flexShrink: 0 }} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: dark ? '#4ade80' : '#15803d' }}>
+                  {v.sin_papeleta ? 'Sin papeleta' : `Req. ${v.n_requerimiento || '—'}`}
+                </div>
+                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>
+                  {v.obs_resueltas}/{v.obs_total} obs · 📷 {v.con_foto_antes}/{v.con_foto_despues}
+                </div>
+                <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>
+                  Completada {fmtFecha(v.fecha_completada)}{v.usuario_nombre ? ` · ${v.usuario_nombre}` : ''}
                 </div>
               </div>
-              <span style={{ fontSize: 18, color: dark ? '#4ade80' : '#15803d', flexShrink: 0 }}>›</span>
+              <span style={{ fontSize: 16, color: dark ? '#4ade80' : '#15803d', flexShrink: 0 }}>›</span>
             </div>
           ))}
         </div>

@@ -57,6 +57,8 @@ import LevantamientoCeramicos from '../pages/LevantamientoCeramicos';
 import LevantamientoCeramicosDetalle from '../pages/LevantamientoCeramicosDetalle';
 import LevantamientoCeramicosChecklist from '../pages/LevantamientoCeramicosChecklist';
 import AdminNotificaciones from '../pages/AdminNotificaciones';
+import AdminAsignarPlanos from '../pages/AdminAsignarPlanos';
+import AdminGestionPlanos from '../pages/AdminGestionPlanos';
 import CambiarContrasena from '../pages/CambiarContrasena';
 
 const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
@@ -275,6 +277,15 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
         {/* Admin */}
         <Route exact path="/admin" render={() =>
           tienePermiso('admin_permisos') ? <Admin /> : <Redirect to="/dashboard" />
+        } />
+
+        {/* Admin OG Planos */}
+        <Route exact path="/admin/asignar-planos" render={() =>
+          tienePermiso('admin_permisos') ? <AdminAsignarPlanos /> : <Redirect to="/dashboard" />
+        } />
+
+        <Route exact path="/admin/gestion-planos" render={() =>
+          tienePermiso('admin_permisos') ? <AdminGestionPlanos /> : <Redirect to="/dashboard" />
         } />
 
         {/*

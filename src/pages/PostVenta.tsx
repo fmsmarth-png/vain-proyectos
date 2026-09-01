@@ -1,4 +1,4 @@
-import { IonContent, IonPage, IonHeader, IonToolbar, IonTitle, IonButton, IonSpinner } from '@ionic/react';
+import { IonContent, IonPage, IonHeader, IonToolbar, IonTitle, IonButton, IonSpinner, IonModal } from '@ionic/react';
 import { useEffect, useRef, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { useIonViewDidEnter } from '@ionic/react';
@@ -180,6 +180,19 @@ const PostVenta: React.FC = () => {
   const [inspectorNombre, setInspectorNombre] = useState(
     () => localStorage.getItem('detalles_user_nombre') ?? ''
   );
+  // Rol del usuario logueado. maestro_postventa solo se suma a visitas ya
+  // creadas por un profesional (o inicia una nueva sin papeleta): toma
+  // fotos, recopila receptor/firma y cambia el estado de cada observación,
+  // pero no edita ambiente/observación/partida/causa, no sube papeletas PDF,
+  // y no edita fecha/hora de atención.
+  const [usuarioRol, setUsuarioRol] = useState('');
+  const esMaestro = usuarioRol === 'maestro_postventa';
+  // Titular de post venta del proyecto (Admin → Proyectos). Cuando
+  // maestro_postventa finaliza una visita, el informe y la papeleta quedan
+  // a nombre de este usuario, no de quien tomó las fotos/firma.
+  const [titular, setTitular] = useState<{ id: string | null; nombre: string | null; email: string | null }>(
+    { id: null, nombre: null, email: null }
+  );
 
   const [datos, setDatos] = useState<DatosSolicitud>(DATOS_VACIOS);
   const [obs, setObs] = useState<ObservacionPdf[]>([]);
@@ -199,11 +212,28 @@ const PostVenta: React.FC = () => {
   const [finalizadoOffline, setFinalizadoOffline] = useState(false);
 
   const [anotando, setAnotando] = useState<{ idx: number; tipo: 'antes' | 'despues'; src: string } | null>(null);
+  // Vista previa amplia de una foto ya tomada, con opción de eliminarla
+  // desde ahí mismo — antes solo existía el botón × diminuto en la miniatura.
+  const [fotoAmpliada, setFotoAmpliada] = useState<{ idx: number; tipo: 'antes' | 'despues'; src: string } | null>(null);
+  // Aviso transitorio cuando otra sesión (ej. el profesional en otro
+  // dispositivo) actualizó esta misma visita mientras la tenías abierta.
+  const [actualizadoRemoto, setActualizadoRemoto] = useState(false);
 
   /* ---------- guardado automático ---------- */
   const [papeletaId, setPapeletaId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [reanudando, setReanudando] = useState(false);
+  // Ver (no editar) una visita ya COMPLETADA. Distinto de las restricciones
+  // por rol (esMaestro): acá NADIE edita nada — ni guarda localmente, ni
+  // sincroniza, ni escucha tiempo real. Es una foto fija del informe final.
+  // Se inicializa de forma optimista desde el estado de navegación (si
+  // VisitasPostVenta.tsx ya sabe que es una visita completada, evita el
+  // parpadeo de ver la UI editable antes de que hidratarBorrador confirme
+  // contra la base de datos) — pero la única fuente de verdad real sigue
+  // siendo `pap.estado === 'COMPLETADA'` en hidratarBorrador: si este flag
+  // llegara desactualizado o manipulado, se corrige solo al cargar.
+  const [soloLectura, setSoloLectura] = useState<boolean>(() => !!location.state?.soloLectura);
+  const [completadaInfo, setCompletadaInfo] = useState<{ fecha: string | null; firmaUrl: string | null }>({ fecha: null, firmaUrl: null });
   // Refs para leer el estado más reciente dentro de callbacks con debounce
   const revRef = useRef<RevisionObs[]>([]);
   const obsRef = useRef<ObservacionPdf[]>([]);
@@ -215,30 +245,77 @@ const PostVenta: React.FC = () => {
   const usuarioEmailRef = useRef<string | null>(null);
   const creadoEnServidorRef = useRef(false);
   const syncTimerRef = useRef<any>(null);
+  // Marca de tiempo de la última edición hecha por ESTA persona en ESTE
+  // dispositivo (no cuenta cuando el que escribe es la propia fusión
+  // remota). Mientras esté "reciente", la fusión en tiempo real se pausa —
+  // evita pisar un tecleo en curso con un valor más viejo que llega del
+  // servidor justo en ese instante.
+  const ultimaEdicionLocalRef = useRef(0);
   const papeletaIdRef = useRef<string | null>(null);
   const receptorTimer = useRef<any>(null);
   const reanudadoRef = useRef(false);
   useEffect(() => { revRef.current = rev; }, [rev]);
   useEffect(() => { obsRef.current = obs; }, [obs]);
+  // Los useEffect de abajo quedan como respaldo defensivo, pero YA NO son la
+  // única vía de sincronización de datos/recNombre/recRut/sinPapeleta — ver
+  // los setters *Sync más abajo. Antes, cualquier código que llamara a
+  // construirBorrador()/persistirBorrador() justo después de un setDatosSync(...)
+  // (u otro de los 3) sin pasar un `over` explícito, leía el valor VIEJO del
+  // ref (el useEffect corre un ciclo de render después). Eso causó el bug
+  // real documentado en postventaBorradorLocal.ts ("fecha_atencion se pone
+  // null sola"): se parchó a mano en los sitios donde alguien se acordó de
+  // hacerlo (ver hidratarBorrador, crearBorrador), pero cualquier código
+  // nuevo que llamara a setDatos sin ese cuidado podía reintroducir el mismo
+  // bug. Los setters *Sync actualizan el ref en el mismo tick, siempre, así
+  // que ya no depende de que cada callsite se acuerde de hacerlo a mano.
   useEffect(() => { datosRef.current = datos; }, [datos]);
   useEffect(() => { recNombreRef.current = recNombre; }, [recNombre]);
   useEffect(() => { recRutRef.current = recRut; }, [recRut]);
   useEffect(() => { sinPapeletaRef.current = sinPapeleta; }, [sinPapeleta]);
   useEffect(() => { papeletaIdRef.current = papeletaId; }, [papeletaId]);
 
+  const setDatosSync = (updater: DatosSolicitud | ((prev: DatosSolicitud) => DatosSolicitud)) => {
+    setDatos(prev => {
+      const next = typeof updater === 'function' ? (updater as (p: DatosSolicitud) => DatosSolicitud)(prev) : updater;
+      datosRef.current = next;
+      return next;
+    });
+  };
+  const setRecNombreSync = (updater: string | ((prev: string) => string)) => {
+    setRecNombre(prev => {
+      const next = typeof updater === 'function' ? (updater as (p: string) => string)(prev) : updater;
+      recNombreRef.current = next;
+      return next;
+    });
+  };
+  const setRecRutSync = (updater: string | ((prev: string) => string)) => {
+    setRecRut(prev => {
+      const next = typeof updater === 'function' ? (updater as (p: string) => string)(prev) : updater;
+      recRutRef.current = next;
+      return next;
+    });
+  };
+  const setSinPapeletaSync = (updater: boolean | ((prev: boolean) => boolean)) => {
+    setSinPapeleta(prev => {
+      const next = typeof updater === 'function' ? (updater as (p: boolean) => boolean)(prev) : updater;
+      sinPapeletaRef.current = next;
+      return next;
+    });
+  };
+
   /* ---------- paleta ---------- */
-  const bg = dark ? '#000000' : '#f0f4f8';
-  const cardGrad = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border = dark ? '#1e1e1e' : '#e2e8f0';
+  const bg = dark ? '#0B1220' : '#f0f4f8';
+  const cardGrad = dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#ffffff';
+  const border = dark ? '#243550' : '#e2e8f0';
   const textPrimary = dark ? '#f9fafb' : '#0f172a';
   const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted = dark ? '#444444' : '#94a3b8';
-  const toolbar = dark ? '#000000' : '#1e3a5f';
-  const inputBg = dark ? '#111111' : '#ffffff';
-  const inputBorder = dark ? '#1e1e1e' : '#cbd5e1';
+  const textMuted = dark ? '#5D728F' : '#94a3b8';
+  const toolbar = dark ? '#0E1728' : '#1e3a5f';
+  const inputBg = dark ? '#16233B' : '#ffffff';
+  const inputBorder = dark ? '#243550' : '#cbd5e1';
   const accent = dark ? '#60a5fa' : '#2563eb';
   const sepLine = dark
-    ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)'
+    ? 'linear-gradient(90deg, transparent, #243550, transparent)'
     : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
   const labelStyle: React.CSSProperties = {
@@ -258,8 +335,8 @@ const PostVenta: React.FC = () => {
   const btnPrimary = (disabled: boolean): React.CSSProperties => ({
     width: '100%', height: 48, borderRadius: 12,
     background: disabled
-      ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9')
-      : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+      ? (dark ? 'linear-gradient(135deg, #1E2E4A, #243550)' : '#f1f5f9')
+      : (dark ? 'linear-gradient(135deg, #243550, #2E4468)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
     border: disabled ? `0.5px solid ${border}` : 'none',
     color: disabled ? textMuted : '#fff',
     fontSize: 15, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
@@ -320,11 +397,43 @@ const PostVenta: React.FC = () => {
       const uid = sess?.session?.user?.id;
       if (uid) {
         const { data: u } = await supabase
-          .from('usuarios').select('nombre').eq('id', uid).maybeSingle();
+          .from('usuarios').select('nombre, rol').eq('id', uid).maybeSingle();
         if (u?.nombre) {
           const n = String(u.nombre).trim();
           setInspectorNombre(n);
           try { localStorage.setItem('detalles_user_nombre', n); } catch {}
+        }
+        if (u?.rol) setUsuarioRol(String(u.rol));
+      }
+
+      // Titular de post venta del proyecto — se cachea en localStorage para
+      // que un maestro_postventa que trabaja offline (sin poder consultar
+      // Supabase en este instante) igual sepa a quién atribuir la visita,
+      // siempre que haya abierto este proyecto al menos una vez con señal.
+      if (proyecto?.id) {
+        const cacheKey = `pv_titular_${proyecto.id}`;
+        let resuelto: { id: string; nombre: string | null; email: string | null } | null = null;
+        try {
+          const { data: proyRow } = await supabase
+            .from('proyectos').select('titular_postventa_id').eq('id', proyecto.id).maybeSingle();
+          const titularId = proyRow?.titular_postventa_id ?? null;
+          if (titularId) {
+            const { data: tUser } = await supabase
+              .from('usuarios').select('id, nombre, email').eq('id', titularId).maybeSingle();
+            if (tUser) {
+              resuelto = { id: tUser.id, nombre: tUser.nombre ?? null, email: (tUser.email ?? '').toLowerCase() || null };
+            }
+          }
+        } catch { /* sin conexión: se intenta el respaldo local de abajo */ }
+
+        if (resuelto) {
+          setTitular(resuelto);
+          try { localStorage.setItem(cacheKey, JSON.stringify(resuelto)); } catch {}
+        } else {
+          try {
+            const cache = localStorage.getItem(cacheKey);
+            if (cache) setTitular(JSON.parse(cache));
+          } catch {}
         }
       }
       // ¿Venimos a reanudar un borrador desde DetalleDepto?
@@ -349,23 +458,26 @@ const PostVenta: React.FC = () => {
     papeletaIdRef.current = null;
     sessionStorage.removeItem(RESUME_KEY);
     setPapeletaId(null); setSaveState('idle');
-    setDatos(DATOS_VACIOS); setObs([]); setRev([]); setAbierta(null);
+    setDatosSync(DATOS_VACIOS); setObs([]); setRev([]); setAbierta(null);
     setDesajuste(''); setDesajusteOk(false);
-    setRecNombre(''); setRecRut('');
+    setRecNombreSync(''); setRecRutSync('');
     setFirmaDataUrl(null); setError(''); setPaso('carga');
-    setSinPapeleta(false);
+    setSinPapeletaSync(false);
+    setSoloLectura(false);
+    setCompletadaInfo({ fecha: null, firmaUrl: null });
   };
 
   const usarDatosPropietario = () => {
     const n = propietario.nombre;
     const r = formatRut(propietario.rut);
-    setRecNombre(n);
-    setRecRut(r);
+    setRecNombreSync(n);
+    setRecRutSync(r);
     guardarReceptorDebounced(n, r);
   };
 
   /* ---------- lectura del PDF ---------- */
   const seleccionarPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (esMaestro) return;
     const file = e.target.files?.[0];
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (!file) return;
@@ -407,7 +519,7 @@ const PostVenta: React.FC = () => {
         fotoAntes: null, fotoDespues: null,
         origen: 'papeleta' as const,
       }));
-      setDatos(d);
+      setDatosSync(d);
       setObs(observaciones);
       setRev(revsIniciales);
       setAbierta(0);
@@ -438,8 +550,8 @@ const PostVenta: React.FC = () => {
   const iniciarSinPapeleta = () => {
     const o = [obsVacia(1)];
     const r = [revVacia('adicional')];
-    setSinPapeleta(true);
-    setDatos(DATOS_VACIOS);
+    setSinPapeletaSync(true);
+    setDatosSync(DATOS_VACIOS);
     setDesajuste(''); setDesajusteOk(false);
     setObs(o);
     setRev(r);
@@ -450,6 +562,7 @@ const PostVenta: React.FC = () => {
   };
 
   const agregarObs = () => {
+    if (esMaestro || soloLectura) return;
     const nObs = obsVacia(obs.length + 1);
     const nRev: RevisionObs = { ...revVacia('adicional'), id: nuevoId() };
     const idx = obs.length;
@@ -465,6 +578,7 @@ const PostVenta: React.FC = () => {
   // cliente. La nueva obs hereda la descripción del PDF de la obs padre para que
   // solicitud_cliente quede igual. Se inserta justo después de su padre.
   const derivarObs = (idxPadre: number) => {
+    if (esMaestro || soloLectura) return;
     const nObs = { ...obs[idxPadre] };
     const nRev: RevisionObs = {
       ...revVacia('derivada'),
@@ -483,6 +597,7 @@ const PostVenta: React.FC = () => {
   // Con papeleta: agrega un trabajo NO registrado en la papeleta (se hizo en la
   // misma visita). No tiene solicitud del cliente → se guarda con null.
   const agregarAdicional = () => {
+    if (esMaestro || soloLectura) return;
     const nObs = obsVacia(obs.length + 1);
     const nRev: RevisionObs = { ...revVacia('adicional'), id: nuevoId() };
     const idx = obs.length;
@@ -495,6 +610,7 @@ const PostVenta: React.FC = () => {
   };
 
   const quitarObs = (idx: number) => {
+    if (esMaestro || soloLectura) return;
     if (obs.length <= 1) return; // siempre queda al menos una
     const id = rev[idx]?.id;
     const nextObs = obs.filter((_, i) => i !== idx);
@@ -587,7 +703,11 @@ const PostVenta: React.FC = () => {
   // Guarda el snapshot en IndexedDB de inmediato (sin debounce: es barato y
   // siempre funciona) y programa, aparte, un intento de reflejarlo en
   // Supabase con un pequeño debounce para no saturar la red con cada tecleo.
-  const persistirBorrador = async (over: Parameters<typeof construirBorrador>[0] = {}) => {
+  const persistirBorrador = async (
+    over: Parameters<typeof construirBorrador>[0] = {},
+    esEdicionLocal: boolean = true,
+  ) => {
+    if (esEdicionLocal) ultimaEdicionLocalRef.current = Date.now();
     const borrador = construirBorrador(over);
     if (!borrador) return; // aún no se ha creado el borrador (crearBorrador no ha corrido)
     try {
@@ -635,8 +755,15 @@ const PostVenta: React.FC = () => {
     } catch { return undefined; }
   };
 
+  // Campos que maestro_postventa no puede tocar: solo tiene fotos, estado y
+  // el receptor (nombre/rut/firma, manejados aparte).
+  const CAMPOS_BLOQUEADOS_MAESTRO: (keyof RevisionObs)[] =
+    ['ambienteSel', 'ambienteLibre', 'observacion', 'partida', 'causa'];
+
   // Edición con guardado automático (local-first) del borrador.
   const setCampo = (idx: number, campo: keyof RevisionObs, valor: any) => {
+    if (soloLectura) return;
+    if (esMaestro && CAMPOS_BLOQUEADOS_MAESTRO.includes(campo)) return;
     setRev(prev => {
       const next = prev.map((r, i) => (i === idx ? { ...r, [campo]: valor } : r));
       revRef.current = next; // fresco de inmediato, sin esperar el efecto
@@ -649,6 +776,7 @@ const PostVenta: React.FC = () => {
   // segundo plano. Sin conexión: el data URL queda guardado como respaldo en
   // el borrador local y se reemplaza por la URL de Storage cuando se pueda.
   const setFotoYGuardar = async (idx: number, tipo: 'antes' | 'despues', dataUrl: string | null) => {
+    if (soloLectura) return;
     const campo = tipo === 'antes' ? 'fotoAntes' : 'fotoDespues';
     setCampoLocal(idx, campo, dataUrl);
     const next = revRef.current.map((r, i) => (i === idx ? { ...r, [campo]: dataUrl } : r));
@@ -709,7 +837,7 @@ const PostVenta: React.FC = () => {
   };
 
   const guardarReceptorDebounced = (nombre: string, rut: string) => {
-    if (!papeletaIdRef.current) return;
+    if (soloLectura || !papeletaIdRef.current) return;
     clearTimeout(receptorTimer.current);
     receptorTimer.current = setTimeout(() => {
       void persistirBorrador({ recNombre: nombre, recRut: rut });
@@ -730,25 +858,27 @@ const PostVenta: React.FC = () => {
   // (dispositivo distinto, reinstalación de la app), cae a Supabase como
   // respaldo — y de ahí en adelante ya queda protegido localmente también.
   const hidratarBorrador = async (pid: string, catalogo: Catalogo[]) => {
-    // DIAGNÓSTICO TEMPORAL
-    console.log('[DIAGNÓSTICO hidratarBorrador] llamada con pid =', pid, 'en', new Date().toISOString());
     setReanudando(true);
     try {
       const local = leerBorradorLocal(pid);
 
-      if (local) {
+      // Si la copia local quedó marcada COMPLETADA (caso raro: normalmente
+      // se borra al finalizar), se ignora y se cae al camino remoto de más
+      // abajo, que sí arma el modo solo lectura correctamente.
+      if (local && local.estado !== 'COMPLETADA') {
+        setSoloLectura(false); // corrige el flag optimista si venía mal desde la navegación
         creadoEnServidorRef.current = local.creadoEnServidor;
         usuarioIdRef.current = local.usuario_id;
         usuarioEmailRef.current = local.usuario_email;
-        setSinPapeleta(local.sin_papeleta);
-        setDatos({
+        setSinPapeletaSync(local.sin_papeleta);
+        setDatosSync({
           condominio: local.condominio ?? '', depto: String(local.depto_numero ?? ''), torre: local.torre_codigo ?? '',
           requerimiento: local.n_requerimiento ?? '', fechaRegistro: local.fecha_registro ?? '',
           fechaAtencion: local.fecha_atencion ?? '', horaAtencion: local.hora_atencion ?? '',
           formato: 'solicitud', // el borrador no persiste el formato de origen; no se usa tras la carga inicial
         });
-        setRecNombre(local.receptor_nombre ?? '');
-        setRecRut(local.receptor_rut ?? '');
+        setRecNombreSync(local.receptor_nombre ?? '');
+        setRecRutSync(local.receptor_rut ?? '');
         setPapeletaId(pid);
         papeletaIdRef.current = pid;
 
@@ -783,11 +913,14 @@ const PostVenta: React.FC = () => {
 
       // Sin copia local: reanudación desde otro dispositivo o app reinstalada.
       const { data: pap } = await supabase.from(T_PAPELETA).select('*').eq('id', pid).maybeSingle();
-      // DIAGNÓSTICO TEMPORAL
-      console.log('[DIAGNÓSTICO hidratarBorrador] pap leído de Supabase =', JSON.stringify(pap, null, 2));
       if (!pap) { sessionStorage.removeItem(RESUME_KEY); setReanudando(false); return; }
-      // Una visita ya cerrada no se reabre para editar (evita reinsertar en BD).
-      if (pap.estado === 'COMPLETADA') { sessionStorage.removeItem(RESUME_KEY); setReanudando(false); return; }
+
+      // Una visita ya COMPLETADA se muestra en modo solo lectura — nunca se
+      // reabre para editar (no se crea/toca ningún borrador local, no se
+      // sincroniza, no escucha tiempo real). Es un informe cerrado.
+      const esVisitaCerrada = pap.estado === 'COMPLETADA';
+      setSoloLectura(esVisitaCerrada);
+      setCompletadaInfo({ fecha: pap.fecha_completada ?? null, firmaUrl: pap.receptor_firma_url ?? null });
 
       const { data: hijos } = await supabase.from(T_BORRADOR)
         .select('*').eq('papeleta_id', pid)
@@ -797,7 +930,7 @@ const PostVenta: React.FC = () => {
       creadoEnServidorRef.current = true;
       usuarioIdRef.current = pap.usuario_id ?? null;
       usuarioEmailRef.current = pap.usuario_email ?? null;
-      setSinPapeleta(!!pap.sin_papeleta);
+      setSinPapeletaSync(!!pap.sin_papeleta);
       sinPapeletaRef.current = !!pap.sin_papeleta;
       const datosHidratados: DatosSolicitud = {
         condominio: pap.condominio ?? '', depto: pap.depto_numero ?? '', torre: pap.torre_codigo ?? '',
@@ -805,12 +938,12 @@ const PostVenta: React.FC = () => {
         fechaAtencion: pap.fecha_atencion ?? '', horaAtencion: pap.hora_atencion ?? '',
         formato: 'solicitud', // el borrador guardado no persiste el formato de origen; no se usa tras la carga inicial
       };
-      setDatos(datosHidratados);
+      setDatosSync(datosHidratados);
       datosRef.current = datosHidratados;
       const recNombreHidratado = pap.receptor_nombre ?? '';
       const recRutHidratado = pap.receptor_rut ?? '';
-      setRecNombre(recNombreHidratado);
-      setRecRut(recRutHidratado);
+      setRecNombreSync(recNombreHidratado);
+      setRecRutSync(recRutHidratado);
       recNombreRef.current = recNombreHidratado;
       recRutRef.current = recRutHidratado;
       setPapeletaId(pid);
@@ -842,30 +975,188 @@ const PostVenta: React.FC = () => {
       setAbierta(0);
       setPaso('revision');
       setSaveState('saved');
-      // A partir de ahora esta visita también queda protegida localmente.
-      // FIX: se pasan los valores recién leídos de Supabase explícitos
-      // (datos/sinPapeleta/recNombre/recRut), en vez de dejar que
-      // construirBorrador() use los refs — esos refs recién se actualizan en
-      // un useEffect posterior al setDatos/setSinPapeleta/etc. de arriba, así
-      // que en este punto todavía reflejan el valor ANTERIOR (vacío, en una
-      // reanudación fresca). Sin este fix, el guardado local (y el upsert a
-      // Supabase que dispara en segundo plano) se hacía con fecha_atencion
-      // vacía, borrando silenciosamente la fecha recién creada — la
-      // observación se seguía viendo bien en Detalle Depto, pero la papeleta
-      // desaparecía del Calendario (que sí exige fecha_atencion).
-      await persistirBorrador({
-        rev: revsHidratados,
-        datos: datosHidratados,
-        sinPapeleta: !!pap.sin_papeleta,
-        recNombre: recNombreHidratado,
-        recRut: recRutHidratado,
-      });
+
+      // Una visita cerrada nunca crea ni toca un borrador local: no hay
+      // nada que guardar, editar ni sincronizar. Solo se muestra.
+      if (!esVisitaCerrada) {
+        // A partir de ahora esta visita también queda protegida localmente.
+        // FIX: se pasan los valores recién leídos de Supabase explícitos
+        // (datos/sinPapeleta/recNombre/recRut), en vez de dejar que
+        // construirBorrador() use los refs — esos refs recién se actualizan en
+        // un useEffect posterior al setDatos/setSinPapeleta/etc. de arriba, así
+        // que en este punto todavía reflejan el valor ANTERIOR (vacío, en una
+        // reanudación fresca). Sin este fix, el guardado local (y el upsert a
+        // Supabase que dispara en segundo plano) se hacía con fecha_atencion
+        // vacía, borrando silenciosamente la fecha recién creada — la
+        // observación se seguía viendo bien en Detalle Depto, pero la papeleta
+        // desaparecía del Calendario (que sí exige fecha_atencion).
+        await persistirBorrador({
+          rev: revsHidratados,
+          datos: datosHidratados,
+          sinPapeleta: !!pap.sin_papeleta,
+          recNombre: recNombreHidratado,
+          recRut: recRutHidratado,
+        });
+      }
     } catch {
       setSaveState('error');
     }
     sessionStorage.removeItem(RESUME_KEY);
     setReanudando(false);
   };
+
+  /* ------------------------------------------------------------------ */
+  /*  Actualización en tiempo real                                       */
+  /*                                                                      */
+  /*  Si el profesional y el maestro tienen la MISMA visita abierta a la */
+  /*  vez (cada uno en su dispositivo), cada uno edita campos DISTINTOS: */
+  /*  el profesional ambiente/observación/partida/causa/fecha/hora, el   */
+  /*  maestro fotos/receptor/estado. El riesgo real no es "quién escribe */
+  /*  al final" — es que la próxima sincronización de UNO pise sin       */
+  /*  querer el campo que el OTRO acaba de guardar, porque su copia      */
+  /*  local todavía no se enteró del cambio ajeno (sincronizarBorrador-  */
+  /*  ConServidor sube el borrador COMPLETO, no campo por campo). Por    */
+  /*  eso acá se fusiona campo a campo lo que llega del servidor con lo  */
+  /*  que ya hay en pantalla, en vez de reemplazar todo entero: así la   */
+  /*  próxima vez que ESTE dispositivo sincronice (por su propia         */
+  /*  edición), ya lleva también lo último que puso el otro.             */
+  /* ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!papeletaId || soloLectura) return;
+
+    // Ventana de silencio: si hubo una edición local hace menos de esto,
+    // se pospone la fusión en vez de aplicarla — evita pisar un tecleo en
+    // curso con un valor más viejo que llega del servidor justo en ese
+    // instante. No se pierde el cambio remoto, solo se retrasa unos
+    // segundos hasta que la persona deje de escribir.
+    const VENTANA_SILENCIO_MS = 2000;
+
+    let debounceTimer: any = null;
+    const refrescarDesdeServidor = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        const desdeUltimaEdicion = Date.now() - ultimaEdicionLocalRef.current;
+        if (desdeUltimaEdicion < VENTANA_SILENCIO_MS) {
+          // Sigue "reciente": reintenta más tarde en vez de aplicar ahora.
+          debounceTimer = setTimeout(refrescarDesdeServidor, VENTANA_SILENCIO_MS - desdeUltimaEdicion);
+          return;
+        }
+        try {
+          const [{ data: pap }, { data: filasRemotas }] = await Promise.all([
+            supabase.from(T_PAPELETA).select('*').eq('id', papeletaId).maybeSingle(),
+            supabase.from(T_BORRADOR).select('*').eq('papeleta_id', papeletaId)
+              .order('orden', { ascending: true }).order('created_at', { ascending: true }),
+          ]);
+          if (!pap) return; // la visita se eliminó desde otro lado
+
+          let cambioAlgo = false;
+
+          // Fusión por fila: toma del servidor solo lo que haya cambiado,
+          // preservando cualquier campo local que el servidor no traiga
+          // (nunca debería pasar con columnas NOT NULL-ables normales, pero
+          // el `?? r.campo` es la red de seguridad si algo llega vacío).
+          const nextRev = revRef.current.map(r => {
+            const remota = (filasRemotas ?? []).find((f: any) => f.id === r.id);
+            if (!remota) return r;
+            const a = reconstruirAmbiente(remota.ambiente, ambientes);
+            // Se toma el valor del servidor tal cual, SIN "?? r.campo" de
+            // respaldo: ese respaldo enmascaraba las eliminaciones (borrar
+            // una foto también la deja en null, y `??` no distingue "sin
+            // información nueva" de "se borró a propósito" — el valor viejo
+            // local terminaba resucitando en el próximo guardado). La
+            // ventana de silencio de más arriba ya protege una edición
+            // local reciente; una vez que la fusión decide seguir, el
+            // servidor manda.
+            const fusionada: RevisionObs = {
+              ...r,
+              ambienteSel: a.sel,
+              ambienteLibre: a.libre,
+              observacion: remota.observacion ?? '',
+              partida: remota.partida_afectada ?? '',
+              causa: remota.causa ?? '',
+              estado: (remota.estado ?? r.estado) as RevisionObs['estado'],
+              fotoAntes: remota.foto_antes ?? null,
+              fotoDespues: remota.foto_despues ?? null,
+            };
+            if (
+              fusionada.ambienteSel !== r.ambienteSel || fusionada.ambienteLibre !== r.ambienteLibre ||
+              fusionada.observacion !== r.observacion || fusionada.partida !== r.partida ||
+              fusionada.causa !== r.causa || fusionada.estado !== r.estado ||
+              fusionada.fotoAntes !== r.fotoAntes || fusionada.fotoDespues !== r.fotoDespues
+            ) cambioAlgo = true;
+            return fusionada;
+          });
+
+          // Filas nuevas creadas desde el otro dispositivo (ej. "Separar
+          // otro problema" o "Agregar adicional") que acá todavía no existen.
+          const idsLocales = new Set(nextRev.map(r => r.id));
+          (filasRemotas ?? []).forEach((h: any) => {
+            if (!h.id || idsLocales.has(h.id)) return;
+            cambioAlgo = true;
+            const a = reconstruirAmbiente(h.ambiente, ambientes);
+            nextRev.push({
+              id: h.id, ambienteSel: a.sel, ambienteLibre: a.libre,
+              observacion: h.observacion ?? '', partida: h.partida_afectada ?? '',
+              causa: h.causa ?? '', estado: (h.estado ?? 'SOLUCIONADO') as RevisionObs['estado'],
+              fotoAntes: h.foto_antes ?? null, fotoDespues: h.foto_despues ?? null,
+              origen: (h.origen ?? 'papeleta') as RevisionObs['origen'],
+            });
+          });
+
+          const recNombreFusionado = (pap.receptor_nombre ?? '') !== recNombreRef.current
+            ? (pap.receptor_nombre ?? '') : recNombreRef.current;
+          const recRutFusionado = (pap.receptor_rut ?? '') !== recRutRef.current
+            ? (pap.receptor_rut ?? '') : recRutRef.current;
+          if (recNombreFusionado !== recNombreRef.current || recRutFusionado !== recRutRef.current) cambioAlgo = true;
+
+          const fechaFusionada = pap.fecha_atencion ?? '';
+          const horaFusionada = pap.hora_atencion ?? '';
+          if (fechaFusionada !== datosRef.current.fechaAtencion || horaFusionada !== datosRef.current.horaAtencion) cambioAlgo = true;
+
+          if (!cambioAlgo) return;
+
+          const datosFusionados = { ...datosRef.current, fechaAtencion: fechaFusionada, horaAtencion: horaFusionada };
+          setRev(nextRev);
+          setRecNombreSync(recNombreFusionado);
+          setRecRutSync(recRutFusionado);
+          setDatosSync(datosFusionados);
+
+          // Guarda la fusión en el borrador local (IndexedDB) y reintenta
+          // reflejarla en el servidor — ya con lo propio Y lo ajeno juntos,
+          // para que la próxima sincronización de este dispositivo no pise
+          // lo que el otro acaba de guardar. `false` = esto NO es una
+          // edición local: no debe reiniciar la ventana de silencio, o dos
+          // dispositivos fusionando en bucle nunca dejarían de posponerse
+          // el uno al otro.
+          void persistirBorrador({
+            rev: nextRev, datos: datosFusionados,
+            recNombre: recNombreFusionado, recRut: recRutFusionado,
+          }, false);
+
+          setActualizadoRemoto(true);
+          setTimeout(() => setActualizadoRemoto(false), 2500);
+        } catch {
+          /* si falla el refresco, se mantiene lo que ya había en pantalla */
+        }
+      }, 400);
+    };
+
+    const canalPapeleta = supabase
+      .channel(`postventa_papeleta_${papeletaId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: T_PAPELETA, filter: `id=eq.${papeletaId}` }, refrescarDesdeServidor)
+      .subscribe();
+
+    const canalObs = supabase
+      .channel(`postventa_obs_${papeletaId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: T_BORRADOR, filter: `papeleta_id=eq.${papeletaId}` }, refrescarDesdeServidor)
+      .subscribe();
+
+    return () => {
+      clearTimeout(debounceTimer);
+      supabase.removeChannel(canalPapeleta);
+      supabase.removeChannel(canalObs);
+    };
+  }, [papeletaId, ambientes, soloLectura]);
 
   const seleccionarFoto = async (idx: number, tipo: 'antes' | 'despues', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -901,11 +1192,21 @@ const PostVenta: React.FC = () => {
     !!ambienteFinal(r) && !!r.observacion.trim();
 
   const irAFirma = () => {
+    if (soloLectura) return;
     if (desajuste && !desajusteOk) { setError('Confirma la advertencia sobre el departamento antes de continuar'); return; }
+
+    if (esMaestro && !titular.id) {
+      setError('Este proyecto no tiene un profesional titular de post venta configurado. Pide a un administrador que lo asigne en Admin → Proyectos.');
+      return;
+    }
 
     const faltante = rev.findIndex(r => !completa(r));
     if (faltante !== -1) {
-      setError(`Observación ${faltante + 1}: falta el ambiente o el comentario del inspector`);
+      setError(
+        esMaestro
+          ? 'Esta visita tiene observaciones sin completar. Pídele al profesional que las termine antes de continuar.'
+          : `Observación ${faltante + 1}: falta el ambiente o el comentario del inspector`
+      );
       setAbierta(faltante);
       return;
     }
@@ -993,6 +1294,19 @@ const PostVenta: React.FC = () => {
       const user = sess?.session?.user;
       if (!user?.id) throw new Error('No se pudo identificar el usuario');
 
+      // Si un maestro_postventa cierra la visita, el informe y la papeleta
+      // quedan a nombre del profesional titular de post venta del proyecto
+      // (Admin → Proyectos), no de quien tomó las fotos y la firma.
+      // irAFirma() ya bloqueó el avance si no hay titular configurado, así
+      // que acá titular.id siempre existe cuando esMaestro es true. Como
+      // `filas` lleva estos 3 campos, la atribución queda correcta tanto si
+      // el guardado sale online como si termina encolado offline (ver
+      // flushColaPostventa en postventaOfflineQueue.ts, que reconstruye la
+      // papeleta leyendo estos mismos campos de la primera fila).
+      const attribUserId = (esMaestro && titular.id) ? titular.id : user.id;
+      const attribUserEmail = (esMaestro && titular.id) ? (titular.email ?? '') : (user.email ?? '').toLowerCase();
+      const attribUserNombre = (esMaestro && titular.id) ? (titular.nombre ?? '') : inspectorNombre;
+
       // La fecha de atención es la fecha real de la visita, no el día en que se
       // carga la papeleta. La semana VAIN se calcula desde ahí, no desde hoy.
       const fechaVisita = fechaDesdeDdMmAaaa(datos.fechaAtencion) ?? new Date();
@@ -1048,9 +1362,9 @@ const PostVenta: React.FC = () => {
           receptor_nombre: recNombre.trim(),
           receptor_rut: recRut.trim(),
           receptor_firma_url: firmaUrl,
-          usuario_id: user.id,
-          usuario_email: (user.email ?? '').toLowerCase(),
-          usuario_nombre: inspectorNombre || null,
+          usuario_id: attribUserId,
+          usuario_email: attribUserEmail,
+          usuario_nombre: attribUserNombre || null,
           fecha_creacion: fechaCreacion,
           semana_creacion: semanaCreacion,
         };
@@ -1070,7 +1384,7 @@ const PostVenta: React.FC = () => {
         nRequerimiento: datos.requerimiento,
         fechaAtencion: datos.fechaAtencion,
         horaAtencion: datos.horaAtencion,
-        revisor: inspectorNombre,
+        revisor: attribUserNombre,
         receptorNombre: recNombre.trim(),
         receptorRut: recRut.trim(),
         observaciones: obs.map((o, i) => ({
@@ -1130,9 +1444,9 @@ const PostVenta: React.FC = () => {
               fecha_atencion: borradorActual?.fecha_atencion ?? (datos.fechaAtencion || null),
               hora_atencion: borradorActual?.hora_atencion ?? (datos.horaAtencion || null),
               condominio: borradorActual?.condominio ?? (datos.condominio || null),
-              usuario_id: borradorActual?.usuario_id ?? user.id,
-              usuario_email: borradorActual?.usuario_email ?? (user.email ?? '').toLowerCase(),
-              usuario_nombre: borradorActual?.usuario_nombre ?? (inspectorNombre || null),
+              usuario_id: esMaestro ? attribUserId : (borradorActual?.usuario_id ?? attribUserId),
+              usuario_email: esMaestro ? attribUserEmail : (borradorActual?.usuario_email ?? attribUserEmail),
+              usuario_nombre: esMaestro ? (attribUserNombre || null) : (borradorActual?.usuario_nombre ?? (attribUserNombre || null)),
               estado: 'COMPLETADA',
               fecha_completada: new Date().toISOString(),
               receptor_nombre: recNombre.trim() || null,
@@ -1194,7 +1508,7 @@ const PostVenta: React.FC = () => {
 
   const metaChip = (label: string, valor: string) => (
     <div style={{
-      background: dark ? '#111111' : '#f8fafc', border: `0.5px solid ${border}`,
+      background: dark ? '#16233B' : '#f8fafc', border: `0.5px solid ${border}`,
       borderRadius: 10, padding: '6px 10px', flex: '1 1 auto', minWidth: 96,
     }}>
       <div style={{ fontSize: 8, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 600, marginBottom: 2 }}>{label}</div>
@@ -1202,14 +1516,57 @@ const PostVenta: React.FC = () => {
     </div>
   );
 
+  const metaChipEditable = (label: string, input: React.ReactNode) => (
+    <div style={{
+      background: dark ? '#16233B' : '#f8fafc', border: `0.5px solid ${border}`,
+      borderRadius: 10, padding: '6px 10px', flex: '1 1 auto', minWidth: 96,
+    }}>
+      <div style={{ fontSize: 8, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 600, marginBottom: 2 }}>{label}</div>
+      {input}
+    </div>
+  );
+
+  const inputMetaStyle: React.CSSProperties = {
+    width: '100%', background: 'transparent', border: 'none', outline: 'none',
+    fontSize: 12, color: textPrimary, fontWeight: 600, padding: 0,
+  };
+
+  /** "DD-MM-YYYY" o "DD/MM/YYYY" -> "YYYY-MM-DD" (lo que exige <input type="date">). '' si no calza. */
+  const fechaTextoAIso = (texto: string): string => {
+    const m = (texto || '').trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (!m) return '';
+    const [, d, mo, y] = m;
+    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  };
+  /** "YYYY-MM-DD" -> "DD-MM-YYYY" (formato de guardado, consistente con la plantilla nueva). */
+  const isoAFechaTexto = (iso: string): string => {
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    const [, y, mo, d] = m;
+    return `${d}-${mo}-${y}`;
+  };
+
+  // Fecha/hora de atención editable, con guardado local-first (nunca se
+  // pierde sin conexión) — usa el mismo camino que cualquier otra edición
+  // de esta pantalla (persistirBorrador). Como datosRef ya quedó
+  // sincronizado en el mismo tick por setDatosSync (ver más arriba), esta
+  // llamada sin overrides es segura: NO reproduce el bug histórico de
+  // "fecha_atencion se pone null sola" (ver comentario junto a los *Sync).
+  const fechaHoraTimer = useRef<any>(null);
+  const guardarFechaHoraDebounced = () => {
+    if (esMaestro || soloLectura) return;
+    clearTimeout(fechaHoraTimer.current);
+    fechaHoraTimer.current = setTimeout(() => { void persistirBorrador(); }, 700);
+  };
+
   const tarjetaDepto = (
-    <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 14, background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff' }}>
+    <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 14, background: dark ? 'linear-gradient(135deg, #16233B 0%, #1B2C48 100%)' : '#fff' }}>
       <div style={{
         width: 46, height: 46, borderRadius: 12,
-        background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
-        border: dark ? '0.5px solid #2a2a2a' : 'none',
+        background: dark ? 'linear-gradient(135deg, #1E2E4A, #243550)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+        border: dark ? '0.5px solid #2E4468' : 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0,
+        fontSize: 13, fontWeight: 700, color: dark ? '#8296B0' : '#fff', flexShrink: 0,
       }}>{depto?.numero}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 9, color: accent, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>
@@ -1240,11 +1597,23 @@ const PostVenta: React.FC = () => {
         <label style={labelStyle}>{tipo === 'antes' ? 'antes' : 'después'}</label>
         {src ? (
           <div style={{ position: 'relative', marginBottom: 12 }}>
-            <img src={src} style={{ width: '100%', borderRadius: 12, maxHeight: 160, objectFit: 'cover', display: 'block' }} />
-            <button onClick={() => setAnotando({ idx, tipo, src })}
-              style={{ position: 'absolute', top: 6, right: 40, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 13, cursor: 'pointer' }}>✏️</button>
-            <button onClick={() => setFotoYGuardar(idx, tipo, null)}
-              style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 15, cursor: 'pointer' }}>×</button>
+            <img src={src} onClick={() => setFotoAmpliada({ idx, tipo, src })}
+              style={{ width: '100%', borderRadius: 12, maxHeight: 160, objectFit: 'cover', display: 'block', cursor: 'pointer' }} />
+            {!soloLectura && (
+              <>
+                <button onClick={() => setAnotando({ idx, tipo, src })}
+                  style={{ position: 'absolute', top: 6, right: 40, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 13, cursor: 'pointer' }}>✏️</button>
+                <button onClick={() => setFotoYGuardar(idx, tipo, null)}
+                  style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 15, cursor: 'pointer' }}>×</button>
+              </>
+            )}
+          </div>
+        ) : soloLectura ? (
+          <div style={{
+            height: 80, borderRadius: 12, border: `0.5px dashed ${border}`, marginBottom: 12,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: textMuted, fontSize: 10,
+          }}>
+            Sin foto
           </div>
         ) : (
           <div style={{
@@ -1284,7 +1653,7 @@ const PostVenta: React.FC = () => {
       <IonPage id="main-content">
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' } as any}>
-            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any}
+            <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#5D728F' : 'rgba(255,255,255,0.7)' } as any}
               onClick={() => history.push('/dashboard')}>← Volver</IonButton>
             <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>POST VENTA</IonTitle>
           </IonToolbar>
@@ -1310,7 +1679,7 @@ const PostVenta: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' } as any}>
           <IonButton slot="start" fill="clear"
-            style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any}
+            style={{ '--color': dark ? '#5D728F' : 'rgba(255,255,255,0.7)' } as any}
             onClick={() => (paso === 'carga' ? salir() : paso === 'firma' ? setPaso('revision') : reiniciar())}>
             ← Volver
           </IonButton>
@@ -1318,7 +1687,7 @@ const PostVenta: React.FC = () => {
             POST VENTA · TORRE {torre?.nombre} · {depto?.numero}
           </IonTitle>
           <div slot="end" style={{ paddingRight: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-            {(paso === 'revision' || paso === 'firma') && saveState !== 'idle' && (
+            {!soloLectura && (paso === 'revision' || paso === 'firma') && saveState !== 'idle' && (
               <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
                 color: saveState === 'error' ? '#fca5a5' : 'rgba(255,255,255,0.72)' }}>
                 {saveState === 'saving' ? 'Guardando…' : saveState === 'saved' ? 'Guardado ✓' : 'Sin guardar'}
@@ -1331,6 +1700,18 @@ const PostVenta: React.FC = () => {
 
       <IonContent style={{ '--background': bg } as any}>
         <div style={{ padding: 16 }}>
+
+          {actualizadoRemoto && paso === 'revision' && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+              background: dark ? 'rgba(96,165,250,0.08)' : '#eff6ff',
+              border: `0.5px solid ${dark ? 'rgba(96,165,250,0.25)' : '#bfdbfe'}`,
+              borderRadius: 10, padding: '8px 12px',
+              fontSize: 11, color: dark ? '#93c5fd' : '#1d4ed8',
+            }}>
+              🔄 Se actualizó con cambios de otra sesión
+            </div>
+          )}
 
           {/* ============ PASO 1 · CARGA ============ */}
           {paso === 'carga' && (
@@ -1345,31 +1726,37 @@ const PostVenta: React.FC = () => {
               <>
                 {tarjetaDepto}
 
-                <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Cargar papeleta</div>
-                <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
+                {!esMaestro && (
+                  <>
+                    <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Cargar papeleta</div>
+                    <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
-                <div style={cardStyle}>
-                  {errorBox}
+                    <div style={cardStyle}>
+                      {errorBox}
 
-                  <input ref={fileInputRef} type="file" accept="application/pdf,.pdf"
-                    onChange={seleccionarPdf} style={{ display: 'none' }} />
+                      <input ref={fileInputRef} type="file" accept="application/pdf,.pdf"
+                        onChange={seleccionarPdf} style={{ display: 'none' }} />
 
-                  <button onClick={() => fileInputRef.current?.click()}
-                    disabled={leyendo} style={btnPrimary(leyendo)}>
-                    {leyendo ? 'Leyendo PDF...' : '📄 Seleccionar papeleta PDF'}
-                  </button>
+                      <button onClick={() => fileInputRef.current?.click()}
+                        disabled={leyendo} style={btnPrimary(leyendo)}>
+                        {leyendo ? 'Leyendo PDF...' : '📄 Seleccionar papeleta PDF'}
+                      </button>
 
-                  <div style={{ fontSize: 11, color: textMuted, marginTop: 10, lineHeight: 1.4 }}>
-                    Se verifica que la papeleta corresponda a este departamento y se extraen
-                    fechas, horario y el listado de requerimientos del cliente.
-                  </div>
-                </div>
+                      <div style={{ fontSize: 11, color: textMuted, marginTop: 10, lineHeight: 1.4 }}>
+                        Se verifica que la papeleta corresponda a este departamento y se extraen
+                        fechas, horario y el listado de requerimientos del cliente.
+                      </div>
+                    </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 16px' }}>
-                  <div style={{ flex: 1, height: '0.5px', background: sepLine }} />
-                  <div style={{ fontSize: 10, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>o</div>
-                  <div style={{ flex: 1, height: '0.5px', background: sepLine }} />
-                </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 16px' }}>
+                      <div style={{ flex: 1, height: '0.5px', background: sepLine }} />
+                      <div style={{ fontSize: 10, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>o</div>
+                      <div style={{ flex: 1, height: '0.5px', background: sepLine }} />
+                    </div>
+                  </>
+                )}
+
+                {esMaestro && errorBox}
 
                 <div style={cardStyle}>
                   <button onClick={iniciarSinPapeleta} disabled={leyendo} style={btnGhost}>
@@ -1408,11 +1795,60 @@ const PostVenta: React.FC = () => {
 
               {tarjetaDepto}
 
+              {soloLectura && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
+                  background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4',
+                  border: `0.5px solid ${dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0'}`,
+                  borderRadius: 10, padding: '10px 12px',
+                  fontSize: 12, color: dark ? '#4ade80' : '#15803d', fontWeight: 600,
+                }}>
+                  ✅ Visita completada
+                  {completadaInfo.fecha && (
+                    <span style={{ fontWeight: 400, color: textMuted, fontSize: 11 }}>
+                      · {new Date(completadaInfo.fecha).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {!sinPapeleta && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                   {metaChip('registro', datos.fechaRegistro)}
-                  {metaChip('atención', datos.fechaAtencion)}
-                  {metaChip('horario', datos.horaAtencion)}
+                  {(esMaestro || soloLectura) ? (
+                    <>
+                      {metaChip('atención', datos.fechaAtencion)}
+                      {metaChip('horario', datos.horaAtencion)}
+                    </>
+                  ) : (
+                    <>
+                      {metaChipEditable('atención', (
+                        <input
+                          type="date"
+                          value={fechaTextoAIso(datos.fechaAtencion)}
+                          onChange={e => {
+                            const nueva = isoAFechaTexto(e.target.value);
+                            setDatosSync(d => ({ ...d, fechaAtencion: nueva }));
+                            guardarFechaHoraDebounced();
+                          }}
+                          style={inputMetaStyle}
+                        />
+                      ))}
+                      {metaChipEditable('horario', (
+                        <input
+                          type="text"
+                          value={datos.horaAtencion}
+                          placeholder="Ej: 10:30"
+                          onChange={e => {
+                            const nueva = e.target.value;
+                            setDatosSync(d => ({ ...d, horaAtencion: nueva }));
+                            guardarFechaHoraDebounced();
+                          }}
+                          style={inputMetaStyle}
+                        />
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1444,7 +1880,7 @@ const PostVenta: React.FC = () => {
                       style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
                       <div style={{
                         width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                        background: ok ? (dark ? 'rgba(74,222,128,0.12)' : '#dcfce7') : (dark ? '#161616' : '#f1f5f9'),
+                        background: ok ? (dark ? 'rgba(74,222,128,0.12)' : '#dcfce7') : (dark ? '#1B2C48' : '#f1f5f9'),
                         border: `0.5px solid ${ok ? (dark ? 'rgba(74,222,128,0.3)' : '#bbf7d0') : border}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11, fontWeight: 700,
@@ -1466,7 +1902,7 @@ const PostVenta: React.FC = () => {
                             : o.descripcion}
                         </div>
                       </div>
-                      {(sinPapeleta || r.origen === 'derivada' || r.origen === 'adicional') && obs.length > 1 && (
+                      {!esMaestro && !soloLectura && (sinPapeleta || r.origen === 'derivada' || r.origen === 'adicional') && obs.length > 1 && (
                         <button onClick={e => { e.stopPropagation(); quitarObs(idx); }}
                           style={{ background: 'transparent', border: 'none', color: textMuted, fontSize: 18, cursor: 'pointer', flexShrink: 0, padding: '0 4px' }}>×</button>
                       )}
@@ -1505,47 +1941,82 @@ const PostVenta: React.FC = () => {
                           </div>
                         )}
 
-                        <label style={labelStyle}>ambiente *</label>
-                        <select value={r.ambienteSel} onChange={e => setCampo(idx, 'ambienteSel', e.target.value)} style={inputStyle}>
-                          <option value="">Seleccionar ambiente...</option>
-                          {ambientes.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
-                          <option value={OTRO}>Otro (especificar)...</option>
-                        </select>
-                        {r.ambienteSel === OTRO && (
-                          <input value={r.ambienteLibre}
-                            onChange={e => setCampo(idx, 'ambienteLibre', e.target.value.toUpperCase())}
-                            placeholder="EJ: ESTACIONAMIENTO 12, BODEGA, FACHADA" style={inputStyle} />
+                        {(esMaestro || soloLectura) ? (
+                          <>
+                            <label style={labelStyle}>ambiente</label>
+                            <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: ambienteFinal(r) ? textPrimary : textMuted }}>
+                              {ambienteFinal(r) || '— sin definir por el profesional —'}
+                            </div>
+
+                            <label style={labelStyle}>observación del inspector</label>
+                            <div style={{ ...taStyle, display: 'flex', alignItems: 'flex-start', color: r.observacion ? textPrimary : textMuted, whiteSpace: 'pre-wrap' }}>
+                              {r.observacion || '— sin definir por el profesional —'}
+                            </div>
+
+                            {r.partida && (
+                              <>
+                                <label style={labelStyle}>partida afectada</label>
+                                <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: textPrimary }}>{r.partida}</div>
+                              </>
+                            )}
+                            {r.causa && (
+                              <>
+                                <label style={labelStyle}>causa</label>
+                                <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: textPrimary }}>{r.causa}</div>
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <label style={labelStyle}>ambiente *</label>
+                            <select value={r.ambienteSel} onChange={e => setCampo(idx, 'ambienteSel', e.target.value)} style={inputStyle}>
+                              <option value="">Seleccionar ambiente...</option>
+                              {ambientes.map(a => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+                              <option value={OTRO}>Otro (especificar)...</option>
+                            </select>
+                            {r.ambienteSel === OTRO && (
+                              <input value={r.ambienteLibre}
+                                onChange={e => setCampo(idx, 'ambienteLibre', e.target.value.toUpperCase())}
+                                placeholder="EJ: ESTACIONAMIENTO 12, BODEGA, FACHADA" style={inputStyle} />
+                            )}
+
+                            <label style={labelStyle}>observación del inspector *</label>
+                            <textarea value={r.observacion} onChange={e => setCampo(idx, 'observacion', e.target.value)}
+                              placeholder="Qué se encontró y qué se hizo..." style={taStyle} />
+
+                            <label style={labelStyle}>partida afectada</label>
+                            <select value={r.partida} onChange={e => setCampo(idx, 'partida', e.target.value)} style={inputStyle}>
+                              <option value="">Seleccionar partida...</option>
+                              {partidas.map(p => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
+                            </select>
+
+                            <label style={labelStyle}>causa</label>
+                            <select value={r.causa} onChange={e => setCampo(idx, 'causa', e.target.value)} style={inputStyle}>
+                              <option value="">Seleccionar causa...</option>
+                              {GRUPOS_CAUSA.map(g => {
+                                const items = causas.filter(c => c.tipo === g.tipo);
+                                if (items.length === 0) return null;
+                                return (
+                                  <optgroup key={g.tipo} label={g.label}>
+                                    {items.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+                                  </optgroup>
+                                );
+                              })}
+                            </select>
+                          </>
                         )}
 
-                        <label style={labelStyle}>observación del inspector *</label>
-                        <textarea value={r.observacion} onChange={e => setCampo(idx, 'observacion', e.target.value)}
-                          placeholder="Qué se encontró y qué se hizo..." style={taStyle} />
-
-                        <label style={labelStyle}>partida afectada</label>
-                        <select value={r.partida} onChange={e => setCampo(idx, 'partida', e.target.value)} style={inputStyle}>
-                          <option value="">Seleccionar partida...</option>
-                          {partidas.map(p => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
-                        </select>
-
-                        <label style={labelStyle}>causa</label>
-                        <select value={r.causa} onChange={e => setCampo(idx, 'causa', e.target.value)} style={inputStyle}>
-                          <option value="">Seleccionar causa...</option>
-                          {GRUPOS_CAUSA.map(g => {
-                            const items = causas.filter(c => c.tipo === g.tipo);
-                            if (items.length === 0) return null;
-                            return (
-                              <optgroup key={g.tipo} label={g.label}>
-                                {items.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
-                              </optgroup>
-                            );
-                          })}
-                        </select>
-
                         <label style={labelStyle}>estado</label>
-                        <select value={r.estado} onChange={e => setCampo(idx, 'estado', e.target.value)} style={inputStyle}>
-                          <option value="SOLUCIONADO">Solucionado</option>
-                          <option value="PENDIENTE">Pendiente</option>
-                        </select>
+                        {soloLectura ? (
+                          <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: textPrimary }}>
+                            {r.estado === 'SOLUCIONADO' ? 'Solucionado' : 'Pendiente'}
+                          </div>
+                        ) : (
+                          <select value={r.estado} onChange={e => setCampo(idx, 'estado', e.target.value)} style={inputStyle}>
+                            <option value="SOLUCIONADO">Solucionado</option>
+                            <option value="PENDIENTE">Pendiente</option>
+                          </select>
+                        )}
 
                         <label style={labelStyle}>
                           registro fotográfico <span style={{ color: textMuted, fontWeight: 400, textTransform: 'none' }}>(opcional)</span>
@@ -1555,7 +2026,7 @@ const PostVenta: React.FC = () => {
                           {fotoSlot(idx, 'despues')}
                         </div>
 
-                        {!sinPapeleta && (r.origen === 'papeleta' || r.origen === 'derivada') && (
+                        {!esMaestro && !soloLectura && !sinPapeleta && (r.origen === 'papeleta' || r.origen === 'derivada') && (
                           <button onClick={() => derivarObs(idx)}
                             style={{ ...btnGhost, marginTop: 12, height: 40, fontSize: 12, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe' }}>
                             ▹ Separar otro problema de esta solicitud
@@ -1567,14 +2038,16 @@ const PostVenta: React.FC = () => {
                 );
               })}
 
-              {sinPapeleta ? (
-                <button onClick={agregarObs} style={{ ...btnGhost, marginBottom: 8, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe' }}>
-                  ➕ Agregar observación
-                </button>
-              ) : (
-                <button onClick={agregarAdicional} style={{ ...btnGhost, marginBottom: 8, color: dark ? '#fbbf24' : '#92400e', borderColor: dark ? 'rgba(251,191,36,0.3)' : '#fde68a' }}>
-                  ➕ Agregar trabajo no registrado en la papeleta
-                </button>
+              {!esMaestro && !soloLectura && (
+                sinPapeleta ? (
+                  <button onClick={agregarObs} style={{ ...btnGhost, marginBottom: 8, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe' }}>
+                    ➕ Agregar observación
+                  </button>
+                ) : (
+                  <button onClick={agregarAdicional} style={{ ...btnGhost, marginBottom: 8, color: dark ? '#fbbf24' : '#92400e', borderColor: dark ? 'rgba(251,191,36,0.3)' : '#fde68a' }}>
+                    ➕ Agregar trabajo no registrado en la papeleta
+                  </button>
+                )
               )}
 
               <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, margin: '20px 0 12px' }}>Quien recibe la visita</div>
@@ -1597,21 +2070,47 @@ const PostVenta: React.FC = () => {
                   </div>
                 )}
 
-                <label style={labelStyle}>nombre *</label>
-                <input value={recNombre}
-                  onChange={e => { const v = e.target.value.toUpperCase(); setRecNombre(v); guardarReceptorDebounced(v, recRut); }}
-                  placeholder="EJ: JUAN PEDRO PEREZ" style={inputStyle} />
-                <label style={labelStyle}>RUT *</label>
-                <input value={recRut}
-                  onChange={e => { const v = formatRut(e.target.value); setRecRut(v); guardarReceptorDebounced(recNombre, v); }}
-                  inputMode="text" maxLength={12} placeholder="Ej: 12.345.678-9" style={inputStyle} />
+                {soloLectura ? (
+                  <>
+                    <label style={labelStyle}>nombre</label>
+                    <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: recNombre ? textPrimary : textMuted }}>
+                      {recNombre || '—'}
+                    </div>
+                    <label style={labelStyle}>RUT</label>
+                    <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: recRut ? textPrimary : textMuted }}>
+                      {recRut || '—'}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label style={labelStyle}>nombre *</label>
+                    <input value={recNombre}
+                      onChange={e => { const v = e.target.value.toUpperCase(); setRecNombreSync(v); guardarReceptorDebounced(v, recRut); }}
+                      placeholder="EJ: JUAN PEDRO PEREZ" style={inputStyle} />
+                    <label style={labelStyle}>RUT *</label>
+                    <input value={recRut}
+                      onChange={e => { const v = formatRut(e.target.value); setRecRutSync(v); guardarReceptorDebounced(recNombre, v); }}
+                      inputMode="text" maxLength={12} placeholder="Ej: 12.345.678-9" style={inputStyle} />
+                  </>
+                )}
               </div>
 
-              {errorBox}
+              {soloLectura && completadaInfo.firmaUrl && (
+                <div style={cardStyle}>
+                  <label style={labelStyle}>firma de quien recibió</label>
+                  <div style={{ border: `0.5px solid ${border}`, borderRadius: 12, overflow: 'hidden', background: '#ffffff' }}>
+                    <img src={completadaInfo.firmaUrl} style={{ display: 'block', width: '100%', maxHeight: 180, objectFit: 'contain' }} />
+                  </div>
+                </div>
+              )}
 
-              <button onClick={irAFirma} style={btnPrimary(false)}>✍️ Continuar a la firma</button>
+              {!soloLectura && errorBox}
+
+              {!soloLectura && (
+                <button onClick={irAFirma} style={btnPrimary(false)}>✍️ Continuar a la firma</button>
+              )}
               <button onClick={reiniciar} style={{ ...btnGhost, marginTop: 8, marginBottom: 40 }}>
-                {sinPapeleta ? 'Cancelar y volver' : 'Cargar otra papeleta'}
+                {soloLectura ? '← Volver' : sinPapeleta ? 'Cancelar y volver' : 'Cargar otra papeleta'}
               </button>
             </>
           )}
@@ -1637,6 +2136,17 @@ const PostVenta: React.FC = () => {
                   <div style={{ fontSize: 12, color: textSecondary, marginBottom: 18 }}>
                     {recRut} · Torre {torre?.nombre} · Depto {depto?.numero} · {obs.length} obs
                   </div>
+
+                  {esMaestro && titular.nombre && (
+                    <div style={{
+                      background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff',
+                      border: `0.5px solid ${dark ? 'rgba(96,165,250,0.2)' : '#bfdbfe'}`,
+                      borderRadius: 10, padding: '8px 12px', marginBottom: 16,
+                      fontSize: 11, color: dark ? '#93c5fd' : '#1d4ed8', lineHeight: 1.4,
+                    }}>
+                      ℹ️ Este informe quedará registrado a nombre de {titular.nombre}, profesional titular de post venta del proyecto.
+                    </div>
+                  )}
 
                   <label style={{ ...labelStyle, marginBottom: 8 }}>firma de quien recibe *</label>
                   <div style={{ border: `0.5px solid ${border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 8, background: '#ffffff' }}>
@@ -1672,6 +2182,35 @@ const PostVenta: React.FC = () => {
       {anotando && (
         <FotoAnnotator imageSrc={anotando.src} onConfirm={confirmarAnotacion} onCancel={() => setAnotando(null)} />
       )}
+
+      <IonModal isOpen={!!fotoAmpliada} onDidDismiss={() => setFotoAmpliada(null)}>
+        {fotoAmpliada && (
+          <div style={{ background: '#0B1220', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 0 }}>
+              <button onClick={() => setFotoAmpliada(null)}
+                style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: '50%', width: 36, height: 36, color: '#fff', fontSize: 20, cursor: 'pointer', zIndex: 1 }}>×</button>
+              <div style={{ position: 'absolute', top: 16, left: 16, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {fotoAmpliada.tipo === 'antes' ? 'Antes' : 'Después'}
+              </div>
+              <img src={fotoAmpliada.src} style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+            </div>
+            <div style={{ padding: 16, display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => { setAnotando({ idx: fotoAmpliada.idx, tipo: fotoAmpliada.tipo, src: fotoAmpliada.src }); setFotoAmpliada(null); }}
+                style={{ flex: 1, height: 46, borderRadius: 12, background: 'rgba(255,255,255,0.08)', border: '0.5px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                ✏️ Editar
+              </button>
+              <button
+                onClick={() => { setFotoYGuardar(fotoAmpliada.idx, fotoAmpliada.tipo, null); setFotoAmpliada(null); }}
+                style={{ flex: 1, height: 46, borderRadius: 12, background: 'rgba(239,68,68,0.15)', border: '0.5px solid rgba(239,68,68,0.35)', color: '#f87171', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                🗑️ Eliminar foto
+              </button>
+            </div>
+          </div>
+        )}
+      </IonModal>
     </IonPage>
   );
 };

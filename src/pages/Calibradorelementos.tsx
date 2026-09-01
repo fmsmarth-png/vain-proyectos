@@ -32,6 +32,25 @@ interface Elemento {
   modificado?:   boolean;
 }
 
+interface Tolerancia {
+  id: string;
+  revision: string;
+  item_revision: string;
+  elemento: string;
+  ambiente: string | null;
+  tolerancia: string;
+  fase: string | null;
+  activo: boolean;
+}
+
+interface Reparacion {
+  id: string;
+  revision: string;
+  item_revision: string;
+  tolerancia: string;
+  accion: string;
+}
+
 type FiltroVista = 'Todos' | 'Muros' | 'Vanos';
 
 const TIPOS_ELEMENTO = ['Muros', 'Vanos'];
@@ -81,6 +100,20 @@ const CalibradorElementos: React.FC = () => {
   const [mostrarCuadricula, setMostrarCuadricula] = useState(false);
   const [snapActivo, setSnapActivo]             = useState(false);
   const SNAP = 10; // px en coordenadas originales
+
+  // Tolerancias y reparaciones del elemento seleccionado
+  const [tolerancias, setTolerancias]           = useState<Tolerancia[]>([]);
+  const [reparaciones, setReparaciones]         = useState<Reparacion[]>([]);
+  const [cargandoTol, setCargandoTol]           = useState(false);
+  const [showAddTol, setShowAddTol]             = useState(false);
+  const [showClonarTol, setShowClonarTol]       = useState(false);
+  const [nuevaTolRevision, setNuevaTolRevision] = useState('MURO');
+  const [nuevaTolItem, setNuevaTolItem]         = useState('PLANEIDAD');
+  const [nuevaTolTexto, setNuevaTolTexto]       = useState('');
+  const [nuevaTolAmbiente, setNuevaTolAmbiente] = useState('');
+  const [nuevaTolAccion, setNuevaTolAccion]     = useState('');
+  const [clonarDesdeElem, setClonarDesdeElem]   = useState('');
+  const [elemsSimilares, setElemsSimilares]     = useState<string[]>([]);
 
   // Nuevo elemento
   const [nuevoNombre, setNuevoNombre]   = useState('');
@@ -263,6 +296,163 @@ const CalibradorElementos: React.FC = () => {
     });
     setElementos(prev => [...prev]);
     setStatus({ msg: `✓ Dimensiones igualadas en ${mismoTipo.length} elemento(s)`, ok: true });
+  };
+
+  // ── Tolerancias ──
+
+  const cargarTolerancias = async (nombreElemento: string) => {
+    setCargandoTol(true);
+    setTolerancias([]);
+    setReparaciones([]);
+    setShowAddTol(false);
+    setShowClonarTol(false);
+
+    const { data: tols } = await supabase
+      .from('og_catalogo')
+      .select('id, revision, item_revision, elemento, ambiente, tolerancia, fase, activo')
+      .eq('elemento', nombreElemento)
+      .eq('activo', true)
+      .order('revision')
+      .order('item_revision')
+      .order('tolerancia');
+
+    setTolerancias(tols ?? []);
+
+    // Load all reparaciones for quick lookup
+    const { data: reps } = await supabase
+      .from('og_tolerancia_reparacion')
+      .select('id, revision, item_revision, tolerancia, accion');
+    setReparaciones(reps ?? []);
+
+    // Load similar element names for cloning (from both catalogo and elementos_ambiente)
+    const { data: similaresCat } = await supabase
+      .from('og_catalogo')
+      .select('elemento')
+      .eq('activo', true);
+    const { data: similaresElem } = await supabase
+      .from('og_elementos_ambiente')
+      .select('elemento')
+      .eq('activo', true);
+    const todosNombres = [
+      ...(similaresCat ?? []).map(s => s.elemento),
+      ...(similaresElem ?? []).map(s => s.elemento),
+    ];
+    const unicos = [...new Set(todosNombres)].sort();
+    setElemsSimilares(unicos);
+
+    setCargandoTol(false);
+  };
+
+  // Load tolerances when element selection changes
+  useEffect(() => {
+    if (elSel?.elemento && !elSel.esNuevo) {
+      cargarTolerancias(elSel.elemento);
+    } else {
+      setTolerancias([]);
+    }
+  }, [elSel?.elemento, elSel?.esNuevo]);
+
+  const getAccion = (revision: string, itemRevision: string, tolerancia: string): string => {
+    // og_tolerancia_reparacion has revision/item_revision swapped vs og_catalogo
+    // Try both orientations
+    const rep = reparaciones.find(r =>
+      r.tolerancia === tolerancia && (
+        (r.revision === revision && r.item_revision === itemRevision) ||
+        (r.revision === itemRevision && r.item_revision === revision)
+      )
+    );
+    return rep?.accion ?? '—';
+  };
+
+  const getRepId = (revision: string, itemRevision: string, tolerancia: string): string | null => {
+    const rep = reparaciones.find(r =>
+      r.tolerancia === tolerancia && (
+        (r.revision === revision && r.item_revision === itemRevision) ||
+        (r.revision === itemRevision && r.item_revision === revision)
+      )
+    );
+    return rep?.id ?? null;
+  };
+
+  const agregarTolerancia = async () => {
+    if (!elSel || !nuevaTolTexto.trim()) return;
+    const { error } = await supabase.from('og_catalogo').insert({
+      revision: nuevaTolRevision,
+      item_revision: nuevaTolItem,
+      elemento: elSel.elemento,
+      ambiente: nuevaTolAmbiente.trim() || null,
+      tolerancia: nuevaTolTexto.trim(),
+      fase: 'OBRA GRUESA',
+      activo: true,
+    });
+    if (error) {
+      setStatus({ msg: 'Error: ' + error.message, ok: false });
+    } else {
+      // If accion provided, add to reparaciones if doesn't exist
+      if (nuevaTolAccion.trim()) {
+        const exists = reparaciones.find(r =>
+          r.revision === nuevaTolRevision && r.item_revision === nuevaTolItem && r.tolerancia === nuevaTolTexto.trim()
+        );
+        if (!exists) {
+          await supabase.from('og_tolerancia_reparacion').insert({
+            revision: nuevaTolRevision,
+            item_revision: nuevaTolItem,
+            tolerancia: nuevaTolTexto.trim(),
+            accion: nuevaTolAccion.trim(),
+          });
+        }
+      }
+      setNuevaTolTexto('');
+      setNuevaTolAmbiente('');
+      setNuevaTolAccion('');
+      await cargarTolerancias(elSel.elemento);
+      setStatus({ msg: '✓ Tolerancia agregada', ok: true });
+    }
+  };
+
+  const eliminarTolerancia = async (tolId: string) => {
+    await supabase.from('og_catalogo').update({ activo: false }).eq('id', tolId);
+    if (elSel) await cargarTolerancias(elSel.elemento);
+  };
+
+  const clonarTolerancias = async () => {
+    if (!elSel || !clonarDesdeElem) return;
+    setCargandoTol(true);
+
+    // Get all tolerances from source element
+    const { data: origen } = await supabase
+      .from('og_catalogo')
+      .select('revision, item_revision, ambiente, tolerancia, fase')
+      .eq('elemento', clonarDesdeElem)
+      .eq('activo', true);
+
+    if (!origen || origen.length === 0) {
+      setStatus({ msg: 'El elemento origen no tiene tolerancias', ok: false });
+      setCargandoTol(false);
+      return;
+    }
+
+    // Insert for new element
+    const nuevas = origen.map(o => ({
+      revision: o.revision,
+      item_revision: o.item_revision,
+      elemento: elSel.elemento,
+      ambiente: o.ambiente,
+      tolerancia: o.tolerancia,
+      fase: o.fase,
+      activo: true,
+    }));
+
+    const { error } = await supabase.from('og_catalogo').insert(nuevas);
+    if (error) {
+      setStatus({ msg: 'Error clonando: ' + error.message, ok: false });
+    } else {
+      setStatus({ msg: `✓ ${nuevas.length} tolerancia(s) clonadas de "${clonarDesdeElem}"`, ok: true });
+      setShowClonarTol(false);
+      setClonarDesdeElem('');
+      await cargarTolerancias(elSel.elemento);
+    }
+    setCargandoTol(false);
   };
 
   const guardar = async () => {
@@ -551,6 +741,216 @@ const CalibradorElementos: React.FC = () => {
                   >
                     📐 Igualar w:{elSel.ancho} h:{elSel.alto} a todos los {elSel.tipo_elemento}
                   </button>
+
+                  {/* ── Panel de tolerancias y reparaciones ── */}
+                  {!elSel.esNuevo && (
+                    <div style={{ marginTop: 10, borderTop: `1px solid ${naranjaBord}`, paddingTop: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: naranja, textTransform: 'uppercase', letterSpacing: 1 }}>
+                          Tolerancias ({tolerancias.length})
+                        </span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button
+                            onClick={() => { setShowClonarTol(!showClonarTol); setShowAddTol(false); }}
+                            style={{
+                              padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                              border: `1px solid ${azulBord}`, background: showClonarTol ? azulBg : 'transparent',
+                              color: azul, cursor: 'pointer',
+                            }}
+                          >📋 Clonar</button>
+                          <button
+                            onClick={() => { setShowAddTol(!showAddTol); setShowClonarTol(false); }}
+                            style={{
+                              padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                              border: `1px solid ${verdeBord}`, background: showAddTol ? verdeBg : 'transparent',
+                              color: verde, cursor: 'pointer',
+                            }}
+                          >+ Nueva</button>
+                        </div>
+                      </div>
+
+                      {cargandoTol && <div style={{ fontSize: 11, color: textMuted, padding: 8 }}>Cargando...</div>}
+
+                      {/* Clone panel */}
+                      {showClonarTol && (
+                        <div style={{ padding: 8, borderRadius: 8, background: azulBg, border: `1px solid ${azulBord}`, marginBottom: 8 }}>
+                          <div style={{ fontSize: 11, color: textSecondary, marginBottom: 6 }}>
+                            Clonar tolerancias de otro elemento:
+                          </div>
+                          <select
+                            style={{ ...sInput, height: 34, fontSize: 11, marginBottom: 6 }}
+                            value={clonarDesdeElem}
+                            onChange={e => setClonarDesdeElem(e.target.value)}
+                          >
+                            <option value="">-- selecciona elemento origen --</option>
+                            {elemsSimilares.filter(e => e !== elSel.elemento).map(e => (
+                              <option key={e} value={e}>{e}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={clonarTolerancias}
+                            disabled={!clonarDesdeElem || cargandoTol}
+                            style={{
+                              width: '100%', height: 30, borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              border: 'none', background: clonarDesdeElem ? azul : inputBorder,
+                              color: '#fff', cursor: clonarDesdeElem ? 'pointer' : 'not-allowed',
+                            }}
+                          >{cargandoTol ? 'Clonando...' : `Clonar tolerancias de ${clonarDesdeElem || '...'}`}</button>
+                        </div>
+                      )}
+
+                      {/* Add new tolerance panel */}
+                      {showAddTol && (
+                        <div style={{ padding: 8, borderRadius: 8, background: verdeBg, border: `1px solid ${verdeBord}`, marginBottom: 8 }}>
+                          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                            <select
+                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11 }}
+                              value={nuevaTolRevision}
+                              onChange={e => setNuevaTolRevision(e.target.value)}
+                            >
+                              <option value="MURO">MURO</option>
+                              <option value="PLANEIDAD">PLANEIDAD</option>
+                              <option value="PLOMO">PLOMO</option>
+                              <option value="VANO">VANO</option>
+                              <option value="PIERNA">PIERNA</option>
+                            </select>
+                            <select
+                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11 }}
+                              value={nuevaTolItem}
+                              onChange={e => setNuevaTolItem(e.target.value)}
+                            >
+                              <option value="PLANEIDAD">PLANEIDAD</option>
+                              <option value="CORNISA">CORNISA</option>
+                              <option value="OTROS">OTROS</option>
+                              <option value="PLOMO">PLOMO</option>
+                              <option value="ANCHO">ANCHO</option>
+                              <option value="LOSA">LOSA</option>
+                              <option value="POSICION SALIDA AGUA">POS. AGUA</option>
+                            </select>
+                          </div>
+                          <input
+                            style={{ ...sInput, height: 30, fontSize: 11, marginBottom: 4 }}
+                            placeholder="Tolerancia (ej: ENTRE +7 Y +10MM)"
+                            value={nuevaTolTexto}
+                            onChange={e => setNuevaTolTexto(e.target.value)}
+                          />
+                          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                            <input
+                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11 }}
+                              placeholder="Ambiente (opcional)"
+                              value={nuevaTolAmbiente}
+                              onChange={e => setNuevaTolAmbiente(e.target.value)}
+                            />
+                            <input
+                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11 }}
+                              placeholder="Acción reparación"
+                              value={nuevaTolAccion}
+                              onChange={e => setNuevaTolAccion(e.target.value)}
+                            />
+                          </div>
+                          <button
+                            onClick={agregarTolerancia}
+                            disabled={!nuevaTolTexto.trim()}
+                            style={{
+                              width: '100%', height: 30, borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              border: 'none', background: nuevaTolTexto.trim() ? verde : inputBorder,
+                              color: '#fff', cursor: nuevaTolTexto.trim() ? 'pointer' : 'not-allowed',
+                            }}
+                          >+ Agregar tolerancia</button>
+                        </div>
+                      )}
+
+                      {/* Tolerance list */}
+                      {!cargandoTol && tolerancias.length === 0 && (
+                        <div style={{ fontSize: 11, color: textMuted, padding: '8px 0', textAlign: 'center' }}>
+                          Sin tolerancias definidas — usa Clonar o Nueva
+                        </div>
+                      )}
+
+                      {!cargandoTol && tolerancias.length > 0 && (
+                        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                          {tolerancias.map(tol => {
+                            const accion = getAccion(tol.revision, tol.item_revision, tol.tolerancia);
+                            return (
+                              <div
+                                key={tol.id}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 6,
+                                  padding: '5px 8px', borderRadius: 6, marginBottom: 3,
+                                  border: `0.5px solid ${border}`, fontSize: 11,
+                                }}
+                              >
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 2 }}>
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 700, color: '#fff', padding: '1px 5px',
+                                      borderRadius: 4, background: tol.revision === 'MURO' ? azul : naranja,
+                                    }}>{tol.item_revision}</span>
+                                    {tol.ambiente && (
+                                      <span style={{ fontSize: 9, color: textMuted }}>📍 {tol.ambiente}</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontWeight: 600, color: textPrimary, fontSize: 11 }}>
+                                    {tol.tolerancia}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                                    <span style={{ fontSize: 10, color: textMuted, flexShrink: 0 }}>🔧</span>
+                                    <input
+                                      style={{
+                                        flex: 1, border: `1px solid ${accion !== '—' ? verdeBord : rojoBord}`,
+                                        borderRadius: 4, padding: '2px 6px', fontSize: 10,
+                                        background: 'transparent', color: accion !== '—' ? verde : rojo,
+                                        outline: 'none', fontWeight: 600,
+                                      }}
+                                      defaultValue={accion !== '—' ? accion : ''}
+                                      placeholder="definir acción..."
+                                      onBlur={async (e) => {
+                                        const nuevaAccionVal = e.target.value.trim();
+                                        if (!nuevaAccionVal) return;
+                                        if (nuevaAccionVal === accion) return;
+                                        const existingId = getRepId(tol.revision, tol.item_revision, tol.tolerancia);
+                                        if (existingId) {
+                                          await supabase
+                                            .from('og_tolerancia_reparacion')
+                                            .update({ accion: nuevaAccionVal })
+                                            .eq('id', existingId);
+                                        } else {
+                                          // Use item_revision as revision (matching the swapped convention)
+                                          await supabase
+                                            .from('og_tolerancia_reparacion')
+                                            .insert({
+                                              revision: tol.item_revision,
+                                              item_revision: tol.revision,
+                                              tolerancia: tol.tolerancia,
+                                              accion: nuevaAccionVal,
+                                            });
+                                        }
+                                        // Refresh reparaciones
+                                        const { data: reps } = await supabase
+                                          .from('og_tolerancia_reparacion')
+                                          .select('id, revision, item_revision, tolerancia, accion');
+                                        setReparaciones(reps ?? []);
+                                        setStatus({ msg: `✓ Reparación "${nuevaAccionVal}" guardada`, ok: true });
+                                      }}
+                                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                    />
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => eliminarTolerancia(tol.id)}
+                                  style={{
+                                    padding: '2px 6px', borderRadius: 4, fontSize: 9,
+                                    border: `1px solid ${rojoBord}`, background: 'transparent',
+                                    color: rojo, cursor: 'pointer', flexShrink: 0,
+                                  }}
+                                >✕</button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -713,28 +1113,58 @@ const CalibradorElementos: React.FC = () => {
                   <div style={{ ...sLabel, marginBottom: 8 }}>
                     ELEMENTOS ({elementosVisibles.length}{filtroVista !== 'Todos' ? ` · ${filtroVista}` : ''})
                   </div>
-                  {elementosVisibles.map((el, i) => (
+                  {elementosVisibles.map((el, i) => {
+                    const fueraDeVista = grupoSel && (
+                      (el.pos_x + el.ancho) > grupoSel.ancho_orig ||
+                      (el.pos_y + el.alto) > grupoSel.alto_orig ||
+                      el.pos_x < 0 || el.pos_y < 0
+                    );
+                    return (
                     <div
                       key={el.id || `nuevo_${i}`}
                       onClick={() => setElSel(el)}
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         padding: '7px 10px', borderRadius: 8, marginBottom: 4, cursor: 'pointer',
-                        background: el === elSel ? naranjaBg : 'transparent',
-                        border: `0.5px solid ${el === elSel ? naranjaBord : border}`,
+                        background: el === elSel ? naranjaBg : fueraDeVista ? rojoBg : 'transparent',
+                        border: `0.5px solid ${el === elSel ? naranjaBord : fueraDeVista ? rojoBord : border}`,
                       }}
                     >
-                      <div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: textPrimary }}>{el.elemento}</span>
                         <span style={{ fontSize: 10, color: textMuted, marginLeft: 6 }}>{el.tipo_elemento}</span>
                         {el.esNuevo && <span style={{ fontSize: 9, color: azul, marginLeft: 6, fontWeight: 700 }}>NUEVO</span>}
                         {el.modificado && !el.esNuevo && <span style={{ fontSize: 9, color: naranja, marginLeft: 6, fontWeight: 700 }}>MOD</span>}
+                        {fueraDeVista && !el.esNuevo && !el.modificado && <span style={{ fontSize: 9, color: rojo, marginLeft: 6, fontWeight: 700 }}>OCULTO</span>}
                       </div>
-                      <span style={{ fontSize: 10, color: textMuted }}>
-                        {el.pos_x},{el.pos_y} · {el.ancho}×{el.alto}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <button
+                          onClick={ev => {
+                            ev.stopPropagation();
+                            if (!grupoSel) return;
+                            const cx = Math.round((grupoSel.ancho_orig - el.ancho) / 2);
+                            const cy = Math.round((grupoSel.alto_orig - el.alto) / 2);
+                            setElementos(prev => prev.map(e =>
+                              e === el ? { ...e, pos_x: cx, pos_y: cy, modificado: true } : e
+                            ));
+                            setElSel({ ...el, pos_x: cx, pos_y: cy, modificado: true });
+                          }}
+                          style={{
+                            padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                            border: `1px solid ${fueraDeVista ? rojoBord : border}`,
+                            background: fueraDeVista ? rojoBg : 'transparent',
+                            color: fueraDeVista ? rojo : textMuted,
+                            cursor: 'pointer', whiteSpace: 'nowrap',
+                          }}
+                          title="Llevar al centro de la imagen"
+                        >⊕ Centro</button>
+                        <span style={{ fontSize: 10, color: textMuted }}>
+                          {el.pos_x},{el.pos_y}
+                        </span>
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 

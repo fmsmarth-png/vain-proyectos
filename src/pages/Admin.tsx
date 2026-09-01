@@ -710,8 +710,8 @@ const Admin: React.FC = () => {
             ))}
           </div>
 
-          {/* Tabs fila 4 */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+          {/* Tabs fila 4 — Calibradores */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
             <button
               onClick={() => router.push('/calibrador-plano')}
               style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
@@ -723,6 +723,22 @@ const Admin: React.FC = () => {
               style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
             >
               🎯 Cal. Elem.
+            </button>
+          </div>
+
+          {/* Tabs fila 5 — Admin OG Planos */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+            <button
+              onClick={() => router.push('/admin/gestion-planos')}
+              style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
+            >
+              🗺️ Gestión Planos
+            </button>
+            <button
+              onClick={() => router.push('/admin/asignar-planos')}
+              style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
+            >
+              📎 Asignar Planos
             </button>
           </div>
 
@@ -1394,4 +1410,4 @@ const Admin: React.FC = () => {
   );
 };
 
-export default Admin;
+export default Admin; 

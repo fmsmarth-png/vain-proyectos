@@ -23,6 +23,16 @@
 // Esto permite además iniciar una visita completamente offline (antes, sin
 // conexión en ese primer instante, no se guardaba nada hasta reconectar).
 
+// RESUELTO (ver PostVenta.tsx): el bug "fecha_atencion se pone null sola"
+// que se estaba diagnosticando con logs temporales en este archivo tenía su
+// causa en PostVenta.tsx, no acá — datosRef/recNombreRef/recRutRef/
+// sinPapeletaRef se sincronizaban con un useEffect (un ciclo de render
+// tarde), así que cualquier código que llamara a construirBorrador() justo
+// después de un setDatos(...) sin pasar overrides explícitos leía el valor
+// VIEJO. Se corrigió con setters *Sync que actualizan el ref en el mismo
+// tick. Este archivo (el borrador local en sí) siempre guardó exactamente
+// lo que se le pasó — el bug era de dónde salían esos datos, no de acá.
+
 import { supabase } from '../supabase';
 import { dbGetAll, dbPut, dbDelete, type StoreName } from './offlineDB';
 
@@ -112,12 +122,6 @@ export function listarBorradoresLocales(): BorradorLocal[] {
  * Lanza si falla (disco lleno, etc.) para que la pantalla pueda avisar.
  */
 export async function guardarBorradorLocal(borrador: BorradorLocal): Promise<void> {
-  // TEMPORAL: mismo diagnóstico — sacar junto con el log de arriba.
-  console.log('[DEBUG postventaBorrador] Guardando borrador LOCAL', borrador.id, {
-    fecha_atencion: borrador.fecha_atencion,
-    hora_atencion: borrador.hora_atencion,
-    condominio: borrador.condominio,
-  });
   cache = [...cache.filter(b => b.id !== borrador.id), borrador];
   try {
     await dbPut(STORE, borrador);
@@ -142,14 +146,6 @@ export async function eliminarBorradorLocal(id: string): Promise<void> {
  * pierde nada por que esto falle.
  */
 export async function sincronizarBorradorConServidor(borrador: BorradorLocal): Promise<boolean> {
-  // TEMPORAL: diagnóstico del bug "fecha_atencion se pone null sola" —
-  // sacar esta línea una vez confirmado el origen del problema.
-  console.log('[DEBUG postventaBorrador] Sincronizando papeleta', borrador.id, {
-    fecha_atencion: borrador.fecha_atencion,
-    hora_atencion: borrador.hora_atencion,
-    condominio: borrador.condominio,
-    stack: new Error().stack,
-  });
   try {
     const { error: errPap } = await supabase.from(T_PAPELETA).upsert({
       id: borrador.id,
