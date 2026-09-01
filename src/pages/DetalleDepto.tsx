@@ -1,5 +1,5 @@
 import {
-  IonContent, IonPage, IonHeader, IonToolbar,
+  IonContent, IonPage, IonHeader, IonToolbar, useIonViewWillEnter,
   IonTitle, IonButton, IonSpinner
 } from '@ionic/react';
 import { useEffect, useState } from 'react';
@@ -50,6 +50,13 @@ const DetalleDepto: React.FC = () => {
   const [obsPendientes, setObsPendientes] = useState(0);
   const [obsSolucionadas, setObsSolucionadas] = useState(0);
   const [obsPostVenta, setObsPostVenta] = useState(0);
+  // Se incrementa cada vez que se vuelve a esta vista (desde el Calendario,
+  // desde PostVenta, etc.) — VisitasPostVenta lo recibe como prop y lo usa
+  // en su useEffect para refrescar la lista, sin depender de que Ionic
+  // desmonte/remonte el componente (que no lo hace: lo mantiene vivo en el
+  // stack de navegación).
+  const [refreshKey, setRefreshKey] = useState(0);
+  useIonViewWillEnter(() => { setRefreshKey(k => k + 1); });
   const [guardandoDatos, setGuardandoDatos] = useState(false);
   const [datosOk, setDatosOk] = useState(false);
   const [editando, setEditando] = useState(false);
@@ -676,6 +683,7 @@ const DetalleDepto: React.FC = () => {
               dark={dark}
               obsCount={obsPostVenta}
               rol={rolUsuario}
+              refreshKey={refreshKey}
             />
 
             <button

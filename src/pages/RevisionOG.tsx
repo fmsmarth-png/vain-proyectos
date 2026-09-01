@@ -636,12 +636,29 @@ const RevisionOG: React.FC = () => {
                               </div>
                               <div style={{ flex: 1, height: '0.5px', background: dark ? '#243550' : '#e2e8f0' }} />
                             </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                              {Object.keys(porFrente)
-                                .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }))
-                                .map(frente => (
-                                  <div key={frente} style={{ display: 'flex', gap: 6 }}>
-                                    {porFrente[frente].map((depto: any) => {
+                            {(() => {
+                              const frentesOrdenados = Object.keys(porFrente)
+                                .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+                              const cols = frentesOrdenados.length;
+                              const maxPorFrente = Math.max(...frentesOrdenados.map(f => porFrente[f].length));
+                              // Construir filas: cada frente invertido para que el nº mayor quede arriba
+                              const filas: (any | null)[][] = [];
+                              for (let row = 0; row < maxPorFrente; row++) {
+                                filas.push(frentesOrdenados.map(f => {
+                                  const lista = [...porFrente[f]].reverse();
+                                  return lista[row] ?? null;
+                                }));
+                              }
+                              return (
+                                <div style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: `repeat(${cols}, auto)`,
+                                  gap: 6,
+                                  justifyContent: 'start',
+                                }}>
+                                  {filas.flatMap((fila, ri) =>
+                                    fila.map((depto, ci) => {
+                                      if (!depto) return <div key={`e-${ri}-${ci}`} />;
                                       const tienePendientes = getPendientesOG().some(p => p.departamento_id === depto.id);
                                       return (
                                         <div
@@ -671,10 +688,11 @@ const RevisionOG: React.FC = () => {
                                           )}
                                         </div>
                                       );
-                                    })}
-                                  </div>
-                                ))}
-                            </div>
+                                    })
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })}

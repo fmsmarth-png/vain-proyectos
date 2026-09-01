@@ -44,14 +44,16 @@ interface RevisionObs {
   observacion: string;
   partida: string;
   causa: string;
-  estado: 'PENDIENTE' | 'SOLUCIONADO';
+  estado: 'PENDIENTE' | 'EN_PROCESO' | 'SOLUCIONADO' | 'NO_APLICA' | 'CLIENTE_NO_ATIENDE';
   fotoAntes: string | null;
   fotoDespues: string | null;
-  // Origen de la observación:
-  //  'papeleta'   → viene del PDF (solicitud_cliente = descripción del PDF)
-  //  'derivada'   → separación de una obs de papeleta (hereda su solicitud_cliente)
-  //  'adicional'  → trabajo no registrado en la visita (solicitud_cliente = null)
   origen?: 'papeleta' | 'derivada' | 'adicional';
+  /** Texto de la solicitud del cliente, tal cual quedó guardado (ya
+   *  combinado con la partida si venía de la plantilla Aconcagua). Se
+   *  carga una sola vez y no se edita después — el render lee esto
+   *  directo, sin depender del array obs[] en memoria que se puede
+   *  desincronizar al agregar/derivar/quitar observaciones. */
+  solicitudCliente: string;
 }
 
 const DATOS_VACIOS: DatosSolicitud = {
@@ -82,6 +84,17 @@ const norm = (s: any) =>
  * como guía; si no, el inspector elige — incluida la opción "Otro".
  */
 const sugerirAmbiente = (textoPdf: string, catalogo: Catalogo[]): string => {
+  const t = norm(textoPdf);
+  if (!t) return '';
+  const exacto = catalogo.find(a => norm(a.nombre) === t);
+  if (exacto) return exacto.nombre;
+  const parcial = catalogo.find(a => t.includes(norm(a.nombre)) || norm(a.nombre).includes(t));
+  return parcial ? parcial.nombre : '';
+};
+
+/** Mismo mecanismo que sugerirAmbiente, para la columna PARTIDA de la plantilla Aconcagua. */
+const sugerirPartida = (textoPdf: string | undefined, catalogo: Catalogo[]): string => {
+  if (!textoPdf) return '';
   const t = norm(textoPdf);
   if (!t) return '';
   const exacto = catalogo.find(a => norm(a.nombre) === t);
@@ -514,10 +527,13 @@ const PostVenta: React.FC = () => {
       const revsIniciales: RevisionObs[] = observaciones.map(o => ({
         ambienteSel: sugerirAmbiente(o.ambiente, ambientes),
         ambienteLibre: '',
-        observacion: '', partida: '', causa: '',
-        estado: 'SOLUCIONADO' as const,
+        observacion: '',
+        partida: sugerirPartida(o.partida, partidas),
+        causa: '',
+        estado: 'PENDIENTE' as const,
         fotoAntes: null, fotoDespues: null,
         origen: 'papeleta' as const,
+        solicitudCliente: contextoObs(o),
       }));
       setDatosSync(d);
       setObs(observaciones);
@@ -542,9 +558,10 @@ const PostVenta: React.FC = () => {
   const revVacia = (origen: RevisionObs['origen'] = 'adicional'): RevisionObs => ({
     ambienteSel: '', ambienteLibre: '',
     observacion: '', partida: '', causa: '',
-    estado: 'SOLUCIONADO' as const,
+    estado: 'PENDIENTE' as const,
     fotoAntes: null, fotoDespues: null,
     origen,
+    solicitudCliente: '',
   });
 
   const iniciarSinPapeleta = () => {
@@ -585,6 +602,7 @@ const PostVenta: React.FC = () => {
       id: nuevoId(),
       ambienteSel: rev[idxPadre].ambienteSel,
       ambienteLibre: rev[idxPadre].ambienteLibre,
+      solicitudCliente: rev[idxPadre].solicitudCliente,
     };
     const nextObs = [...obs]; nextObs.splice(idxPadre + 1, 0, nObs);
     const nextRev = [...rev]; nextRev.splice(idxPadre + 1, 0, nRev);
@@ -630,6 +648,11 @@ const PostVenta: React.FC = () => {
 
   const ambienteFinal = (r: RevisionObs) =>
     (r.ambienteSel === OTRO ? r.ambienteLibre : r.ambienteSel).trim();
+
+  /** Combina PARTIDA + OBSERVACIÓN (ej. "CIELO: FILTRA") para la plantilla
+   *  Aconcagua (orden_visita). En la plantilla vieja o.partida no existe. */
+  const contextoObs = (o: ObservacionPdf) =>
+    o.partida ? `${o.partida}: ${o.descripcion}` : o.descripcion;
 
   const nuevoId = (): string =>
     (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -894,10 +917,11 @@ const PostVenta: React.FC = () => {
             observacion: h.observacion ?? '',
             partida: h.partida_afectada ?? '',
             causa: h.causa ?? '',
-            estado: (h.estado ?? 'SOLUCIONADO') as RevisionObs['estado'],
+            estado: (h.estado ?? 'PENDIENTE') as RevisionObs['estado'],
             fotoAntes: h.foto_antes ?? null,
             fotoDespues: h.foto_despues ?? null,
             origen: h.origen as RevisionObs['origen'],
+            solicitudCliente: h.solicitud_cliente ?? '',
           } as RevisionObs;
         }));
 
@@ -963,10 +987,11 @@ const PostVenta: React.FC = () => {
           observacion: h.observacion ?? '',
           partida: h.partida_afectada ?? '',
           causa: h.causa ?? '',
-          estado: (h.estado ?? 'SOLUCIONADO') as RevisionObs['estado'],
+          estado: (h.estado ?? 'PENDIENTE') as RevisionObs['estado'],
           fotoAntes: h.foto_antes ?? null,
           fotoDespues: h.foto_despues ?? null,
           origen: (h.origen ?? 'papeleta') as RevisionObs['origen'],
+          solicitudCliente: h.solicitud_cliente ?? '',
         } as RevisionObs;
       });
       setRev(revsHidratados);
@@ -1097,9 +1122,10 @@ const PostVenta: React.FC = () => {
             nextRev.push({
               id: h.id, ambienteSel: a.sel, ambienteLibre: a.libre,
               observacion: h.observacion ?? '', partida: h.partida_afectada ?? '',
-              causa: h.causa ?? '', estado: (h.estado ?? 'SOLUCIONADO') as RevisionObs['estado'],
+              causa: h.causa ?? '', estado: (h.estado ?? 'PENDIENTE') as RevisionObs['estado'],
               fotoAntes: h.foto_antes ?? null, fotoDespues: h.foto_despues ?? null,
               origen: (h.origen ?? 'papeleta') as RevisionObs['origen'],
+              solicitudCliente: h.solicitud_cliente ?? '',
             });
           });
 
@@ -1354,7 +1380,7 @@ const PostVenta: React.FC = () => {
           n_requerimiento: (sinPapeleta || esAdicional) ? null : (datos.requerimiento || null),
           // Sin solicitud del cliente para urgencias y trabajos adicionales.
           // Las derivadas heredan la descripción del padre (viene en o.descripcion).
-          solicitud_cliente: (sinPapeleta || esAdicional) ? null : o.descripcion,
+          solicitud_cliente: (sinPapeleta || esAdicional) ? null : rev[i].solicitudCliente,
           observacion: rev[i].observacion.trim(),
           ambiente: ambienteFinal(rev[i]),
           partida_afectada: rev[i].partida || null,
@@ -1390,7 +1416,7 @@ const PostVenta: React.FC = () => {
         observaciones: obs.map((o, i) => ({
           numero: String(i + 1),
           ambiente: ambienteFinal(rev[i]),
-          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : o.descripcion,
+          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : rev[i].solicitudCliente,
           observacion: rev[i].observacion.trim(),
           partida: rev[i].partida || undefined,
           causa: rev[i].causa || undefined,
@@ -1899,7 +1925,7 @@ const PostVenta: React.FC = () => {
                         <div style={{ fontSize: 11, color: textMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {(sinPapeleta || r.origen === 'adicional')
                             ? (r.observacion.trim() || 'Sin descripción aún')
-                            : o.descripcion}
+                            : (r.solicitudCliente || 'Sin descripción')}
                         </div>
                       </div>
                       {!esMaestro && !soloLectura && (sinPapeleta || r.origen === 'derivada' || r.origen === 'adicional') && obs.length > 1 && (
@@ -1923,7 +1949,7 @@ const PostVenta: React.FC = () => {
                               border: `0.5px solid ${dark ? 'rgba(96,165,250,0.15)' : '#bfdbfe'}`,
                               borderRadius: 10, padding: '10px 12px', marginBottom: 6,
                               fontSize: 13, lineHeight: 1.5, color: textPrimary,
-                            }}>{o.descripcion}</div>
+                            }}>{r.solicitudCliente || 'Sin descripción'}</div>
                             <div style={{ fontSize: 10, color: textMuted, marginBottom: 14 }}>
                               Ubicación indicada por el cliente: <strong>{o.ambiente || '—'}</strong>
                             </div>
@@ -2014,7 +2040,10 @@ const PostVenta: React.FC = () => {
                         ) : (
                           <select value={r.estado} onChange={e => setCampo(idx, 'estado', e.target.value)} style={inputStyle}>
                             <option value="SOLUCIONADO">Solucionado</option>
+                            <option value="EN_PROCESO">En Proceso</option>
                             <option value="PENDIENTE">Pendiente</option>
+                            <option value="NO_APLICA">No Aplica</option>
+                            <option value="CLIENTE_NO_ATIENDE">Cliente no atiende visita</option>
                           </select>
                         )}
 

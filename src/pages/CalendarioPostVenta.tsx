@@ -1214,9 +1214,11 @@ const CalendarioPostVenta: React.FC = () => {
    * todas SOLUCIONADO (o sea, queda al menos una EN_PROCESO), la visita se
    * ve "en proceso". Solo si TODAS están SOLUCIONADO se ve completada.
    */
+  const ESTADOS_RESUELTOS = new Set(['SOLUCIONADO', 'NO_APLICA', 'CLIENTE_NO_ATIENDE']);
+
   const estadoAgregado = (estados: string[]): 'PENDIENTE' | 'EN_PROCESO' | 'SOLUCIONADO' => {
     if (estados.some(e => e === 'PENDIENTE')) return 'PENDIENTE';
-    if (estados.every(e => e === 'SOLUCIONADO')) return 'SOLUCIONADO';
+    if (estados.every(e => ESTADOS_RESUELTOS.has(e))) return 'SOLUCIONADO';
     return 'EN_PROCESO';
   };
 
@@ -2153,9 +2155,13 @@ const CalendarioPostVenta: React.FC = () => {
                         {obs && obs.map((o, i) => {
                           const colorBadge = o.estado === 'SOLUCIONADO' ? verde
                             : o.estado === 'EN_PROCESO' ? accent
+                            : o.estado === 'NO_APLICA' ? textMuted
+                            : o.estado === 'CLIENTE_NO_ATIENDE' ? textMuted
                             : pendienteColor;
                           const textoBadge = o.estado === 'SOLUCIONADO' ? 'SOLUCIONADO'
                             : o.estado === 'EN_PROCESO' ? 'EN PROCESO'
+                            : o.estado === 'NO_APLICA' ? 'NO APLICA'
+                            : o.estado === 'CLIENTE_NO_ATIENDE' ? 'NO ATIENDE'
                             : 'PENDIENTE';
                           const textoObs = o.solicitud_cliente || o.observacion || 'Sin descripción';
                           return (

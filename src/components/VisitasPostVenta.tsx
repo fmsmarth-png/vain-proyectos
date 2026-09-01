@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { eliminarBorradorLocal } from '../utils/postventaBorradorLocal';
 import { ClipboardList, Clock, CheckCircle2, Trash2, ChevronDown } from 'lucide-react';
 
 const RESUME_KEY = 'postventa_papeleta_id';    // debe coincidir con PostVenta.tsx
@@ -44,10 +45,11 @@ interface Props {
   dark?: boolean;
   obsCount?: number;        // obs PV ya registradas (para el subtítulo), opcional
   rutaBase?: string;        // por defecto '/post-venta'
-  // Rol del usuario logueado (viene de DetalleDepto.tsx, que ya lo consulta).
-  // maestro_postventa solo puede retomar visitas EN_PROGRESO creadas por
-  // otro usuario: no inicia visitas nuevas y no puede eliminarlas.
   rol?: string;
+  /** Cambia cada vez que DetalleDepto vuelve a quedar activa (useIonViewWillEnter).
+   *  Al estar en las dependencias del useEffect, fuerza un refetch de la
+   *  lista de visitas sin depender del montaje/desmontaje del componente. */
+  refreshKey?: number;
 }
 
 const fmtFecha = (iso: string | null) => {
@@ -58,7 +60,7 @@ const fmtFecha = (iso: string | null) => {
 };
 
 const VisitasPostVenta: React.FC<Props> = ({
-  proyecto, torre, depto, dark = false, obsCount = 0, rutaBase = '/post-venta', rol,
+  proyecto, torre, depto, dark = false, obsCount = 0, rutaBase = '/post-venta', rol, refreshKey,
 }) => {
   const history = useHistory();
   const [visitas, setVisitas] = useState<Visita[]>([]);
@@ -84,7 +86,7 @@ const VisitasPostVenta: React.FC<Props> = ({
     }
   };
 
-  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [proyecto.id, depto.numero]);
+  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [proyecto.id, depto.numero, refreshKey]);
 
   // Guarda el contexto del depto (igual que hoy) y navega a la ruta de siempre.
   const abrir = (papeletaId?: string) => {
@@ -121,6 +123,10 @@ const VisitasPostVenta: React.FC<Props> = ({
 
       const { error: errPap } = await supabase.from('postventa_papeletas').delete().eq('id', v.id);
       if (errPap) throw errPap;
+
+      // Limpiar el borrador LOCAL — sin esto, el sistema local-first de
+      // PostVenta.tsx resucita la visita en la próxima sincronización.
+      try { await eliminarBorradorLocal(v.id); } catch {}
 
       // Si esta era justo la que quedó marcada para reanudar, se limpia —
       // si no, PostVenta.tsx intentaría reabrir un borrador que ya no existe.
