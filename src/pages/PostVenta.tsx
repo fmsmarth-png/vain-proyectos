@@ -885,10 +885,27 @@ const PostVenta: React.FC = () => {
     try {
       const local = leerBorradorLocal(pid);
 
+      // FIX: antes, si había copia local, se usaba SIEMPRE sin verificar el
+      // servidor — un dispositivo que se quedó con un borrador viejo (por
+      // ejemplo, de cuando la visita todavía estaba en progreso) la seguía
+      // mostrando editable para siempre, aunque la visita ya se hubiera
+      // finalizado o borrado desde otro lado. Con señal, se pregunta primero
+      // al servidor: si ya dice COMPLETADA, se descarta la copia local y se
+      // entra en modo solo lectura de verdad, sin importar qué tenga
+      // guardado este dispositivo.
+      let estadoServidor: string | null = null;
+      if (local && online) {
+        try {
+          const { data: chequeo } = await supabase
+            .from(T_PAPELETA).select('estado').eq('id', pid).maybeSingle();
+          estadoServidor = chequeo?.estado ?? null;
+        } catch { /* sin señal real pese a online=true: se sigue con la copia local */ }
+      }
+
       // Si la copia local quedó marcada COMPLETADA (caso raro: normalmente
       // se borra al finalizar), se ignora y se cae al camino remoto de más
       // abajo, que sí arma el modo solo lectura correctamente.
-      if (local && local.estado !== 'COMPLETADA') {
+      if (local && local.estado !== 'COMPLETADA' && estadoServidor !== 'COMPLETADA') {
         setSoloLectura(false); // corrige el flag optimista si venía mal desde la navegación
         creadoEnServidorRef.current = local.creadoEnServidor;
         usuarioIdRef.current = local.usuario_id;
@@ -935,7 +952,14 @@ const PostVenta: React.FC = () => {
         return;
       }
 
-      // Sin copia local: reanudación desde otro dispositivo o app reinstalada.
+      // Sin copia local ÚTIL: reanudación desde otro dispositivo, app
+      // reinstalada, o (FIX) la copia local que había quedó descartada
+      // porque el servidor ya la tiene COMPLETADA — se purga acá para que
+      // no siga estorbando en aperturas o sincronizaciones futuras.
+      if (local && estadoServidor === 'COMPLETADA') {
+        try { await eliminarBorradorLocal(pid); } catch {}
+      }
+
       const { data: pap } = await supabase.from(T_PAPELETA).select('*').eq('id', pid).maybeSingle();
       if (!pap) { sessionStorage.removeItem(RESUME_KEY); setReanudando(false); return; }
 
@@ -973,11 +997,13 @@ const PostVenta: React.FC = () => {
       setPapeletaId(pid);
       papeletaIdRef.current = pid;
 
-      setObs(filas.map((h: any, i: number) => ({
+      const obsHidratados = filas.map((h: any, i: number) => ({
         numero: String(i + 1),
         ambiente: h.solicitud_ambiente ?? '',
         descripcion: h.solicitud_cliente ?? '',
-      } as ObservacionPdf)));
+      } as ObservacionPdf));
+      setObs(obsHidratados);
+      obsRef.current = obsHidratados;
 
       const revsHidratados = filas.map((h: any) => {
         const a = reconstruirAmbiente(h.ambiente, catalogo);
@@ -1006,7 +1032,7 @@ const PostVenta: React.FC = () => {
       if (!esVisitaCerrada) {
         // A partir de ahora esta visita también queda protegida localmente.
         // FIX: se pasan los valores recién leídos de Supabase explícitos
-        // (datos/sinPapeleta/recNombre/recRut), en vez de dejar que
+        // (obs/datos/sinPapeleta/recNombre/recRut), en vez de dejar que
         // construirBorrador() use los refs — esos refs recién se actualizan en
         // un useEffect posterior al setDatos/setSinPapeleta/etc. de arriba, así
         // que en este punto todavía reflejan el valor ANTERIOR (vacío, en una
@@ -1015,8 +1041,15 @@ const PostVenta: React.FC = () => {
         // vacía, borrando silenciosamente la fecha recién creada — la
         // observación se seguía viendo bien en Detalle Depto, pero la papeleta
         // desaparecía del Calendario (que sí exige fecha_atencion).
+        // FIX 2: el mismo problema afectaba a `obs` (obsRef.current seguía
+        // vacío en este punto): al no pasarlo explícito, construirBorrador()
+        // caía a obsRef.current vacío y escribía solicitud_cliente = null
+        // para TODAS las filas apenas otra cuenta/dispositivo sin copia local
+        // (ej. maestro_postventa) entraba a la visita — la observación del
+        // cliente se veía bien un instante y luego se pisaba con null.
         await persistirBorrador({
           rev: revsHidratados,
+          obs: obsHidratados,
           datos: datosHidratados,
           sinPapeleta: !!pap.sin_papeleta,
           recNombre: recNombreHidratado,
@@ -1316,6 +1349,21 @@ const PostVenta: React.FC = () => {
       // Asegura que lo último tecleado quede persistido antes de cerrar.
       await flushGuardadoFilas();
 
+      // FIX: se borra el borrador LOCAL acá, ANTES de generar el PDF y
+      // escribir en el servidor (no al final, como antes). La generación
+      // del PDF (fotos + jsPDF) puede tardar varios segundos; mientras el
+      // borrador siguiera existiendo localmente marcado EN_PROGRESO, el
+      // ciclo de sincronización de fondo de OfflineContext podía correr
+      // justo en esa ventana y volver a subir estado: 'EN_PROGRESO' —
+      // pisando el estado: 'COMPLETADA' que este mismo finalizar() recién
+      // había escrito (sin tocar fecha_completada/firma, que esa
+      // sincronización de fondo no incluye en su payload — por eso esos
+      // campos quedaban bien pero el estado se resucitaba solo). Si más
+      // abajo el guardado termina yendo por la cola offline, esa cola
+      // (postventaOfflineQueue, un store IndexedDB aparte) igual completa
+      // el cierre correctamente — no depende de este borrador de avance.
+      if (papeletaId) await eliminarBorradorLocal(papeletaId);
+
       const { data: sess } = await supabase.auth.getSession();
       const user = sess?.session?.user;
       if (!user?.id) throw new Error('No se pudo identificar el usuario');
@@ -1507,10 +1555,9 @@ const PostVenta: React.FC = () => {
         setFinalizadoOffline(true);
       }
 
-      // La visita ya quedó cerrada (en el servidor o en la cola de
-      // finalización offline, que la lleva completa); el borrador local de
-      // avance ya no hace falta.
-      if (papeletaId) await eliminarBorradorLocal(papeletaId);
+      // El borrador local ya se eliminó al principio de esta función (ver
+      // FIX más arriba) — la visita queda cerrada en el servidor o en la
+      // cola de finalización offline, que la lleva completa.
 
       setListo(true);
       setTimeout(() => { setListo(false); reiniciar(); }, 2000);

@@ -39,6 +39,7 @@ import { dbGetAll, dbPut, dbDelete, type StoreName } from './offlineDB';
 const STORE: StoreName = 'postventa_borrador' as StoreName;
 const T_PAPELETA = 'postventa_papeletas';
 const T_BORRADOR = 'postventa_obs_borrador';
+const T_ELIMINADAS = 'postventa_papeletas_eliminadas';
 
 export interface BorradorLocalFila {
   id: string; // uuid cliente, el mismo id que la fila tendrá en Supabase
@@ -140,12 +141,86 @@ export async function eliminarBorradorLocal(id: string): Promise<void> {
 }
 
 /**
+ * Revisa el estado REAL en el servidor antes de subir nada. Cubre el caso
+ * de un SEGUNDO dispositivo que abrió esta visita mientras seguía en
+ * progreso (hidratarBorrador la "protege" localmente en cualquier
+ * dispositivo que la abra, no solo en el que la creó) y se quedó con su
+ * propia copia en IndexedDB. Si esa visita después se finaliza o se borra
+ * desde OTRO dispositivo, esta copia nunca se entera — y sin este chequeo,
+ * cada ciclo de sincronización de fondo de ESTE dispositivo la volvía a
+ * subir como EN_PROGRESO, pisando para siempre el cierre real.
+ *
+ * Devuelve 'completada' | 'eliminada' | 'seguir' (nada raro: se sigue con
+ * el upsert normal, ya sea porque de verdad sigue en progreso o porque
+ * todavía no se ha creado por primera vez en el servidor).
+ */
+async function estadoRemoto(borrador: BorradorLocal): Promise<'completada' | 'eliminada' | 'seguir'> {
+  try {
+    const { data, error } = await supabase
+      .from(T_PAPELETA)
+      .select('estado')
+      .eq('id', borrador.id)
+      .maybeSingle();
+    if (error) return 'seguir'; // sin señal / RLS sin resolver: no bloquea el flujo normal
+
+    if (data) {
+      return data.estado === 'COMPLETADA' ? 'completada' : 'seguir';
+    }
+    // No existe la fila en el servidor. Si esta copia local YA había
+    // logrado crearse ahí antes (creadoEnServidor === true), es que alguien
+    // la borró después — no es "todavía no creada". Si nunca se había
+    // creado, es el caso normal de una visita nueva recién iniciada.
+    return borrador.creadoEnServidor ? 'eliminada' : 'seguir';
+  } catch {
+    return 'seguir';
+  }
+}
+
+/**
+ * Revisa si esta papeleta fue eliminada A PROPÓSITO desde algún dispositivo
+ * (ver `postventa_papeletas_eliminadas`, poblada por VisitasPostVenta.tsx al
+ * borrar). Es la única forma de evitar que el ciclo global de sincronización
+ * de OTRO dispositivo (que todavía tiene esta visita como EN_PROGRESO en su
+ * IndexedDB local) la resucite con un upsert silencioso justo después de que
+ * alguien la borró — antes de esto, borrar una visita en un dispositivo no
+ * evitaba que reapareciera en cuanto sincronizara otro.
+ */
+async function fueEliminadaRemotamente(papeletaId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from(T_ELIMINADAS)
+      .select('id')
+      .eq('id', papeletaId)
+      .maybeSingle();
+    if (error) return false; // sin señal / tabla no accesible: no bloquea el flujo normal
+    return !!data;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Refleja el borrador completo en Supabase (upsert de la papeleta + cada
  * fila, todo idempotente por id). Es best-effort: si falla, el borrador
  * sigue intacto en IndexedDB y se reintenta en la próxima llamada — nunca se
  * pierde nada por que esto falle.
  */
 export async function sincronizarBorradorConServidor(borrador: BorradorLocal): Promise<boolean> {
+  const estado = await estadoRemoto(borrador);
+  if (estado === 'completada' || estado === 'eliminada') {
+    // Ya se cerró o se borró de verdad en el servidor (desde este u otro
+    // dispositivo): se descarta la copia local en vez de resucitarla.
+    await eliminarBorradorLocal(borrador.id);
+    return true;
+  }
+
+  if (await fueEliminadaRemotamente(borrador.id)) {
+    // Alguien la borró a propósito desde otro dispositivo: se descarta la
+    // copia local en vez de subirla, y se marca como "resuelta" (no es un
+    // error que deba reintentarse).
+    await eliminarBorradorLocal(borrador.id);
+    return true;
+  }
   try {
     const { error: errPap } = await supabase.from(T_PAPELETA).upsert({
       id: borrador.id,

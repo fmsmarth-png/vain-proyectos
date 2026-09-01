@@ -104,9 +104,18 @@ const VisitasPostVenta: React.FC<Props> = ({
   };
 
   // Solo se ofrece para EN_PROGRESO (ver el botón más abajo) — una visita
-  // COMPLETADA no se puede borrar desde acá. Requiere haber corrido
-  // visitas_delete_rls.sql: sin esas policies de DELETE, esto falla en
-  // silencio (RLS deniega la fila, no hay error explícito de permisos).
+  // COMPLETADA no se puede borrar desde acá.
+  //
+  // OJO: Supabase/PostgREST NO devuelve error cuando RLS bloquea las filas
+  // de un DELETE — el .delete() responde éxito (error: null) habiendo
+  // borrado CERO filas. Por eso cada delete de acá encadena .select('id')
+  // y se revisa explícitamente cuántas filas volvieron: si no coincide con
+  // lo esperado, se trata como error real (antes esto fallaba en silencio:
+  // "éxito" en pantalla pero la visita seguía intacta en la base).
+  //
+  // postventa_obs_borrador.papeleta_id -> postventa_papeletas.id tiene
+  // ON DELETE CASCADE, así que basta con borrar la papeleta: las
+  // observaciones hijas se eliminan solas a nivel de base de datos.
   const eliminarVisita = async (v: Visita) => {
     if (esMaestro) return;
     const confirmado = window.confirm(
@@ -116,13 +125,31 @@ const VisitasPostVenta: React.FC<Props> = ({
 
     setBorrando(v.id);
     try {
-      // Primero las observaciones hijas, por si la FK no tiene ON DELETE
-      // CASCADE hacia postventa_papeletas.
-      const { error: errObs } = await supabase.from('postventa_obs_borrador').delete().eq('papeleta_id', v.id);
-      if (errObs) throw errObs;
+      // Se registra la lápida ANTES de borrar: así, si el ciclo de
+      // sincronización de OTRO dispositivo corre justo en este instante
+      // (ventana de carrera), ya encuentra el aviso y no resucita la visita.
+      const { error: errTumba } = await supabase
+        .from('postventa_papeletas_eliminadas')
+        .insert({ id: v.id });
+      if (errTumba) throw errTumba;
 
-      const { error: errPap } = await supabase.from('postventa_papeletas').delete().eq('id', v.id);
+      const { data: filasBorradas, error: errPap } = await supabase
+        .from('postventa_papeletas')
+        .delete()
+        .eq('id', v.id)
+        .select('id');
       if (errPap) throw errPap;
+
+      if (!filasBorradas || filasBorradas.length === 0) {
+        // No se borró nada de verdad (RLS lo bloqueó en silencio) — se
+        // retira la lápida para no dejar esta visita marcada como
+        // "eliminada" cuando en realidad sigue intacta en la base.
+        try { await supabase.from('postventa_papeletas_eliminadas').delete().eq('id', v.id); } catch {}
+        throw new Error(
+          `No tienes permiso para eliminar esta visita (0 filas afectadas al borrar papeleta ${v.id}). ` +
+          'Revisa que tu usuario tenga asignado este proyecto, o pide a un administrador que la elimine.'
+        );
+      }
 
       // Limpiar el borrador LOCAL — sin esto, el sistema local-first de
       // PostVenta.tsx resucita la visita en la próxima sincronización.
@@ -137,7 +164,8 @@ const VisitasPostVenta: React.FC<Props> = ({
       await cargar();
     } catch (e) {
       console.error('Error eliminando visita:', e);
-      alert('No se pudo eliminar la visita. Revisa tu conexión e intenta de nuevo.');
+      const msg = e instanceof Error ? e.message : 'No se pudo eliminar la visita. Revisa tu conexión e intenta de nuevo.';
+      alert(msg);
     }
     setBorrando(null);
   };
