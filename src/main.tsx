@@ -6,6 +6,7 @@ import { initOgQueue } from './utils/Ogofflinequeue';
 import { initPostventaQueue } from './utils/postventaOfflineQueue';
 import { initPreEntregaFotosQueue } from './utils/preEntregaFotosQueue';
 import { initPostventaBorradorLocal } from './utils/postventaBorradorLocal';
+import { initPostventaFotosPendientes } from './utils/postventaFotosPendientes';
 
 const container = document.getElementById('root');
 const root = createRoot(container!);
@@ -18,6 +19,7 @@ const root = createRoot(container!);
 Promise.all([
   initOfflineQueues(), initOgQueue(), initPostventaQueue(),
   initPreEntregaFotosQueue(), initPostventaBorradorLocal(),
+  initPostventaFotosPendientes(),
 ]).finally(() => {
   root.render(
     <React.StrictMode>

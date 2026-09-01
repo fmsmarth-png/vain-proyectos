@@ -18,6 +18,7 @@ import {
   BorradorLocal, guardarBorradorLocal, leerBorradorLocal, eliminarBorradorLocal,
   sincronizarBorradorConServidor,
 } from '../utils/postventaBorradorLocal';
+import { encolarFotoPendiente, contarFotosPendientes } from '../utils/postventaFotosPendientes';
 
 const SESSION_KEY = 'post_venta_depto_state';
 const OTRO = '__OTRO__';
@@ -223,6 +224,17 @@ const PostVenta: React.FC = () => {
   const [error, setError] = useState('');
   const [listo, setListo] = useState(false);
   const [finalizadoOffline, setFinalizadoOffline] = useState(false);
+  // Generación de PDF como acción SEPARADA del cierre (ver generarInformePdf
+  // más abajo): el maestro_postventa solo cierra (firma + fotos), y es el
+  // profesional quien genera el informe después, desde la vista de solo
+  // lectura, ya con todos los datos confirmados en el servidor.
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [errorPdf, setErrorPdf] = useState('');
+  // Barra de estado "N fotos sincronizando" — se actualiza con un polling
+  // simple mientras la visita está en modo solo lectura, leyendo el
+  // contador de la cola dedicada (postventaFotosPendientes). No hace falta
+  // nada más sofisticado: son pocas fotos y el ciclo de fondo ya corre solo.
+  const [fotosPendientesCount, setFotosPendientesCount] = useState(0);
 
   const [anotando, setAnotando] = useState<{ idx: number; tipo: 'antes' | 'despues'; src: string } | null>(null);
   // Vista previa amplia de una foto ya tomada, con opción de eliminarla
@@ -267,6 +279,15 @@ const PostVenta: React.FC = () => {
   const papeletaIdRef = useRef<string | null>(null);
   const receptorTimer = useRef<any>(null);
   const reanudadoRef = useRef(false);
+  // Turno vigente de cada slot de foto ("{filaId}:antes" / "{filaId}:despues").
+  // Se incrementa cada vez que setFotoYGuardar toca ese slot (tomar, retomar
+  // o borrar una foto). La subida a Storage de esa llamada corre en segundo
+  // plano; cuando termina, solo se le permite escribir el resultado si su
+  // turno sigue siendo el vigente — si mientras tanto se reemplazó la foto
+  // en ese mismo slot, la subida vieja se descarta en silencio en vez de
+  // pisar la foto nueva (o de escribir una URL de una foto que el usuario ya
+  // había borrado).
+  const fotoTurnoRef = useRef<Record<string, number>>({});
   useEffect(() => { revRef.current = rev; }, [rev]);
   useEffect(() => { obsRef.current = obs; }, [obs]);
   // Los useEffect de abajo quedan como respaldo defensivo, pero YA NO son la
@@ -367,6 +388,18 @@ const PostVenta: React.FC = () => {
   });
 
   useEffect(() => { if (tieneContexto) cargar(); /* eslint-disable-next-line */ }, []);
+
+  // Actualiza la barra de "fotos sincronizando" cada pocos segundos mientras
+  // esta visita está en modo solo lectura (recién cerrada o reabierta para
+  // consulta). Se detiene solo cuando el contador llega a 0 o se sale de
+  // modo lectura — no necesita nada más elaborado que un polling simple.
+  useEffect(() => {
+    if (!soloLectura || !papeletaId) return;
+    const chequear = () => setFotosPendientesCount(contarFotosPendientes(papeletaId));
+    chequear();
+    const interval = setInterval(chequear, 4000);
+    return () => clearInterval(interval);
+  }, [soloLectura, papeletaId]);
 
   // Si se recupera la señal mientras esta pantalla sigue abierta, intenta
   // reflejar el avance en Supabase al toque en vez de esperar el próximo
@@ -801,6 +834,17 @@ const PostVenta: React.FC = () => {
   const setFotoYGuardar = async (idx: number, tipo: 'antes' | 'despues', dataUrl: string | null) => {
     if (soloLectura) return;
     const campo = tipo === 'antes' ? 'fotoAntes' : 'fotoDespues';
+
+    // Identifica el slot por id de FILA, no por índice (el índice puede
+    // correrse si se agregan/derivan filas mientras una subida sigue en
+    // vuelo). Se toma el turno ANTES de cualquier await, para que capture
+    // exactamente el estado "esta llamada es la más reciente para este
+    // slot" en el instante en que se llamó.
+    const filaId = revRef.current[idx]?.id ?? String(idx);
+    const key = `${filaId}:${tipo}`;
+    const miTurno = (fotoTurnoRef.current[key] ?? 0) + 1;
+    fotoTurnoRef.current[key] = miTurno;
+
     setCampoLocal(idx, campo, dataUrl);
     const next = revRef.current.map((r, i) => (i === idx ? { ...r, [campo]: dataUrl } : r));
     revRef.current = next;
@@ -809,7 +853,14 @@ const PostVenta: React.FC = () => {
     if (!dataUrl || !online) return; // sin conexión, el data URL local ya quedó a salvo arriba
     try {
       const url = await subirFotoBorrador(dataUrl);
-      const i = idxPorId(revRef.current[idx]?.id ?? '');
+
+      // Si mientras esta subida estaba en vuelo alguien retomó o borró la
+      // foto de este mismo slot, ese turno ya avanzó — esta subida quedó
+      // obsoleta y no debe escribir nada (evita pisar la foto nueva, o
+      // resucitar una foto que el usuario ya había borrado).
+      if (fotoTurnoRef.current[key] !== miTurno) return;
+
+      const i = idxPorId(filaId);
       if (i >= 0) {
         setCampoLocal(i, campo, url);
         const next2 = revRef.current.map((r, j) => (j === i ? { ...r, [campo]: url } : r));
@@ -889,17 +940,23 @@ const PostVenta: React.FC = () => {
       // servidor — un dispositivo que se quedó con un borrador viejo (por
       // ejemplo, de cuando la visita todavía estaba en progreso) la seguía
       // mostrando editable para siempre, aunque la visita ya se hubiera
-      // finalizado o borrado desde otro lado. Con señal, se pregunta primero
-      // al servidor: si ya dice COMPLETADA, se descarta la copia local y se
+      // finalizado o borrado desde otro lado. Se pregunta primero al
+      // servidor (sin depender de la bandera `online`, que puede no estar
+      // sincronizada exactamente en este punto del ciclo de vida — se deja
+      // que el propio try/catch maneje el caso real de estar sin conexión):
+      // si el servidor ya dice COMPLETADA, se descarta la copia local y se
       // entra en modo solo lectura de verdad, sin importar qué tenga
       // guardado este dispositivo.
       let estadoServidor: string | null = null;
-      if (local && online) {
+      if (local) {
         try {
           const { data: chequeo } = await supabase
             .from(T_PAPELETA).select('estado').eq('id', pid).maybeSingle();
           estadoServidor = chequeo?.estado ?? null;
-        } catch { /* sin señal real pese a online=true: se sigue con la copia local */ }
+          console.log('[hidratarBorrador] estado local:', local.estado, '| estado servidor:', estadoServidor);
+        } catch (e) {
+          console.warn('[hidratarBorrador] No se pudo consultar el estado remoto:', e);
+        }
       }
 
       // Si la copia local quedó marcada COMPLETADA (caso raro: normalmente
@@ -1349,19 +1406,81 @@ const PostVenta: React.FC = () => {
       // Asegura que lo último tecleado quede persistido antes de cerrar.
       await flushGuardadoFilas();
 
-      // FIX: se borra el borrador LOCAL acá, ANTES de generar el PDF y
-      // escribir en el servidor (no al final, como antes). La generación
-      // del PDF (fotos + jsPDF) puede tardar varios segundos; mientras el
-      // borrador siguiera existiendo localmente marcado EN_PROGRESO, el
-      // ciclo de sincronización de fondo de OfflineContext podía correr
-      // justo en esa ventana y volver a subir estado: 'EN_PROGRESO' —
-      // pisando el estado: 'COMPLETADA' que este mismo finalizar() recién
-      // había escrito (sin tocar fecha_completada/firma, que esa
-      // sincronización de fondo no incluye en su payload — por eso esos
-      // campos quedaban bien pero el estado se resucitaba solo). Si más
-      // abajo el guardado termina yendo por la cola offline, esa cola
-      // (postventaOfflineQueue, un store IndexedDB aparte) igual completa
-      // el cierre correctamente — no depende de este borrador de avance.
+      // ── Fotos que sigan locales: intento rápido, nunca bloquea ──
+      // Antes, si una foto no había terminado de subirse a Storage (seguía
+      // como data URL local), o se dejaba cerrar igual perdiéndola en
+      // silencio (esto pasó de verdad con una visita real), o se bloqueaba
+      // el cierre hasta que subiera — pero eso deja al maestro_postventa
+      // esperando incómodo con el cliente ahí mismo, por algo que no tiene
+      // ningún efecto visible para él en este momento (cerrar es solo un
+      // cambio de estado interno, no genera nada físico todavía).
+      //
+      // Ahora: se intenta subir cada foto pendiente UNA vez, rápido — la
+      // mayoría de las veces esto es invisible (1-2 segundos). Si alguna no
+      // logra subir (sin señal, error puntual), se encola en
+      // postventaFotosPendientes (Blob real a salvo en el dispositivo, cola
+      // dedicada, no depende del borrador ni toca el estado de la visita) y
+      // el ciclo de fondo de OfflineContext la reintenta sola después. El
+      // cierre SIEMPRE continúa, tenga o no éxito este intento.
+      const fotosParaEncolar: { filaId: string; tipo: 'antes' | 'despues'; dataUrl: string }[] = [];
+      if (online) {
+        const pendientesDeSubir = revRef.current
+          .map((r, i) => ({ r, i }))
+          .filter(({ r }) => (r.fotoAntes?.startsWith('data:')) || (r.fotoDespues?.startsWith('data:')));
+
+        for (const { r, i } of pendientesDeSubir) {
+          let next = revRef.current;
+          if (r.fotoAntes?.startsWith('data:')) {
+            try {
+              const url = await subirFotoBorrador(r.fotoAntes);
+              next = next.map((x, j) => (j === i ? { ...x, fotoAntes: url } : x));
+              if (r.id) await supabase.from(T_BORRADOR).update({ foto_antes: url }).eq('id', r.id);
+            } catch {
+              if (r.id) fotosParaEncolar.push({ filaId: r.id, tipo: 'antes', dataUrl: r.fotoAntes });
+            }
+          }
+          if (r.fotoDespues?.startsWith('data:')) {
+            try {
+              const url = await subirFotoBorrador(r.fotoDespues);
+              next = next.map((x, j) => (j === i ? { ...x, fotoDespues: url } : x));
+              if (r.id) await supabase.from(T_BORRADOR).update({ foto_despues: url }).eq('id', r.id);
+            } catch {
+              if (r.id) fotosParaEncolar.push({ filaId: r.id, tipo: 'despues', dataUrl: r.fotoDespues });
+            }
+          }
+          revRef.current = next;
+          setRev(next);
+        }
+      } else {
+        // Sin conexión: ni se intenta, se encola directo.
+        for (const r of revRef.current) {
+          if (!r.id) continue;
+          if (r.fotoAntes?.startsWith('data:')) fotosParaEncolar.push({ filaId: r.id, tipo: 'antes', dataUrl: r.fotoAntes });
+          if (r.fotoDespues?.startsWith('data:')) fotosParaEncolar.push({ filaId: r.id, tipo: 'despues', dataUrl: r.fotoDespues });
+        }
+      }
+
+      if (papeletaId) {
+        for (const f of fotosParaEncolar) {
+          try { await encolarFotoPendiente(papeletaId, f.filaId, f.tipo, f.dataUrl); }
+          catch (e) { console.error('[PostVenta] No se pudo encolar foto pendiente:', e); }
+        }
+      }
+
+      // FIX: se borra el borrador LOCAL acá, ANTES de escribir en el
+      // servidor (no al final, como antes). Mientras el borrador siguiera
+      // existiendo localmente marcado EN_PROGRESO, el ciclo de
+      // sincronización de fondo de OfflineContext podía correr justo en esa
+      // ventana y volver a subir estado: 'EN_PROGRESO' — pisando el estado:
+      // 'COMPLETADA' que este mismo finalizar() recién había escrito (sin
+      // tocar fecha_completada/firma, que esa sincronización de fondo no
+      // incluye en su payload — por eso esos campos quedaban bien pero el
+      // estado se resucitaba solo). Si más abajo el guardado termina yendo
+      // por la cola offline, esa cola (postventaOfflineQueue, un store
+      // IndexedDB aparte) igual completa el cierre correctamente — no
+      // depende de este borrador de avance. Las fotos que hayan quedado
+      // pendientes ya están a salvo en su propia cola (arriba), así que
+      // borrar este borrador general no les afecta.
       if (papeletaId) await eliminarBorradorLocal(papeletaId);
 
       const { data: sess } = await supabase.auth.getSession();
@@ -1444,42 +1563,15 @@ const PostVenta: React.FC = () => {
         };
       });
 
-      // ── El PDF se genera y se guarda SIEMPRE, sin depender de la red ──
-      // Así el técnico nunca se queda sin su informe, tenga o no señal.
-      // Las fotos pueden estar como URL de Storage (visita reanudada) o como
-      // data URL (recién tomadas). jsPDF necesita base64, así que convertimos.
-      const fotosAntes = await Promise.all(rev.map(r => (r.fotoAntes ? urlADataUrl(r.fotoAntes) : Promise.resolve(undefined))));
-      const fotosDespues = await Promise.all(rev.map(r => (r.fotoDespues ? urlADataUrl(r.fotoDespues) : Promise.resolve(undefined))));
-
-      const pdfBlob = await generatePdfPostventa({
-        proyecto: proyecto.nombre || datos.condominio,
-        torre: torre.nombre,
-        depto: String(depto.numero),
-        nRequerimiento: datos.requerimiento,
-        fechaAtencion: datos.fechaAtencion,
-        horaAtencion: datos.horaAtencion,
-        revisor: attribUserNombre,
-        receptorNombre: recNombre.trim(),
-        receptorRut: recRut.trim(),
-        observaciones: obs.map((o, i) => ({
-          numero: String(i + 1),
-          ambiente: ambienteFinal(rev[i]),
-          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : rev[i].solicitudCliente,
-          observacion: rev[i].observacion.trim(),
-          partida: rev[i].partida || undefined,
-          causa: rev[i].causa || undefined,
-          estado: rev[i].estado,
-          fotoAntes: fotosAntes[i],
-          fotoDespues: fotosDespues[i],
-        })),
-        firmaDataUrl: firmaDataUrl,
-        fecha: fechaVisita,
-      });
-
-      const fileName = `PostVenta_${torre.nombre}_${depto.numero}_${datos.requerimiento || Date.now()}.pdf`;
-      await guardarPdfBlob(pdfBlob, fileName, `Post venta · Torre ${torre.nombre} · Depto ${depto.numero}`);
-
-      // ── Guardado en el servidor: online primero, cola offline si falla ──
+      // NOTA: el PDF ya NO se genera acá. Antes se generaba en este mismo
+      // instante, embebiendo lo que hubiera en memoria en ese momento — si
+      // algo no había terminado de subirse (ver validación de fotos más
+      // arriba) o el maestro_postventa escribía algo apurado, el PDF podía
+      // quedar con datos a medias sin que nadie lo notara hasta después.
+      // Ahora el maestro_postventa solo CIERRA (firma + fotos ya validadas
+      // arriba); el PDF se genera como acción separada, más tarde, desde la
+      // vista de solo lectura (ver generarInformePdf) — típicamente por el
+      // profesional en oficina, leyendo datos ya confirmados en el servidor.
       // Antes, si esto fallaba por falta de señal, toda la visita (incluida
       // la firma ya capturada) se perdía con un error en pantalla. Ahora, si
       // no hay conexión o la subida falla, se encola completa en el
@@ -1558,13 +1650,71 @@ const PostVenta: React.FC = () => {
       // El borrador local ya se eliminó al principio de esta función (ver
       // FIX más arriba) — la visita queda cerrada en el servidor o en la
       // cola de finalización offline, que la lleva completa.
-
-      setListo(true);
-      setTimeout(() => { setListo(false); reiniciar(); }, 2000);
+      //
+      // En vez de la pantalla transitoria + reiniciar() de antes, se pasa
+      // directo a modo SOLO LECTURA: el maestro_postventa ve de inmediato
+      // la confirmación de cierre con la firma ya capturada, en la misma
+      // pantalla — sin necesidad de generar el PDF ahora (eso lo hace
+      // después el profesional, ver generarInformePdf). Si quedó encolado
+      // offline, se usa firmaDataUrl (local) para mostrarla igual mientras
+      // no haya subido; el banner de abajo avisa que sigue pendiente.
+      setCompletadaInfo({ fecha: new Date().toISOString(), firmaUrl: firmaUrl ?? firmaDataUrl });
+      setSoloLectura(true);
+      setPaso('revision');
     } catch (e: any) {
       setError('Error: ' + (e?.message ?? 'desconocido'));
     }
     setGuardando(false);
+  };
+
+  // ── Generar el informe PDF — acción SEPARADA del cierre ──
+  // Pensada para el profesional, desde la vista de solo lectura de una
+  // visita ya COMPLETADA: lee lo que ya está confirmado en el servidor
+  // (rev/obs, hidratados por hidratarBorrador) en vez de lo que hubiera en
+  // memoria al momento de cerrar. Puede llamarse las veces que haga falta
+  // (por ejemplo, para regenerar el informe después de una corrección).
+  const generarInformePdf = async () => {
+    setGenerandoPdf(true); setErrorPdf('');
+    try {
+      if (!completadaInfo.firmaUrl) {
+        throw new Error('No se encontró la firma de esta visita. No se puede generar el informe sin ella.');
+      }
+      const fotosAntes = await Promise.all(rev.map(r => (r.fotoAntes ? urlADataUrl(r.fotoAntes) : Promise.resolve(undefined))));
+      const fotosDespues = await Promise.all(rev.map(r => (r.fotoDespues ? urlADataUrl(r.fotoDespues) : Promise.resolve(undefined))));
+
+      const fechaVisita = fechaDesdeDdMmAaaa(datos.fechaAtencion) ?? new Date();
+
+      const pdfBlob = await generatePdfPostventa({
+        proyecto: proyecto.nombre || datos.condominio,
+        torre: torre.nombre,
+        depto: String(depto.numero),
+        nRequerimiento: datos.requerimiento,
+        fechaAtencion: datos.fechaAtencion,
+        horaAtencion: datos.horaAtencion,
+        revisor: inspectorNombre,
+        receptorNombre: recNombre.trim(),
+        receptorRut: recRut.trim(),
+        observaciones: obs.map((o, i) => ({
+          numero: String(i + 1),
+          ambiente: ambienteFinal(rev[i]),
+          solicitudCliente: (sinPapeleta || rev[i].origen === 'adicional') ? '' : rev[i].solicitudCliente,
+          observacion: rev[i].observacion.trim(),
+          partida: rev[i].partida || undefined,
+          causa: rev[i].causa || undefined,
+          estado: rev[i].estado,
+          fotoAntes: fotosAntes[i],
+          fotoDespues: fotosDespues[i],
+        })),
+        firmaDataUrl: completadaInfo.firmaUrl,
+        fecha: fechaVisita,
+      });
+
+      const fileName = `PostVenta_${torre.nombre}_${depto.numero}_${datos.requerimiento || Date.now()}.pdf`;
+      await guardarPdfBlob(pdfBlob, fileName, `Post venta · Torre ${torre.nombre} · Depto ${depto.numero}`);
+    } catch (e: any) {
+      setErrorPdf('No se pudo generar el informe: ' + (e?.message ?? 'error desconocido'));
+    }
+    setGenerandoPdf(false);
   };
 
   /* ------------------------------------------------------------------ */
@@ -1871,12 +2021,17 @@ const PostVenta: React.FC = () => {
               {soloLectura && (
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
-                  background: dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4',
-                  border: `0.5px solid ${dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0'}`,
+                  background: finalizadoOffline
+                    ? (dark ? 'rgba(251,191,36,0.06)' : '#fffbeb')
+                    : (dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4'),
+                  border: `0.5px solid ${finalizadoOffline
+                    ? (dark ? 'rgba(251,191,36,0.3)' : '#fde68a')
+                    : (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0')}`,
                   borderRadius: 10, padding: '10px 12px',
-                  fontSize: 12, color: dark ? '#4ade80' : '#15803d', fontWeight: 600,
+                  fontSize: 12, fontWeight: 600,
+                  color: finalizadoOffline ? (dark ? '#fbbf24' : '#92400e') : (dark ? '#4ade80' : '#15803d'),
                 }}>
-                  ✅ Visita completada
+                  {finalizadoOffline ? '📴 Guardado en el dispositivo — pendiente de sincronizar' : '✅ Visita completada'}
                   {completadaInfo.fecha && (
                     <span style={{ fontWeight: 400, color: textMuted, fontSize: 11 }}>
                       · {new Date(completadaInfo.fecha).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -2102,6 +2257,21 @@ const PostVenta: React.FC = () => {
                           {fotoSlot(idx, 'despues')}
                         </div>
 
+                        {soloLectura && fotosPendientesCount > 0 && (
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: 6, marginTop: 8,
+                            background: dark ? 'rgba(251,191,36,0.06)' : '#fffbeb',
+                            border: `0.5px solid ${dark ? 'rgba(251,191,36,0.3)' : '#fde68a'}`,
+                            borderRadius: 8, padding: '6px 10px',
+                            fontSize: 11, color: dark ? '#fbbf24' : '#92400e', fontWeight: 600,
+                          }}>
+                            ⏳ {fotosPendientesCount === 1 ? '1 foto sincronizando' : `${fotosPendientesCount} fotos sincronizando`}
+                            <span style={{ fontWeight: 400, color: textMuted }}>
+                              — busca señal en el dispositivo que tomó las fotos
+                            </span>
+                          </div>
+                        )}
+
                         {!esMaestro && !soloLectura && !sinPapeleta && (r.origen === 'papeleta' || r.origen === 'derivada') && (
                           <button onClick={() => derivarObs(idx)}
                             style={{ ...btnGhost, marginTop: 12, height: 40, fontSize: 12, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe' }}>
@@ -2177,6 +2347,37 @@ const PostVenta: React.FC = () => {
                   <div style={{ border: `0.5px solid ${border}`, borderRadius: 12, overflow: 'hidden', background: '#ffffff' }}>
                     <img src={completadaInfo.firmaUrl} style={{ display: 'block', width: '100%', maxHeight: 180, objectFit: 'contain' }} />
                   </div>
+                </div>
+              )}
+
+              {/* Generar el informe PDF es una acción separada del cierre —
+                  pensada para el profesional en oficina, no para el
+                  maestro_postventa en terreno (que ya cerró arriba). Con
+                  esto, el PDF siempre se genera leyendo datos confirmados en
+                  el servidor, y se puede regenerar las veces que haga falta
+                  (por ejemplo, después de corregir algo). */}
+              {soloLectura && !esMaestro && (
+                <div style={cardStyle}>
+                  {fotosPendientesCount > 0 && (
+                    <div style={{
+                      color: dark ? '#fbbf24' : '#92400e', fontSize: 11, marginBottom: 10,
+                      background: dark ? 'rgba(251,191,36,0.06)' : '#fffbeb', padding: '8px 12px',
+                      borderRadius: 10, border: `0.5px solid ${dark ? 'rgba(251,191,36,0.3)' : '#fde68a'}`,
+                    }}>
+                      ⏳ Todavía hay {fotosPendientesCount === 1 ? '1 foto' : `${fotosPendientesCount} fotos`} sincronizando desde el dispositivo que cerró la visita.
+                      Puedes generar el informe igual, pero podría salir sin esa foto — espera a que sincronice para un informe completo.
+                    </div>
+                  )}
+                  {errorPdf && (
+                    <div style={{
+                      color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 10,
+                      background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px',
+                      borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca',
+                    }}>{errorPdf}</div>
+                  )}
+                  <button onClick={generarInformePdf} disabled={generandoPdf} style={btnPrimary(generandoPdf)}>
+                    {generandoPdf ? 'Generando informe…' : '📄 Generar informe PDF'}
+                  </button>
                 </div>
               )}
 

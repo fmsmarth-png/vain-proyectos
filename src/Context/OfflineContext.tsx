@@ -33,6 +33,7 @@ import { flushColaOG, contarPendientesOG } from '../utils/Ogofflinequeue';
 import { flushColaPostventa, contarPendientesPostventa } from '../utils/postventaOfflineQueue';
 import { flushFotosPreEntrega, contarFotosPendientes } from '../utils/preEntregaFotosQueue';
 import { sincronizarTodosLosBorradoresLocales } from '../utils/postventaBorradorLocal';
+import { initPostventaFotosPendientes, flushFotosPendientesPostventa } from '../utils/postventaFotosPendientes';
 import { dbGetAll, dbPut, dbDelete, comprimirImagenBlob, blobAObjectUrl, migrarDesdeLocalStorage, type StoreName } from '../utils/offlineDB';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -756,6 +757,18 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // Fotos de visitas Post Venta YA CERRADAS que no alcanzaron a subir al
+  // momento del cierre (ver postventaFotosPendientes.ts) — deliberadamente
+  // separado de sincronizarBorradoresPostventa: no depende de que la visita
+  // siga EN_PROGRESO ni toca su estado.
+  const sincronizarFotosPendientesPostventa = async () => {
+    try {
+      await flushFotosPendientesPostventa();
+    } catch (e) {
+      console.error('[OfflineContext] Error sincronizando fotos pendientes de Post Venta:', e);
+    }
+  };
+
   // ──────────────────────────────────────────────────────────────────────────
   // SINCRONIZACIÓN MASTER
   // ──────────────────────────────────────────────────────────────────────────
@@ -785,6 +798,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         sincronizarPostventa(),
         sincronizarFotosPreEntrega(),
         sincronizarBorradoresPostventa(),
+        sincronizarFotosPendientesPostventa(),
       ]);
 
       refrescarContadores();

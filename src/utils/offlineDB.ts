@@ -27,7 +27,11 @@ const DB_NAME = 'vain_offline_queue';
 // v2: + postventa (cierre de visita Post Venta con firma)
 // v3: + pre_entrega_fotos (subida en 2do plano de fotos de Pre Entrega)
 // v4: + postventa_borrador (avance local de una visita Post Venta en curso)
-const DB_VERSION = 4;
+// v5: + postventa_fotos_pendientes (fotos de una visita YA CERRADA que no
+//      alcanzaron a subirse a Storage al momento del cierre — ver
+//      postventaFotosPendientes.ts. Deliberadamente separado del borrador
+//      general: no debe tocar ni depender del campo `estado` de la visita.)
+const DB_VERSION = 5;
 
 // Un object store por cola. keyPath = campo único de cada registro.
 const STORE_CONFIG: Record<string, string> = {
@@ -39,6 +43,7 @@ const STORE_CONFIG: Record<string, string> = {
   postventa: 'id',      // cierre de visita Post Venta (observaciones + firma)
   pre_entrega_fotos: 'id', // subida en 2do plano de fotos de Pre Entrega
   postventa_borrador: 'id', // avance local de una visita Post Venta en curso
+  postventa_fotos_pendientes: 'id', // fotos de una visita ya cerrada, pendientes de subir
 };
 
 export type StoreName = keyof typeof STORE_CONFIG;
