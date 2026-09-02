@@ -41,6 +41,13 @@ interface PrestamoRow {
   estado: string;
 }
 
+interface AjusteRow {
+  cantidad: number;
+  motivo: string | null;
+  creado_en: string;
+  usuarios: { nombre: string | null } | null;
+}
+
 interface OcRow {
   n_oc: string | null; estado_oc: string | null; estado_req: string | null;
   comprado_j: number | null; por_recepcionar_k: number | null; recibido: number | null;
@@ -96,6 +103,16 @@ const StockBodega: React.FC = () => {
       : valor;
   };
 
+  // Inversa de convertirADisplay: lo que la persona tecleó en SU unidad
+  // preferida (display) hay que devolverlo a la unidad granular, que es
+  // la que usa la BD para comparar contra stock_actual.
+  const convertirDesdeDisplay = (valorDisplay: number, m: StockRow) => {
+    const pref = getUnidadDisplay(m.material_id);
+    return pref === 'compra' && m.factor_conversion !== 1
+      ? Math.round(valorDisplay * m.factor_conversion * 100) / 100
+      : valorDisplay;
+  };
+
   const sCard: React.CSSProperties = {
     background: cardGrad, borderRadius: 16, border: `0.5px solid ${border}`,
     padding: '12px 14px', marginBottom: 8,
@@ -111,7 +128,13 @@ const StockBodega: React.FC = () => {
   const [rol, setRol] = useState<string>('');
   const [materiales, setMateriales] = useState<StockRow[]>([]);
   const [busqueda, setBusqueda] = useState('');
-  const [soloBajoStock, setSoloBajoStock] = useState(location.state?.soloBajoStock ?? false);
+  // Filtro de stock: unificado en un solo selector (antes era un checkbox
+  // aislado solo para "bajo stock"). Si llega navegando desde el dashboard
+  // con soloBajoStock=true, arranca directo en "bajo_minimo".
+  type FiltroStock = 'todos' | 'con_stock' | 'sin_stock' | 'bajo_minimo';
+  const [filtroStock, setFiltroStock] = useState<FiltroStock>(
+    location.state?.soloBajoStock ? 'bajo_minimo' : 'todos'
+  );
   const [cargando, setCargando] = useState(true);
 
   // Filtro por cuadrilla
@@ -129,6 +152,7 @@ const StockBodega: React.FC = () => {
   const [fichaEntregas, setFichaEntregas] = useState<EntregaRow[]>([]);
   const [fichaActividades, setFichaActividades] = useState<string[]>([]);
   const [fichaPrestamos, setFichaPrestamos] = useState<PrestamoRow[]>([]);
+  const [fichaAjustes, setFichaAjustes] = useState<AjusteRow[]>([]);
 
   // Preferencia de unidad POR MATERIAL: cada material puede verse en su propia
   // unidad preferida, porque en obra algunos se manejan por envase y otros por kg.
@@ -148,6 +172,15 @@ const StockBodega: React.FC = () => {
       const nueva: 'granular' | 'compra' = actual === 'granular' ? 'compra' : 'granular';
       const next: Record<string, 'granular' | 'compra'> = { ...prev, [materialId]: nueva };
       try { localStorage.setItem('bodega_unidades_display', JSON.stringify(next)); } catch {}
+      return next;
+    });
+    // Si había un umbral a medio escribir sin guardar, se limpia para que
+    // el campo vuelva a mostrar el valor guardado convertido a la unidad
+    // nueva, en vez de dejar un número que quedó en la unidad anterior.
+    setUmbralEdit(prev => {
+      if (!(materialId in prev)) return prev;
+      const next = { ...prev };
+      delete next[materialId];
       return next;
     });
   };
@@ -237,28 +270,45 @@ const StockBodega: React.FC = () => {
       const q = busqueda.toLowerCase();
       lista = lista.filter(m => m.nombre.toLowerCase().includes(q));
     }
-    if (soloBajoStock) lista = lista.filter(m => m.bajo_stock);
+    if (filtroStock === 'con_stock') lista = lista.filter(m => m.stock_actual > 0);
+    else if (filtroStock === 'sin_stock') lista = lista.filter(m => m.stock_actual <= 0);
+    else if (filtroStock === 'bajo_minimo') lista = lista.filter(m => m.bajo_stock);
     return lista.slice(0, 80);
-  }, [materiales, busqueda, soloBajoStock, materialesCuadrilla]);
+  }, [materiales, busqueda, filtroStock, materialesCuadrilla]);
 
   const totalBajoStock = useMemo(() => materiales.filter(m => m.bajo_stock).length, [materiales]);
+  const totalConStock = useMemo(() => materiales.filter(m => m.stock_actual > 0).length, [materiales]);
+  const totalSinStock = useMemo(() => materiales.filter(m => m.stock_actual <= 0).length, [materiales]);
 
   // ── umbral ─────────────────────────────────────────────────────────────
-  const guardarUmbral = async (materialId: string) => {
+  const guardarUmbral = async (m: StockRow) => {
     if (!proyecto) return;
-    const valor = umbralEdit[materialId];
-    const umbral = valor === '' || valor === undefined ? null : parseFloat(valor);
-    if (valor !== '' && valor !== undefined && (umbral === null || isNaN(umbral) || umbral < 0)) {
+    const valor = umbralEdit[m.material_id];
+    const umbralDisplay = valor === '' || valor === undefined ? null : parseFloat(valor);
+    if (valor !== '' && valor !== undefined && (umbralDisplay === null || isNaN(umbralDisplay) || umbralDisplay < 0)) {
       setToastColor('danger'); setToastMsg('Umbral inválido'); return;
     }
+    // Se guarda siempre en la unidad granular (la misma que usa stock_actual
+    // para compararse), sin importar en qué unidad lo haya tecleado la
+    // persona — por eso se convierte antes de mandarlo a la RPC.
+    const umbral = umbralDisplay === null ? null : convertirDesdeDisplay(umbralDisplay, m);
     const { error } = await supabase.rpc('bodega_set_umbral_minimo', {
-      p_proyecto_id: proyecto.id, p_material_id: materialId, p_umbral: umbral,
+      p_proyecto_id: proyecto.id, p_material_id: m.material_id, p_umbral: umbral,
     });
     if (error) { setToastColor('danger'); setToastMsg('No se pudo guardar el umbral: ' + error.message); }
     else cargarStock(proyecto.id);
   };
 
   // ── ficha ──────────────────────────────────────────────────────────────
+  const cargarHistorialAjustes = async (materialId: string) => {
+    const { data } = await supabase
+      .from('bodega_ajustes')
+      .select('cantidad, motivo, creado_en, usuarios ( nombre )')
+      .eq('material_id', materialId)
+      .order('creado_en', { ascending: false });
+    setFichaAjustes((data as unknown as AjusteRow[] | null) ?? []);
+  };
+
   const abrirFicha = async (m: StockRow) => {
     setFichaMaterial(m);
     setFichaAbierta(true);
@@ -269,6 +319,7 @@ const StockBodega: React.FC = () => {
       supabase.rpc('bodega_material_entregas', { p_material_id: m.material_id }),
       supabase.from('bodega_material_actividades').select('bodega_actividades ( nombre )').eq('material_id', m.material_id),
       supabase.rpc('bodega_material_prestamos', { p_material_id: m.material_id }),
+      cargarHistorialAjustes(m.material_id),
     ]);
     setFichaOcs((ocs.data as OcRow[] | null) ?? []);
     setFichaEntregas((entregas.data as EntregaRow[] | null) ?? []);
@@ -285,13 +336,15 @@ const StockBodega: React.FC = () => {
     if (!proyecto || !fichaMaterial) return;
     const cant = parseFloat(ajusteCantidad);
     if (!cant || isNaN(cant)) { setToastColor('danger'); setToastMsg('Ingresa una cantidad (positiva o negativa)'); return; }
+    const motivo = ajusteMotivo.trim();
+    if (!motivo) { setToastColor('danger'); setToastMsg('Indica el motivo del ajuste — queda registrado en el historial'); return; }
     setGuardandoAjuste(true);
     const { data: authData } = await supabase.auth.getUser();
     const { error } = await supabase.from('bodega_ajustes').insert({
       proyecto_id: proyecto.id,
       material_id: fichaMaterial.material_id,
       cantidad: cant,
-      motivo: ajusteMotivo.trim() || null,
+      motivo,
       registrado_por: authData?.user?.id,
     });
     setGuardandoAjuste(false);
@@ -299,7 +352,7 @@ const StockBodega: React.FC = () => {
     else {
       setToastColor('success'); setToastMsg('Ajuste registrado');
       setAjusteCantidad(''); setAjusteMotivo('');
-      await cargarStock(proyecto.id);
+      await Promise.all([cargarStock(proyecto.id), cargarHistorialAjustes(fichaMaterial.material_id)]);
       setFichaAbierta(false);
     }
   };
@@ -346,14 +399,63 @@ const StockBodega: React.FC = () => {
               </select>
             )}
             <input style={sInput} placeholder="Buscar material..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: textSecondary, marginTop: 10, cursor: 'pointer' }}>
-              <input type="checkbox" checked={soloBajoStock} onChange={e => setSoloBajoStock(e.target.checked)} />
-              Mostrar solo bajo stock
-              {totalBajoStock > 0 && (
-                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: rojoBg, color: rojo, border: `0.5px solid ${rojoBord}` }}>{totalBajoStock}</span>
-              )}
-            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              {([
+                { key: 'todos', label: 'Todos', total: materiales.length },
+                { key: 'con_stock', label: 'Con stock', total: totalConStock },
+                { key: 'sin_stock', label: 'Sin stock', total: totalSinStock },
+                { key: 'bajo_minimo', label: 'Bajo mínimo', total: totalBajoStock },
+              ] as { key: FiltroStock; label: string; total: number }[]).map(op => {
+                const activo = filtroStock === op.key;
+                // El filtro de "bajo mínimo" usa rojo (es una alerta), el resto azul.
+                const colorActivo = op.key === 'bajo_minimo' ? rojo : azul;
+                const bgActivo = op.key === 'bajo_minimo' ? rojoBg : azulBg;
+                const bordActivo = op.key === 'bajo_minimo' ? rojoBord : azulBord;
+                return (
+                  <button
+                    key={op.key}
+                    onClick={() => setFiltroStock(op.key)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
+                      border: `0.5px solid ${activo ? colorActivo : border}`,
+                      background: activo ? bgActivo : 'transparent',
+                      color: activo ? colorActivo : textSecondary,
+                    }}
+                  >
+                    {op.label}
+                    <span style={{
+                      fontSize: 10, padding: '1px 6px', borderRadius: 8,
+                      background: activo ? colorActivo : (dark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'),
+                      color: activo ? '#fff' : textMuted,
+                    }}>
+                      {op.total}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          {!cargando && totalBajoStock > 0 && filtroStock !== 'bajo_minimo' && (
+            <div
+              onClick={() => setFiltroStock('bajo_minimo')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
+                background: rojoBg, border: `1px solid ${rojoBord}`, borderRadius: 14,
+                padding: '12px 14px', marginBottom: 10,
+              }}
+            >
+              <span style={{ fontSize: 20, lineHeight: 1 }}>⚠️</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: rojo }}>
+                  {totalBajoStock} material{totalBajoStock === 1 ? '' : 'es'} bajo el stock mínimo
+                </div>
+                <div style={{ fontSize: 11, color: rojo, opacity: 0.85 }}>Toca para ver el detalle</div>
+              </div>
+              <span style={{ fontSize: 18, color: rojo }}>›</span>
+            </div>
+          )}
 
           {cargando && <div style={{ textAlign: 'center', padding: 30 }}><IonSpinner name="crescent" /></div>}
 
@@ -363,7 +465,7 @@ const StockBodega: React.FC = () => {
             </div>
           )}
 
-          {!cargando && !busqueda.trim() && !soloBajoStock && materiales.length > 80 && (
+          {!cargando && !busqueda.trim() && filtroStock === 'todos' && materiales.length > 80 && (
             <div style={{ fontSize: 12, color: textMuted, marginBottom: 8 }}>
               Mostrando 80 de {materiales.length} materiales — usa el buscador para encontrar otros.
             </div>
@@ -371,10 +473,24 @@ const StockBodega: React.FC = () => {
 
           {/* Lista */}
           {materialesFiltrados.map(m => (
-            <div key={m.material_id} onClick={() => abrirFicha(m)} style={{ ...sCard, cursor: 'pointer', ...(m.bajo_stock ? { borderColor: rojoBord } : {}) }}>
+            <div
+              key={m.material_id}
+              onClick={() => abrirFicha(m)}
+              style={{
+                ...sCard, cursor: 'pointer',
+                ...(m.bajo_stock ? {
+                  background: rojoBg,
+                  border: `1px solid ${rojoBord}`,
+                  borderLeft: `4px solid ${rojo}`,
+                } : {}),
+              }}
+            >
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, color: textPrimary }}>{m.nombre}</div>
+                  <div style={{ fontSize: 14, color: textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {m.bajo_stock && <span style={{ fontSize: 13 }}>⚠️</span>}
+                    {m.nombre}
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
                     <span style={{ fontSize: 18, fontWeight: 600, color: m.bajo_stock ? rojo : textPrimary }}>{convertirADisplay(m.stock_actual, m)}</span>
                     <span style={{ fontSize: 12, color: textMuted }}>{mostrarUnidad(m) ?? 'sin unidad'}</span>
@@ -385,7 +501,14 @@ const StockBodega: React.FC = () => {
                     {m.prestado_neto > 0 ? ` · prestado ${convertirADisplay(m.prestado_neto, m)}` : ''}
                     {m.ajuste !== 0 ? ` · ajuste ${m.ajuste > 0 ? '+' : ''}${convertirADisplay(m.ajuste, m)}` : ''}
                   </div>
-                  {m.bajo_stock && <div style={{ fontSize: 11, color: rojo, marginTop: 2, fontWeight: 500 }}>Stock bajo el mínimo</div>}
+                  {m.bajo_stock && (
+                    <div style={{
+                      display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#fff',
+                      background: rojo, borderRadius: 999, padding: '2px 8px', marginTop: 6, letterSpacing: '0.3px',
+                    }}>
+                      STOCK BAJO EL MÍNIMO
+                    </div>
+                  )}
                 </div>
                 <div style={{ fontSize: 18, color: textMuted, flexShrink: 0 }}>›</div>
               </div>
@@ -393,14 +516,26 @@ const StockBodega: React.FC = () => {
               {/* Umbral inline (jefe de bodega) */}
               {puedeEditarCatalogo && (
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: `0.5px solid ${border}` }} onClick={e => e.stopPropagation()}>
-                  <div style={{ fontSize: 10, color: textMuted, marginBottom: 3 }}>Umbral mínimo de alerta</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <div style={{ fontSize: 10, color: textMuted }}>
+                      Umbral mínimo de alerta {mostrarUnidad(m) ? `(${mostrarUnidad(m)})` : ''}
+                    </div>
+                    {m.factor_conversion !== 1 && m.unidad_compra && (
+                      <span
+                        onClick={() => toggleUnidadMaterial(m.material_id)}
+                        style={{ fontSize: 10, color: azul, cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Definir en {getUnidadDisplay(m.material_id) === 'granular' ? m.unidad_compra : m.unidad}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="number" min="0"
                     style={{ ...sInput, height: 32, fontSize: 13 }}
-                    placeholder={m.umbral_minimo !== null ? String(m.umbral_minimo) : 'sin definir'}
-                    value={umbralEdit[m.material_id] ?? (m.umbral_minimo !== null ? String(m.umbral_minimo) : '')}
+                    placeholder={m.umbral_minimo !== null ? String(convertirADisplay(m.umbral_minimo, m)) : 'sin definir'}
+                    value={umbralEdit[m.material_id] ?? (m.umbral_minimo !== null ? String(convertirADisplay(m.umbral_minimo, m)) : '')}
                     onChange={e => setUmbralEdit(prev => ({ ...prev, [m.material_id]: e.target.value }))}
-                    onBlur={() => guardarUmbral(m.material_id)}
+                    onBlur={() => guardarUmbral(m)}
                   />
                 </div>
               )}
@@ -586,6 +721,27 @@ const StockBodega: React.FC = () => {
                   })}
                   </div>
 
+                  {/* Historial de ajustes manuales */}
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: `0.5px solid ${border}` }}>
+                  <div style={{ fontSize: 11, color: textMuted, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600, marginBottom: 8 }}>
+                    Historial de ajustes manuales
+                  </div>
+                  {fichaAjustes.length === 0 && <div style={{ fontSize: 13, color: textMuted, marginBottom: 14 }}>Sin ajustes registrados.</div>}
+                  {fichaAjustes.map((a, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px 0', borderBottom: i < fichaAjustes.length - 1 ? `0.5px solid ${border}` : 'none' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, color: textPrimary }}>{a.motivo || 'Sin motivo indicado'}</div>
+                        <div style={{ fontSize: 11, color: textMuted }}>
+                          {a.usuarios?.nombre ?? 'Usuario desconocido'} · {fmtFecha(a.creado_en)}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: a.cantidad >= 0 ? verde : rojo, marginLeft: 8, whiteSpace: 'nowrap' }}>
+                        {a.cantidad > 0 ? '+' : ''}{a.cantidad}
+                      </span>
+                    </div>
+                  ))}
+                  </div>
+
                   {/* Ajuste manual opcional */}
                   {puedeAjustar && (
                     <div style={{ marginTop: 20, paddingTop: 16, borderTop: `0.5px solid ${border}` }}>
@@ -593,11 +749,11 @@ const StockBodega: React.FC = () => {
                         Ajuste manual {fichaMaterial.ajuste !== 0 ? `(actual: ${fichaMaterial.ajuste > 0 ? '+' : ''}${fichaMaterial.ajuste})` : ''}
                       </div>
                       <div style={{ fontSize: 11, color: textMuted, marginBottom: 8 }}>
-                        Corrige diferencias con el conteo físico. Usa negativo para descontar (ej. -5), positivo para sumar.
+                        Corrige diferencias con el conteo físico. Usa negativo para descontar (ej. -5), positivo para sumar. El motivo es obligatorio y queda guardado en el historial de arriba.
                       </div>
                       <input type="number" placeholder="Cantidad (+/-)" style={{ ...sInput, height: 38, marginBottom: 8 }}
                         value={ajusteCantidad} onChange={e => setAjusteCantidad(e.target.value)} />
-                      <input type="text" placeholder="Motivo (opcional)" style={{ ...sInput, height: 38, marginBottom: 10 }}
+                      <input type="text" placeholder="Motivo del ajuste (obligatorio)" style={{ ...sInput, height: 38, marginBottom: 10 }}
                         value={ajusteMotivo} onChange={e => setAjusteMotivo(e.target.value)} />
                       <button onClick={guardarAjuste} disabled={guardandoAjuste} style={{ width: '100%', height: 42, borderRadius: 10, background: azul, border: 'none', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                         {guardandoAjuste ? 'Guardando...' : 'Registrar ajuste'}

@@ -21,9 +21,10 @@ interface ValeReciente {
 
 interface MaterialBajoStock {
   material_id: string;
-  cantidad_actual: number;
+  nombre: string;
+  unidad: string | null;
+  stock_actual: number;
   umbral_minimo: number;
-  bodega_materiales: { nombre: string; unidad: string | null } | null;
 }
 
 // ============================================================
@@ -93,15 +94,17 @@ const DashboardBodega: React.FC = () => {
   }, []);
 
   const cargarStockBajo = useCallback(async (proyectoId: string) => {
+    // Se usa la MISMA vista que "Stock de bodega" (bodega_stock_actual),
+    // en vez de la tabla vieja bodega_stock, que quedó desconectada del
+    // umbral real (bodega_materiales.umbral_minimo) y ya no se actualiza.
     const { data } = await supabase
-      .from('bodega_stock')
-      .select('material_id, cantidad_actual, umbral_minimo, bodega_materiales ( nombre, unidad )')
+      .from('bodega_stock_actual')
+      .select('material_id, nombre, unidad, stock_actual, umbral_minimo')
       .eq('proyecto_id', proyectoId)
-      .not('umbral_minimo', 'is', null);
+      .eq('bajo_stock', true);
 
     const bajoStock = ((data as unknown as MaterialBajoStock[]) ?? [])
-      .filter(m => m.cantidad_actual <= m.umbral_minimo)
-      .sort((a, b) => (a.cantidad_actual - a.umbral_minimo) - (b.cantidad_actual - b.umbral_minimo))
+      .sort((a, b) => (a.stock_actual - a.umbral_minimo) - (b.stock_actual - b.umbral_minimo))
       .slice(0, 5);
     setMaterialesBajoStock(bajoStock);
   }, []);
@@ -138,10 +141,14 @@ const DashboardBodega: React.FC = () => {
       )
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'vales_bodega_items' },
-        () => cargarVales(proyecto.id)
+        () => { cargarVales(proyecto.id); cargarStockBajo(proyecto.id); }
       )
       .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'bodega_stock', filter: `proyecto_id=eq.${proyecto.id}` },
+        { event: 'UPDATE', schema: 'public', table: 'bodega_materiales', filter: `proyecto_id=eq.${proyecto.id}` },
+        () => cargarStockBajo(proyecto.id)
+      )
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'bodega_ajustes', filter: `proyecto_id=eq.${proyecto.id}` },
         () => cargarStockBajo(proyecto.id)
       )
       .subscribe();
@@ -263,9 +270,9 @@ const DashboardBodega: React.FC = () => {
 
             {materialesBajoStock.map((m, idx) => (
               <div key={m.material_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: idx < materialesBajoStock.length - 1 ? `0.5px solid ${border}` : 'none' }}>
-                <div style={{ fontSize: 13, color: textPrimary }}>{m.bodega_materiales?.nombre ?? 'Material'}</div>
+                <div style={{ fontSize: 13, color: textPrimary }}>{m.nombre}</div>
                 <div style={{ fontSize: 12, color: rojo, fontWeight: 500 }}>
-                  {m.cantidad_actual} / {m.umbral_minimo}{m.bodega_materiales?.unidad ? ` ${m.bodega_materiales.unidad}` : ''}
+                  {m.stock_actual} / {m.umbral_minimo}{m.unidad ? ` ${m.unidad}` : ''}
                 </div>
               </div>
             ))}

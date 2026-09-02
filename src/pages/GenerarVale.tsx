@@ -47,6 +47,8 @@ interface Material {
   unidad_compra: string | null;    // unidad de empaque tal cual la reporta AYNI (tambores, sacos...)
   factor_conversion: number;       // 1 = no hay distinción, solo existe una unidad
   actividad_id: string | null;
+  stockActual: number;             // stock_actual de bodega_stock_actual para el proyecto (0 si no hay registro)
+  tieneStock: boolean;             // stockActual > 0
 }
 
 interface ItemCarrito {
@@ -55,6 +57,7 @@ interface ItemCarrito {
   unidad: string | null;      // unidad canónica en la que queda guardada la cantidad (siempre granular cuando existe)
   cantidad: number;
   notaOriginal?: string;      // ej. "5 TAMBOR 200 L" — cómo lo tecleó la persona, si eligió la unidad de compra
+  sinStock?: boolean;         // se agregó a la solicitud sin stock disponible en bodega al momento de agregarlo
 }
 
 interface Usuario {
@@ -106,6 +109,11 @@ const GenerarVale: React.FC = () => {
   const azulBg    = dark ? 'rgba(96,165,250,0.06)' : '#eff6ff';
   const azulBord  = dark ? 'rgba(96,165,250,0.2)'  : '#bfdbfe';
   const rojo      = dark ? '#f87171' : '#b91c1c';
+  const rojoBg    = dark ? 'rgba(239,68,68,0.08)' : '#fef2f2';
+  const rojoBord  = dark ? 'rgba(239,68,68,0.25)' : '#fecaca';
+  const verde     = dark ? '#4ade80' : '#15803d';
+  const verdeBg   = dark ? 'rgba(74,222,128,0.08)' : '#f0fdf4';
+  const verdeBord = dark ? 'rgba(74,222,128,0.25)' : '#bbf7d0';
 
   const sCard: React.CSSProperties = {
     background: cardGrad,
@@ -247,14 +255,30 @@ const GenerarVale: React.FC = () => {
       .eq('proyecto_id', proy.id)
       .eq('activo', true)
       .order('nombre');
+
+    // ── stock disponible en bodega (vista bodega_stock_actual) ─────────
+    const { data: stockData } = await supabase
+      .from('bodega_stock_actual')
+      .select('material_id, stock_actual')
+      .eq('proyecto_id', proy.id);
+    const stockMap = new Map<string, number>();
+    (stockData as { material_id: string; stock_actual: number }[] | null)?.forEach(s =>
+      stockMap.set(s.material_id, s.stock_actual)
+    );
+
     if (materialesData) {
-      const mapeados = (materialesData as any[]).map(m => ({
-        id: m.id, nombre: m.nombre,
-        unidad_solicitud: m.unidad_solicitud ?? m.unidad,
-        unidad_compra: m.unidad,
-        factor_conversion: m.factor_conversion ?? 1,
-        actividad_id: m.actividad_id,
-      }));
+      const mapeados = (materialesData as any[]).map(m => {
+        const stockActual = stockMap.get(m.id) ?? 0;
+        return {
+          id: m.id, nombre: m.nombre,
+          unidad_solicitud: m.unidad_solicitud ?? m.unidad,
+          unidad_compra: m.unidad,
+          factor_conversion: m.factor_conversion ?? 1,
+          actividad_id: m.actividad_id,
+          stockActual,
+          tieneStock: stockActual > 0,
+        };
+      });
       setMateriales(mapeados as Material[]);
     }
   };
@@ -386,13 +410,19 @@ const GenerarVale: React.FC = () => {
     // cómo lo haya tecleado quien pidió el material.
     const enCompra = unidadElegida === 'compra' && materialSeleccionado.factor_conversion !== 1;
     const cantidadFinal = enCompra ? cantidad * materialSeleccionado.factor_conversion : cantidad;
+    const sinStock = !materialSeleccionado.tieneStock;
     setCarrito(prev => [...prev, {
       material_id: materialSeleccionado.id,
       nombre: materialSeleccionado.nombre,
       unidad: materialSeleccionado.unidad_solicitud,
       cantidad: cantidadFinal,
       notaOriginal: enCompra ? `${cantidad} ${materialSeleccionado.unidad_compra}` : undefined,
+      sinStock,
     }]);
+    if (sinStock) {
+      setToastColor('danger');
+      setToastMsg(`"${materialSeleccionado.nombre}" no tiene stock disponible en bodega. Se agregó igual a la solicitud.`);
+    }
     setMaterialSeleccionado(null);
     setMaterialInput('');
     setCantidadInput('1');
@@ -438,11 +468,13 @@ const GenerarVale: React.FC = () => {
             cantidad: siguiente[idxExistente].cantidad + Number(fila.cantidad),
           };
         } else {
+          const materialInfo = materiales.find(m => m.id === fila.material_id);
           siguiente.push({
             material_id: fila.material_id,
             nombre: fila.bodega_materiales?.nombre ?? 'Material',
             unidad: fila.bodega_materiales?.unidad_solicitud ?? fila.bodega_materiales?.unidad ?? null,
             cantidad: Number(fila.cantidad),
+            sinStock: materialInfo ? !materialInfo.tieneStock : undefined,
           });
         }
       }
@@ -705,11 +737,30 @@ const GenerarVale: React.FC = () => {
                       <div
                         key={m.id}
                         onClick={() => { setMaterialSeleccionado(m); setMaterialInput(m.nombre); setUnidadElegida('solicitud'); }}
-                        style={{ padding: '8px 12px', fontSize: 13, color: textPrimary, cursor: 'pointer', borderBottom: `0.5px solid ${border}` }}
+                        style={{ padding: '8px 12px', fontSize: 13, color: textPrimary, cursor: 'pointer', borderBottom: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
                       >
-                        {m.nombre}{!m.unidad_solicitud && <span style={{ color: textMuted }}> (sin unidad)</span>}
+                        <span>{m.nombre}{!m.unidad_solicitud && <span style={{ color: textMuted }}> (sin unidad)</span>}</span>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap',
+                          color: m.tieneStock ? verde : rojo,
+                          background: m.tieneStock ? verdeBg : rojoBg,
+                          border: `0.5px solid ${m.tieneStock ? verdeBord : rojoBord}`,
+                        }}>
+                          {m.tieneStock ? `Stock: ${m.stockActual}${m.unidad_solicitud ? ` ${m.unidad_solicitud}` : ''}` : 'Sin stock'}
+                        </span>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {materialSeleccionado && (
+                  <div style={{
+                    marginTop: 6, fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+                    color: materialSeleccionado.tieneStock ? verde : rojo,
+                  }}>
+                    {materialSeleccionado.tieneStock
+                      ? `✔ Stock disponible en bodega: ${materialSeleccionado.stockActual}${materialSeleccionado.unidad_solicitud ? ` ${materialSeleccionado.unidad_solicitud}` : ''}`
+                      : '⚠ Sin stock en bodega para este material'}
                   </div>
                 )}
               </div>
@@ -773,7 +824,17 @@ const GenerarVale: React.FC = () => {
               {carrito.map((item, idx) => (
                 <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: idx < carrito.length - 1 ? `0.5px solid ${border}` : 'none' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, color: textPrimary }}>{item.nombre}</div>
+                    <div style={{ fontSize: 14, color: textPrimary, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {item.nombre}
+                      {item.sinStock && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap',
+                          color: rojo, background: rojoBg, border: `0.5px solid ${rojoBord}`,
+                        }}>
+                          SIN STOCK
+                        </span>
+                      )}
+                    </div>
                     {item.notaOriginal && (
                       <div style={{ fontSize: 11, color: textMuted }}>ingresado como {item.notaOriginal}</div>
                     )}

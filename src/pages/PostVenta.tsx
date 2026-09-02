@@ -2237,7 +2237,11 @@ const PostVenta: React.FC = () => {
                         <label style={labelStyle}>estado</label>
                         {soloLectura ? (
                           <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: textPrimary }}>
-                            {r.estado === 'SOLUCIONADO' ? 'Solucionado' : 'Pendiente'}
+                            {r.estado === 'SOLUCIONADO' ? 'Solucionado'
+                              : r.estado === 'EN_PROCESO' ? 'En Proceso'
+                              : r.estado === 'NO_APLICA' ? 'No Aplica'
+                              : r.estado === 'CLIENTE_NO_ATIENDE' ? 'Cliente no atiende visita'
+                              : 'Pendiente'}
                           </div>
                         ) : (
                           <select value={r.estado} onChange={e => setCampo(idx, 'estado', e.target.value)} style={inputStyle}>
@@ -2492,4 +2496,4 @@ const PostVenta: React.FC = () => {
   );
 };
 
-export default PostVenta;
+export default PostVenta; 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { IonMenu, IonContent } from '@ionic/react';
-import { useHistory } from 'react-router-dom';
+import { useHistory, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { useOffline } from '../Context/OfflineContext';
@@ -62,6 +62,14 @@ interface MenuCategory {
 
 const MenuLateral: React.FC<Props> = ({ usuario }) => {
   const history = useHistory();
+  // Importante: useHistory() NO hace que el componente se vuelva a renderizar
+  // al navegar (solo sirve para history.push). Como el menú lateral es
+  // persistente y no se desmonta entre páginas, si se usara
+  // history.location.pathname para saber qué ítem resaltar, quedaría
+  // "pegado" en la ruta de la última vez que el menú se renderizó por otra
+  // razón (abrirlo, cambiar el tema, etc.) — nunca la página real actual.
+  // useLocation() sí suscribe al cambio de ruta y fuerza el re-render.
+  const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { online, pendientes } = useOffline();
 
@@ -219,7 +227,7 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
   // ========================================================================
 
   const renderItem = (item: MenuItem) => {
-    const activo = history.location.pathname === item.ruta;
+    const activo = location.pathname === item.ruta;
     const Icon = item.icon;
     const iconColor = activo ? accentText : textSecondaryColor;
     const labelColor = activo ? accentText : textSecondaryColor;
@@ -254,7 +262,7 @@ const MenuLateral: React.FC<Props> = ({ usuario }) => {
 
   /** Item con padding extra (dentro de categoría colapsable) */
   const renderSubItem = (item: MenuItem) => {
-    const activo = history.location.pathname === item.ruta;
+    const activo = location.pathname === item.ruta;
     const Icon = item.icon;
     const iconColor = activo ? accentText : textMutedColor;
     const labelColor = activo ? accentText : textSecondaryColor;

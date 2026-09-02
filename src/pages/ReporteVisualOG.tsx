@@ -205,7 +205,26 @@ const ReporteVisualOG: React.FC = () => {
   useEffect(() => { cargarProyectos(); /* eslint-disable-next-line */ }, []);
 
   const cargarProyectos = async () => {
-    const { data } = await supabase.from('proyectos').select('id, nombre').order('nombre');
+    // Solo proyectos ASIGNADOS al usuario (usuario_proyectos) — antes se
+    // traían TODOS los proyectos de la empresa sin ningún filtro, así que
+    // cualquiera podía ver el reporte visual de una obra a la que no
+    // pertenecía.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { setProyectos([]); return; }
+
+    const { data: up } = await supabase
+      .from('usuario_proyectos')
+      .select('proyecto_id')
+      .eq('usuario_id', session.user.id);
+    const idsAsignados = (up ?? []).map((r: any) => r.proyecto_id);
+
+    if (idsAsignados.length === 0) { setProyectos([]); return; }
+
+    const { data } = await supabase
+      .from('proyectos')
+      .select('id, nombre')
+      .in('id', idsAsignados)
+      .order('nombre');
     setProyectos((data ?? []) as Proyecto[]);
   };
 

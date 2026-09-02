@@ -39,6 +39,9 @@ interface Vale {
   torres: { nombre: string; frente: string } | null;
   vales_bodega_deptos: DeptoVale[];
   vales_bodega_items: ItemVale[];
+  anulado: boolean;
+  anulado_en: string | null;
+  motivo_anulacion: string | null;
 }
 
 // ============================================================
@@ -68,6 +71,9 @@ const AprobacionBodega: React.FC = () => {
   const rojo      = dark ? '#f87171' : '#b91c1c';
   const rojoBg    = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
   const rojoBord  = dark ? 'rgba(239,68,68,0.15)' : '#fecaca';
+  const gris      = dark ? '#94a3b8' : '#64748b';
+  const grisBg    = dark ? 'rgba(148,163,184,0.08)' : '#f1f5f9';
+  const grisBord  = dark ? 'rgba(148,163,184,0.2)'  : '#e2e8f0';
 
   const sCard: React.CSSProperties = {
     background: cardGrad, borderRadius: 16, border: `0.5px solid ${border}`,
@@ -101,6 +107,9 @@ const AprobacionBodega: React.FC = () => {
   // bodega_aprobar quedó mal asignado a un rol de terreno, el permiso solo no
   // basta — los íconos de aprobar/rechazar no deben aparecerle a terreno.
   const puedeAprobar = tienePermiso('bodega_aprobar') && ROLES_APROBADORES.includes(rolUsuario);
+  // Solo administrador/staff pueden anular o eliminar vales — es una acción
+  // destructiva/correctiva, distinta de aprobar o rechazar materiales.
+  const esAdmin = ['administrador', 'staff'].includes(rolUsuario);
 
   // ── estado ─────────────────────────────────────────────────────────────
   const [proyecto, setProyecto] = useState<Proyecto | null>(location.state?.proyecto ?? null);
@@ -113,6 +122,10 @@ const AprobacionBodega: React.FC = () => {
   const [cantidadEntregada, setCantidadEntregada] = useState<Record<string, string>>({});
   const [observaciones, setObservaciones] = useState<Record<string, string>>({});
   const [procesando, setProcesando] = useState<Record<string, boolean>>({});
+  const [anularAbierto, setAnularAbierto] = useState<Record<string, boolean>>({});
+  const [motivoAnulacion, setMotivoAnulacion] = useState<Record<string, string>>({});
+  const [eliminarAbierto, setEliminarAbierto] = useState<Record<string, boolean>>({});
+  const [procesandoVale, setProcesandoVale] = useState<Record<string, boolean>>({});
   const [toastMsg, setToastMsg] = useState('');
   const [toastColor, setToastColor] = useState<'success' | 'danger'>('success');
 
@@ -122,7 +135,8 @@ const AprobacionBodega: React.FC = () => {
       .from('vales_bodega')
       .select(`
         id, codigo, retira_nombre, fecha_emision, emitido_por,
-        usuarios ( nombre ),
+        anulado, anulado_en, motivo_anulacion,
+        usuarios!vales_bodega_emitido_por_fkey ( nombre ),
         torres ( nombre, frente ),
         vales_bodega_deptos ( departamentos ( id_obra, frente_depto ) ),
         vales_bodega_items ( id, material_id, cantidad_solicitada, cantidad_entregada, estado, motivo_rechazo, observacion, bodega_materiales ( nombre, unidad, unidad_solicitud ) )
@@ -338,6 +352,64 @@ const AprobacionBodega: React.FC = () => {
     }
   };
 
+  // ── acciones de administrador: anular o eliminar el vale completo ──────
+  const abrirAnular = (valeId: string) => {
+    setEliminarAbierto(prev => ({ ...prev, [valeId]: false }));
+    setAnularAbierto(prev => ({ ...prev, [valeId]: true }));
+  };
+
+  const confirmarAnular = async (valeId: string) => {
+    const motivo = (motivoAnulacion[valeId] ?? '').trim();
+    if (!motivo) {
+      setToastColor('danger');
+      setToastMsg('Indica el motivo de la anulación');
+      return;
+    }
+    setProcesandoVale(prev => ({ ...prev, [valeId]: true }));
+    const { error } = await supabase.rpc('bodega_anular_vale', {
+      p_vale_id: valeId, p_motivo: motivo,
+    });
+    setProcesandoVale(prev => ({ ...prev, [valeId]: false }));
+    if (error) {
+      setToastColor('danger');
+      setToastMsg('No se pudo anular: ' + error.message);
+    } else {
+      setAnularAbierto(prev => ({ ...prev, [valeId]: false }));
+      setToastColor('success');
+      setToastMsg('Vale anulado');
+      if (proyecto) cargarVales(proyecto.id);
+    }
+  };
+
+  const abrirEliminar = (valeId: string) => {
+    setAnularAbierto(prev => ({ ...prev, [valeId]: false }));
+    setEliminarAbierto(prev => ({ ...prev, [valeId]: true }));
+  };
+
+  const confirmarEliminar = async (valeId: string, forzar: boolean) => {
+    setProcesandoVale(prev => ({ ...prev, [valeId]: true }));
+    const { error } = await supabase.rpc('bodega_eliminar_vale', {
+      p_vale_id: valeId, p_forzar: forzar,
+    });
+    setProcesandoVale(prev => ({ ...prev, [valeId]: false }));
+    if (error) {
+      setToastColor('danger');
+      setToastMsg('No se pudo eliminar: ' + error.message);
+    } else {
+      setEliminarAbierto(prev => ({ ...prev, [valeId]: false }));
+      setVales(prev => prev.filter(v => v.id !== valeId));
+      setToastColor('success');
+      setToastMsg('Vale eliminado');
+    }
+  };
+
+  // Un vale "tiene entregas" si algún material suyo ya fue aprobado o
+  // aprobado con observación — es decir, ya salió físicamente de bodega.
+  // Eliminar ese vale "olvida" esa salida y el stock calculado queda
+  // inflado, así que se avisa explícitamente antes de dejar continuar.
+  const tieneEntregas = (v: Vale) =>
+    v.vales_bodega_items.some(i => i.estado === 'aprobado' || i.estado === 'aprobado_con_obs');
+
   // ============================================================
   return (
     <IonPage>
@@ -402,7 +474,9 @@ const AprobacionBodega: React.FC = () => {
               </div>
               {grupo.vales.map(v => {
             const resumen = resumenVale(v);
-            const colores = estadoColores(resumen.estado);
+            const colores = v.anulado
+              ? { bg: grisBg, color: gris, border: grisBord, label: 'Anulado' }
+              : estadoColores(resumen.estado);
             const abierto = expandidoId === v.id;
             return (
               <div key={v.id} style={sCard}>
@@ -428,6 +502,90 @@ const AprobacionBodega: React.FC = () => {
                       ({resumen.aprobados} aprobados, {resumen.conObs} con obs., {resumen.rechazados} rechazados)
                     </div>
 
+                    {v.anulado && (
+                      <div style={{ fontSize: 12, color: gris, background: grisBg, border: `0.5px solid ${grisBord}`, borderRadius: 10, padding: '8px 10px', marginBottom: 10 }}>
+                        Anulado{v.anulado_en ? ` el ${new Date(v.anulado_en).toLocaleDateString('es-CL')}` : ''}
+                        {v.motivo_anulacion ? ` — Motivo: ${v.motivo_anulacion}` : ''}
+                      </div>
+                    )}
+
+                    {esAdmin && (
+                      <div style={{ display: 'flex', gap: 14, marginBottom: 10 }}>
+                        {!v.anulado && (
+                          <span
+                            onClick={e => { e.stopPropagation(); abrirAnular(v.id); }}
+                            style={{ fontSize: 12, fontWeight: 600, color: amarillo, cursor: 'pointer' }}
+                          >
+                            Anular vale
+                          </span>
+                        )}
+                        <span
+                          onClick={e => { e.stopPropagation(); abrirEliminar(v.id); }}
+                          style={{ fontSize: 12, fontWeight: 600, color: rojo, cursor: 'pointer' }}
+                        >
+                          Eliminar vale
+                        </span>
+                      </div>
+                    )}
+
+                    {anularAbierto[v.id] && (
+                      <div style={{ marginBottom: 12, padding: 10, borderRadius: 10, background: amarilloBg, border: `0.5px solid ${amarilloBord}` }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: textPrimary, marginBottom: 6 }}>
+                          Anular este vale
+                        </div>
+                        <textarea
+                          rows={2}
+                          style={sTextarea}
+                          placeholder="Motivo de la anulación (ej: vale duplicado, error al emitir)"
+                          value={motivoAnulacion[v.id] ?? ''}
+                          onChange={e => setMotivoAnulacion(prev => ({ ...prev, [v.id]: e.target.value }))}
+                        />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            disabled={procesandoVale[v.id]}
+                            onClick={() => confirmarAnular(v.id)}
+                            style={{ flex: 1, background: amarillo, color: '#fff', border: 'none', borderRadius: 10, padding: '8px 0', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: procesandoVale[v.id] ? 0.6 : 1 }}
+                          >
+                            {procesandoVale[v.id] ? 'Anulando...' : 'Confirmar anulación'}
+                          </button>
+                          <button
+                            onClick={() => setAnularAbierto(prev => ({ ...prev, [v.id]: false }))}
+                            style={{ flex: 1, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, borderRadius: 10, padding: '8px 0', fontSize: 13, cursor: 'pointer' }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {eliminarAbierto[v.id] && (
+                      <div style={{ marginBottom: 12, padding: 10, borderRadius: 10, background: rojoBg, border: `0.5px solid ${rojoBord}` }}>
+                        <div style={{ fontSize: 12, color: textPrimary, marginBottom: 8 }}>
+                          Esto elimina el vale y todos sus materiales de forma permanente. No se puede deshacer.
+                        </div>
+                        {tieneEntregas(v) && (
+                          <div style={{ fontSize: 12, fontWeight: 600, color: rojo, marginBottom: 8 }}>
+                            ⚠ Este vale tiene materiales ya aprobados/entregados. Eliminarlo hará que el stock calculado suba de forma artificial (no reflejará lo que realmente salió de bodega). Úsalo solo si sabes lo que haces.
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            disabled={procesandoVale[v.id]}
+                            onClick={() => confirmarEliminar(v.id, tieneEntregas(v))}
+                            style={{ flex: 1, background: rojo, color: '#fff', border: 'none', borderRadius: 10, padding: '8px 0', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: procesandoVale[v.id] ? 0.6 : 1 }}
+                          >
+                            {procesandoVale[v.id] ? 'Eliminando...' : (tieneEntregas(v) ? 'Sí, eliminar de todos modos' : 'Sí, eliminar definitivamente')}
+                          </button>
+                          <button
+                            onClick={() => setEliminarAbierto(prev => ({ ...prev, [v.id]: false }))}
+                            style={{ flex: 1, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, borderRadius: 10, padding: '8px 0', fontSize: 13, cursor: 'pointer' }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {v.vales_bodega_items.map(item => (
                       <div key={item.id} style={{ padding: '8px 0', borderBottom: `0.5px solid ${border}` }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -449,7 +607,7 @@ const AprobacionBodega: React.FC = () => {
                             })()}
                           </div>
 
-                          {item.estado === 'pendiente' ? (
+                          {item.estado === 'pendiente' && !v.anulado ? (
                             puedeAprobar ? (
                               <div style={{ display: 'flex', gap: 12 }}>
                                 <span
@@ -470,10 +628,11 @@ const AprobacionBodega: React.FC = () => {
                               <span style={{ fontSize: 12, fontWeight: 500, color: amarillo }}>Pendiente</span>
                             )
                           ) : (
-                            <span style={{ fontSize: 12, fontWeight: 500, color: item.estado === 'rechazado' ? rojo : (item.estado === 'aprobado_con_obs' ? amarillo : verde) }}>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: item.estado === 'rechazado' ? rojo : (item.estado === 'aprobado_con_obs' ? amarillo : (item.estado === 'aprobado' ? verde : gris)) }}>
                               {item.estado === 'aprobado' && 'Aprobado'}
                               {item.estado === 'aprobado_con_obs' && 'Aprobado con obs.'}
                               {item.estado === 'rechazado' && 'Rechazado'}
+                              {item.estado === 'pendiente' && 'Anulado'}
                             </span>
                           )}
                         </div>

@@ -124,14 +124,26 @@ const ReporteOG: React.FC = () => {
   const [agruparPor, setAgrupar]  = useState<DimKey>('id_obra');
 
   // ── Carga de proyectos con registros OG ────────────────────────────────────
+  // Solo proyectos ASIGNADOS al usuario (usuario_proyectos) — antes se traían
+  // TODOS los proyectos que tuvieran registros OG en la tabla, sin importar
+  // si el usuario pertenecía a ellos o no.
   useEffect(() => {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session?.user) return;
+
+      const { data: up } = await supabase
+        .from('usuario_proyectos')
+        .select('proyecto_id')
+        .eq('usuario_id', session.user.id);
+      const idsAsignados = (up ?? []).map((r: any) => r.proyecto_id);
+
+      if (idsAsignados.length === 0) { setProyectos([]); return; }
 
       const { data } = await supabase
         .from('og_reparaciones')
-        .select('proyecto_id, proyecto');
+        .select('proyecto_id, proyecto')
+        .in('proyecto_id', idsAsignados);
 
       if (data) {
         const mapa = new Map<string, string>();
