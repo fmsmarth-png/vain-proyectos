@@ -91,7 +91,7 @@ const getRevisionReal = (
 // ── Componente ────────────────────────────────────────────────────────────────
 
 const RevisionOGAmbiente: React.FC = () => {
-  const { theme } = useTheme();
+  const { theme, palette: p } = useTheme();
   const dark = theme === 'dark';
   const history = useHistory();
   const lastGrupo = useRef<string | null>(null);
@@ -108,25 +108,25 @@ const RevisionOGAmbiente: React.FC = () => {
   };
 
   // ── tokens ──────────────────────────────────────────────────────────────────
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const cardGrad      = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
-  const textPrimary   = dark ? '#f9fafb'  : '#0f172a';
-  const textMuted     = dark ? '#444444'  : '#94a3b8';
-  const toolbar       = dark ? '#000000'  : '#1e3a5f';
-  const textSecondary = dark ? '#6b7280'  : '#64748b';
-  const inputBg       = dark ? '#111111'  : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e'  : '#cbd5e1';
-  const rojo          = dark ? '#f87171'  : '#b91c1c';
+  const bg            = p.bg;
+  const cardGrad      = p.card;
+  const border        = p.line;
+  const textPrimary   = p.textPrimary;
+  const textMuted     = p.textMuted;
+  const toolbar       = dark ? p.panel : '#1e3a5f';
+  const textSecondary = p.textSecondary;
+  const inputBg       = p.card2;
+  const inputBorder   = p.lineSoft;
+  const rojo          = p.kpiRed;
   const rojoBg        = dark ? 'rgba(239,68,68,0.06)' : '#fef2f2';
   const rojoBord      = dark ? 'rgba(239,68,68,0.15)' : '#fecaca';
-  const azul          = dark ? '#60a5fa'  : '#1d4ed8';
-  const azulBg        = dark ? 'rgba(96,165,250,0.08)' : '#eff6ff';
-  const azulBord      = dark ? 'rgba(96,165,250,0.2)'  : '#bfdbfe';
-  const verde         = dark ? '#4ade80'  : '#15803d';
+  const azul          = p.kpiBlue;
+  const azulBg        = dark ? 'rgba(59,130,246,0.08)' : '#eff6ff';
+  const azulBord      = dark ? 'rgba(59,130,246,0.2)'  : '#bfdbfe';
+  const verde         = p.kpiGreen;
   const verdeBg       = dark ? 'rgba(74,222,128,0.06)' : '#f0fdf4';
   const verdeBord     = dark ? 'rgba(74,222,128,0.2)'  : '#bbf7d0';
-  const amarillo      = dark ? '#fbbf24'  : '#a16207'; // ← FMS
+  const amarillo      = p.kpiAmber; // ← FMS
   const amarilloBg    = dark ? 'rgba(251,191,36,0.06)' : '#fffbeb'; // ← FMS
   const amarilloBord  = dark ? 'rgba(251,191,36,0.2)'  : '#fde68a'; // ← FMS
 
@@ -556,7 +556,7 @@ const RevisionOGAmbiente: React.FC = () => {
         <IonHeader>
           <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
             <button slot="start" onClick={() => history.goBack()}
-              style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+              style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
               ‹
             </button>
             <IonTitle style={{ fontSize: 16 }}>Revisión OG</IonTitle>
@@ -581,7 +581,7 @@ const RevisionOGAmbiente: React.FC = () => {
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
           <button slot="start" onClick={volverADetalle}
-            style={{ background: 'transparent', border: 'none', color: dark ? '#555' : 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
+            style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)', fontSize: 22, cursor: 'pointer', paddingLeft: 12 }}>
             ‹
           </button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>
@@ -946,7 +946,7 @@ const RevisionOGAmbiente: React.FC = () => {
                     border: 'none', fontSize: 15, fontWeight: 700,
                     // FMS: color distinto en modo offline para feedback visual
                     background: !puedeGuardar
-                      ? (dark ? '#111' : '#e2e8f0')
+                      ? (p.card2)
                       : online
                         ? '#1e3a5f'
                         : '#92400e', // naranja oscuro = modo offline

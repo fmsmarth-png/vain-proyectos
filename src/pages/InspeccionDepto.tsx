@@ -78,7 +78,7 @@ const SESSION_KEY = 'inspeccion_depto_state';
 const InspeccionDepto: React.FC = () => {
   const history  = useHistory();
   const location = useLocation<any>();
-  const { theme } = useTheme();
+  const { theme, palette: p } = useTheme();
   const dark = theme === 'dark';
   const { online, pendientes, agregarPendiente } = useOffline();
   const userIdRef  = useRef<string>('');
@@ -99,14 +99,14 @@ const InspeccionDepto: React.FC = () => {
   const torre    = navState?.torre    ?? null;
   const proyecto = navState?.proyecto ?? null;
 
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
-  const textPrimary   = dark ? '#f9fafb' : '#0f172a';
-  const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
+  const bg            = p.bg;
+  const border        = p.line;
+  const textPrimary   = p.textPrimary;
+  const textSecondary = p.textSecondary;
+  const textMuted     = p.textMuted;
+  const toolbar       = p.panel;
+  const inputBg       = p.card2;
+  const inputBorder   = p.lineSoft;
 
   const [ambientes, setAmbientes]                     = useState<any[]>([]);
   const [partidas, setPartidas]                       = useState<any[]>([]);
@@ -298,11 +298,11 @@ const InspeccionDepto: React.FC = () => {
   const selectStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
   const taStyle     = { width: '100%', height: 80, borderRadius: 10, padding: '10px 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, resize: 'none' as any, marginBottom: 12 };
 
-  const sepLine    = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
-  const etapaBg    = dark ? 'rgba(96,165,250,0.06)' : '#eff6ff';
-  const etapaBord  = dark ? 'rgba(96,165,250,0.2)'  : '#bfdbfe';
-  const etapaDot   = dark ? '#60a5fa' : '#3b82f6';
-  const etapaColor = dark ? '#60a5fa' : '#1d4ed8';
+  const sepLine    = `linear-gradient(90deg, transparent, ${p.lineSoft}, transparent)`;
+  const etapaBg    = dark ? 'rgba(59,130,246,0.06)' : '#eff6ff';
+  const etapaBord  = dark ? 'rgba(59,130,246,0.2)'  : '#bfdbfe';
+  const etapaDot   = p.kpiBlue;
+  const etapaColor = p.kpiBlue;
 
   const fotoUploaderCommons = { labelStyle, border, dark, textMuted };
 
@@ -336,12 +336,12 @@ const InspeccionDepto: React.FC = () => {
         <div style={{ padding: 16 }}>
 
           {/* Header depto */}
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
+          <div style={{ background: p.card, borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? `linear-gradient(135deg, ${p.card2}, ${p.card})` : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: `0.5px solid ${p.lineSoft}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? p.textSecondary : '#fff', flexShrink: 0 }}>
               {depto?.numero}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 9, color: dark ? '#60a5fa' : '#2563eb', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>{proyecto?.nombre}</div>
+              <div style={{ fontSize: 9, color: p.accent2, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600 }}>{proyecto?.nombre}</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>
                 Torre {torre?.nombre}{torre?.frente ? ` (${torre.frente})` : ''} · Depto {depto?.numero}
               </div>
@@ -385,7 +385,7 @@ const InspeccionDepto: React.FC = () => {
           <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
           {/* Formulario */}
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
+          <div style={{ background: p.card, borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
             <label style={labelStyle}>ambiente *</label>
             <select value={ambienteId} onChange={e => setAmbienteId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar ambiente...</option>
@@ -423,7 +423,7 @@ const InspeccionDepto: React.FC = () => {
             )}
 
             {causaSeleccionada && (
-              <div style={{ background: dark ? '#111' : '#f8fafc', border: `0.5px solid ${border}`, borderRadius: 10, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: textSecondary }}>
+              <div style={{ background: p.card2, border: `0.5px solid ${border}`, borderRadius: 10, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: textSecondary }}>
                 <span style={{ color: textMuted, fontSize: 9, textTransform: 'uppercase', letterSpacing: '1px' }}>CAUSA: </span>
                 {causaFinal || <span style={{ color: textMuted, fontStyle: 'italic' }}>Selecciona la cuadrilla</span>}
               </div>
@@ -445,7 +445,7 @@ const InspeccionDepto: React.FC = () => {
 
             <button onClick={guardar} disabled={guardando} style={{
               width: '100%', height: 48, borderRadius: 12,
-              background: guardando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+              background: guardando ? p.card2 : (dark ? `linear-gradient(135deg, ${p.card2}, ${p.card})` : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
               border: guardando ? `0.5px solid ${border}` : 'none',
               color: guardando ? textMuted : '#fff',
               fontSize: 15, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer'

@@ -115,7 +115,7 @@ const guardarPdf = async (pdf: any, fileName: string, deptoNumero: any) => {
 const PreEntregaDepto: React.FC = () => {
   const history  = useHistory();
   const location = useLocation<any>();
-  const { theme } = useTheme();
+  const { theme, palette: p } = useTheme();
   const dark = theme === 'dark';
   const { online, pendientes, agregarPendientePreEntrega } = useOffline();
   const userIdRef      = useRef<string>('');
@@ -141,15 +141,15 @@ const PreEntregaDepto: React.FC = () => {
   const [proyectoCompleto, setProyectoCompleto] = useState<any>(proyectoNav);
   const proyecto = proyectoCompleto; // Usar el proyecto completo
 
-  const bg            = dark ? '#000000' : '#f0f4f8';
-  const card          = dark ? '#0e0e0e'  : '#ffffff';
-  const border        = dark ? '#1e1e1e'  : '#e2e8f0';
-  const textPrimary   = dark ? '#f9fafb' : '#0f172a';
-  const textSecondary = dark ? '#6b7280' : '#64748b';
-  const textMuted     = dark ? '#444444' : '#94a3b8';
-  const toolbar       = dark ? '#000000' : '#1e3a5f';
-  const inputBg       = dark ? '#111111' : '#ffffff';
-  const inputBorder   = dark ? '#1e1e1e' : '#cbd5e1';
+  const bg            = p.bg;
+  const card          = p.card;
+  const border        = p.line;
+  const textPrimary   = p.textPrimary;
+  const textSecondary = p.textSecondary;
+  const textMuted     = p.textMuted;
+  const toolbar       = p.panel;
+  const inputBg       = p.card2;
+  const inputBorder   = p.lineSoft;
 
   const [ambientes, setAmbientes] = useState<any[]>([]);
   const [partidas, setPartidas]   = useState<any[]>([]);
@@ -179,6 +179,10 @@ const PreEntregaDepto: React.FC = () => {
   const [generando, setGenerando]         = useState(false);
   const [errorActa, setErrorActa]         = useState('');
   const [actaGenerada, setActaGenerada]   = useState(false);
+
+  // Firma ya guardada en Storage (se carga desde departamentos.firma_propietario_url)
+  const [firmaGuardadaUrl, setFirmaGuardadaUrl] = useState<string | null>(null);
+  const [guardandoFirma, setGuardandoFirma]     = useState(false);
 
   const [guardandoDatos, setGuardandoDatos] = useState(false);
   const [datosOk, setDatosOk]               = useState(false);
@@ -372,7 +376,7 @@ const PreEntregaDepto: React.FC = () => {
 
       try {
         const { data: d } = await supabase.from('departamentos')
-          .select('propietario_nombre, acta_propietario_rut, acta_fecha_promesa, acta_banco, acta_proceso_venta')
+          .select('propietario_nombre, acta_propietario_rut, acta_fecha_promesa, acta_banco, acta_proceso_venta, firma_propietario_url')
           .eq('id', deptoActual.id).maybeSingle();
         if (d) {
           if (d.propietario_nombre)   setPropNombre(String(d.propietario_nombre).toUpperCase());
@@ -380,6 +384,7 @@ const PreEntregaDepto: React.FC = () => {
           if (d.acta_fecha_promesa)   setFechaPromesa(String(d.acta_fecha_promesa));
           if (d.acta_banco)           setBancoSel(String(d.acta_banco));
           if (d.acta_proceso_venta)   setProcesoVenta(String(d.acta_proceso_venta).toUpperCase());
+          if (d.firma_propietario_url) setFirmaGuardadaUrl(d.firma_propietario_url);
         }
       } catch {}
 
@@ -528,7 +533,7 @@ const PreEntregaDepto: React.FC = () => {
         await agregarPendientePreEntrega(datosObservacion, fotoActual ?? undefined);
       }
 
-      setObservacion(''); setAmbienteId(''); setPartidaId('');
+      setObservacion(''); setPartidaId('');
       if (fotoPreview) URL.revokeObjectURL(fotoPreview);
       setFoto(null); setFotoPreview(null);
       if (inputFotoRef.current) inputFotoRef.current.value = '';
@@ -536,6 +541,34 @@ const PreEntregaDepto: React.FC = () => {
       setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500);
     } catch (e: any) { setError('Error inesperado: ' + e.message); }
     setGuardando(false);
+  };
+
+  // ── Guardar firma del cliente de inmediato ────────────────────────────────
+  // Se sube a Storage y se guarda la URL en departamentos. Así la firma
+  // persiste aunque cierren la app, cambien de depto o vuelvan después.
+  const guardarFirma = async () => {
+    if (!firmaDataUrl || !depto?.id) return;
+    setGuardandoFirma(true); setErrorActa('');
+    try {
+      const firmaBlob = await fetch(firmaDataUrl).then(r => r.blob());
+      if (firmaBlob.size < 200) { setErrorActa('La firma parece vacía — dibuja la firma del propietario'); setGuardandoFirma(false); return; }
+      const firmaFileName = `firma_depto_${depto.id}_${Date.now()}.png`;
+      const firmaFile = new File([firmaBlob], firmaFileName, { type: 'image/png' });
+      const { error: fErr } = await supabase.storage
+        .from('fotos-registros')
+        .upload(`firmas/${firmaFileName}`, firmaFile, { upsert: true });
+      if (fErr) throw new Error('No se pudo subir la firma: ' + fErr.message);
+      const { data } = supabase.storage.from('fotos-registros').getPublicUrl(`firmas/${firmaFileName}`);
+      const firmaUrl = data.publicUrl;
+      const { error: updErr } = await supabase.from('departamentos').update({
+        firma_propietario_url: firmaUrl,
+        fecha_firma: new Date().toISOString(),
+      }).eq('id', depto.id);
+      if (updErr) throw new Error(updErr.message);
+      setFirmaGuardadaUrl(firmaUrl);
+      setFirmaDataUrl(null);
+    } catch (e: any) { setErrorActa('Error guardando firma: ' + e.message); }
+    setGuardandoFirma(false);
   };
 
   const guardarDatosPropietario = async () => {
@@ -600,7 +633,7 @@ const PreEntregaDepto: React.FC = () => {
     if (!propRut.trim())    { setErrorActa('El RUT del propietario es obligatorio'); return; }
     if (!fechaPromesa)      { setErrorActa('La fecha de la promesa es obligatoria'); return; }
     if (!inspectorRut.trim()) { setErrorActa('El RUT del inspector es obligatorio'); return; }
-    if (!firmaDataUrl)      { setErrorActa('La firma del propietario es obligatoria'); return; }
+    if (!firmaGuardadaUrl && !firmaDataUrl) { setErrorActa('La firma del propietario es obligatoria — guárdala primero'); return; }
 
     setGenerando(true); setErrorActa('');
     try {
@@ -634,6 +667,12 @@ const PreEntregaDepto: React.FC = () => {
       let logoBase64: string | undefined;
       if (proyecto.acta_logo_url) logoBase64 = await urlToBase64(proyecto.acta_logo_url);
 
+      // Obtener firma como base64 para el PDF: preferir la ya guardada en Storage.
+      let firmaBase64ForPdf: string | null = firmaDataUrl;
+      if (!firmaBase64ForPdf && firmaGuardadaUrl) {
+        firmaBase64ForPdf = await urlToBase64(firmaGuardadaUrl) ?? null;
+      }
+
       const pdf = generarActaPreEntrega({
         nombreInmobiliaria: proyecto.acta_nombre_inmobiliaria ?? proyecto.nombre ?? '',
         direccion:          proyecto.acta_direccion ?? proyecto.direccion ?? '',
@@ -652,32 +691,32 @@ const PreEntregaDepto: React.FC = () => {
         inspectorNombre,
         inspectorRut:       inspectorRut.trim(),
         observaciones,
-        firmaPropietarioBase64: firmaDataUrl,
+        firmaPropietarioBase64: firmaBase64ForPdf ?? undefined,
         fechaGeneracion:    new Date(),
       });
 
       const fileName = `Acta_PreEntrega_Depto_${depto.numero}_${Date.now()}.pdf`;
       await guardarPdf(pdf, fileName, depto.numero);
 
-      let firmaUrl: string | null = null;
-      try {
-        const firmaBlob = await fetch(firmaDataUrl).then(r => r.blob());
-        if (firmaBlob.size > 0) {
-          const firmaFileName = `firma_depto_${depto.id}_${Date.now()}.png`;
-          const firmaFile = new File([firmaBlob], firmaFileName, { type: 'image/png' });
-          
-          const { error: fErr } = await supabase.storage
-            .from('fotos-registros')
-            .upload(`firmas/${firmaFileName}`, firmaFile, { upsert: true });
-          
-          if (!fErr) {
-            const { data } = supabase.storage
+      // Si la firma aún no está guardada en Storage (el inspector dibujó
+      // en el canvas sin pulsar "Guardar firma"), subirla ahora.
+      let firmaUrl: string | null = firmaGuardadaUrl;
+      if (!firmaUrl && firmaDataUrl) {
+        try {
+          const firmaBlob = await fetch(firmaDataUrl).then(r => r.blob());
+          if (firmaBlob.size > 0) {
+            const firmaFileName = `firma_depto_${depto.id}_${Date.now()}.png`;
+            const firmaFile = new File([firmaBlob], firmaFileName, { type: 'image/png' });
+            const { error: fErr } = await supabase.storage
               .from('fotos-registros')
-              .getPublicUrl(`firmas/${firmaFileName}`);
-            firmaUrl = data.publicUrl;
+              .upload(`firmas/${firmaFileName}`, firmaFile, { upsert: true });
+            if (!fErr) {
+              const { data } = supabase.storage.from('fotos-registros').getPublicUrl(`firmas/${firmaFileName}`);
+              firmaUrl = data.publicUrl;
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
 
       // El RUT va solo a acta_propietario_rut. Antes también se escribía en
       // propietario_contacto, que es donde vive el teléfono, y lo destruía.
@@ -713,13 +752,13 @@ const PreEntregaDepto: React.FC = () => {
   const selectStyle = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
   const taStyle     = { width: '100%', height: 80, borderRadius: 10, padding: '10px 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, resize: 'none' as any, marginBottom: 12 };
   const inputStyle  = { width: '100%', height: 44, borderRadius: 10, padding: '0 12px', background: inputBg, border: `0.5px solid ${inputBorder}`, color: textPrimary, fontSize: 14, boxSizing: 'border-box' as any, marginBottom: 12 };
-  const sepLine     = dark ? 'linear-gradient(90deg, transparent, #1e1e1e, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
+  const sepLine     = `linear-gradient(90deg, transparent, ${p.lineSoft}, transparent)`;
 
   if (loading && ambientes.length === 0) return (
     <IonPage id="main-content">
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
+        <IonToolbar style={{ '--background': dark ? p.panel : '#1e3a5f', '--color': '#f9fafb', '--border-color': 'transparent' } as any}>
+          <IonButton slot="start" fill="clear" style={{ '--color': 'rgba(255,255,255,0.7)' } as any} onClick={salir}>← Volver</IonButton>
           <IonTitle style={{ fontSize: 15 }}>Cargando...</IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -732,9 +771,9 @@ const PreEntregaDepto: React.FC = () => {
   return (
     <IonPage id="main-content">
       <IonHeader>
-        <IonToolbar style={{ '--background': toolbar, '--color': '#f9fafb', '--border-color': 'transparent' }}>
-          <IonButton slot="start" fill="clear" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' }} onClick={salir}>← Volver</IonButton>
-          <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>ACTA · TORRE {torre?.nombre} · {depto?.numero}</IonTitle>
+        <IonToolbar style={{ '--background': dark ? p.panel : '#1e3a5f', '--color': '#f9fafb', '--border-color': 'transparent' } as any}>
+          <IonButton slot="start" fill="clear" style={{ '--color': 'rgba(255,255,255,0.7)' } as any} onClick={salir}>← Volver</IonButton>
+          <IonTitle style={{ fontSize: 14, fontWeight: 600 }}>PRE-ENTREGA · TORRE {torre?.nombre} · {depto?.numero}</IonTitle>
           <div slot="end" style={{ paddingRight: 14 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
           </div>
@@ -744,8 +783,8 @@ const PreEntregaDepto: React.FC = () => {
       <IonContent style={{ '--background': bg }}>
         <div style={{ padding: 16 }}>
 
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #161616 100%)' : '#fff', borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: dark ? '0.5px solid #2a2a2a' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? '#888' : '#fff', flexShrink: 0 }}>
+          <div style={{ background: p.card, borderRadius: 16, padding: 16, marginBottom: 12, border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: dark ? `linear-gradient(135deg, ${p.card2}, ${p.card})` : 'linear-gradient(135deg, #1e3a5f, #2563eb)', border: `0.5px solid ${p.lineSoft}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: dark ? p.textSecondary : '#fff', flexShrink: 0 }}>
               {depto?.numero}
             </div>
             <div style={{ flex: 1 }}>
@@ -782,7 +821,7 @@ const PreEntregaDepto: React.FC = () => {
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Nueva observación</div>
           <div style={{ height: '0.5px', background: sepLine, marginBottom: 16 }} />
 
-          <div style={{ background: dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#fff', borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
+          <div style={{ background: p.card, borderRadius: 16, padding: 16, border: `0.5px solid ${border}`, marginBottom: 12 }}>
             <label style={labelStyle}>ambiente *</label>
             <select value={ambienteId} onChange={e => setAmbienteId(e.target.value)} style={selectStyle}>
               <option value="">Seleccionar ambiente...</option>
@@ -814,7 +853,7 @@ const PreEntregaDepto: React.FC = () => {
 
             <button onClick={guardar} disabled={guardando} style={{
               width: '100%', height: 48, borderRadius: 12,
-              background: guardando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : (dark ? 'linear-gradient(135deg, #1e1e1e, #2a2a2a)' : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
+              background: guardando ? p.card2 : (dark ? `linear-gradient(135deg, ${p.card2}, ${p.card})` : 'linear-gradient(135deg, #1e3a5f, #2563eb)'),
               border: guardando ? `0.5px solid ${border}` : 'none',
               color: guardando ? textMuted : '#fff',
               fontSize: 15, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer'
@@ -866,8 +905,8 @@ const PreEntregaDepto: React.FC = () => {
 
                 <button onClick={guardarDatosPropietario} disabled={guardandoDatos} style={{
                   width: '100%', height: 46, borderRadius: 12, background: 'transparent',
-                  border: `0.5px solid ${dark ? '#2a2a2a' : '#cbd5e1'}`,
-                  color: guardandoDatos ? textMuted : (dark ? '#93c5fd' : '#1e3a5f'),
+                  border: `0.5px solid ${p.line}`,
+                  color: guardandoDatos ? textMuted : p.accent2,
                   fontSize: 14, fontWeight: 600, cursor: guardandoDatos ? 'not-allowed' : 'pointer', marginBottom: 8
                 }}>
                   {guardandoDatos ? 'Guardando...' : '💾 Guardar datos del propietario'}
@@ -889,19 +928,46 @@ const PreEntregaDepto: React.FC = () => {
                 <div style={{ fontSize: 11, color: textMuted, marginTop: -6, marginBottom: 14 }}>Inspector: {inspectorNombre || '—'}</div>
 
                 <label style={{ ...labelStyle, marginBottom: 8 }}>firma del propietario *</label>
-                <div style={{ border: `0.5px solid ${border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 8, background: '#ffffff' }}>
-                  <canvas
-                    ref={firmaCanvasRef}
-                    style={{ display: 'block', width: '100%', height: 160, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
-                    onMouseDown={iniciarDibujo} onMouseMove={dibujar} onMouseUp={terminarDibujo} onMouseLeave={terminarDibujo}
-                    onTouchStart={e => { e.preventDefault(); iniciarDibujo(e); }}
-                    onTouchMove={e => { e.preventDefault(); dibujar(e); }}
-                    onTouchEnd={e => { e.preventDefault(); terminarDibujo(); }}
-                  />
-                </div>
-                <button onClick={limpiarFirma} style={{ background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, borderRadius: 8, padding: '4px 12px', cursor: 'pointer', marginBottom: 20 }}>
-                  🗑️ Limpiar firma
-                </button>
+
+                {firmaGuardadaUrl ? (
+                  <>
+                    <div style={{ border: `0.5px solid ${dark ? 'rgba(74,222,128,0.3)' : '#bbf7d0'}`, borderRadius: 12, overflow: 'hidden', marginBottom: 8, background: '#ffffff', position: 'relative' }}>
+                      <img src={firmaGuardadaUrl} style={{ display: 'block', width: '100%', height: 160, objectFit: 'contain' }} />
+                      <div style={{ position: 'absolute', top: 6, right: 6, background: dark ? 'rgba(74,222,128,0.15)' : '#f0fdf4', borderRadius: 8, padding: '2px 8px', fontSize: 10, color: dark ? '#4ade80' : '#15803d', fontWeight: 600, border: dark ? '0.5px solid rgba(74,222,128,0.3)' : '0.5px solid #bbf7d0' }}>
+                        ✓ Guardada
+                      </div>
+                    </div>
+                    <button onClick={() => { setFirmaGuardadaUrl(null); setFirmaDataUrl(null); }} style={{ background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, borderRadius: 8, padding: '4px 12px', cursor: 'pointer', marginBottom: 20 }}>
+                      ✏️ Volver a firmar
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ border: `0.5px solid ${border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 8, background: '#ffffff' }}>
+                      <canvas
+                        ref={firmaCanvasRef}
+                        style={{ display: 'block', width: '100%', height: 160, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
+                        onMouseDown={iniciarDibujo} onMouseMove={dibujar} onMouseUp={terminarDibujo} onMouseLeave={terminarDibujo}
+                        onTouchStart={e => { e.preventDefault(); iniciarDibujo(e); }}
+                        onTouchMove={e => { e.preventDefault(); dibujar(e); }}
+                        onTouchEnd={e => { e.preventDefault(); terminarDibujo(); }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                      <button onClick={limpiarFirma} style={{ background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, borderRadius: 8, padding: '4px 12px', cursor: 'pointer' }}>
+                        🗑️ Limpiar
+                      </button>
+                      <button onClick={guardarFirma} disabled={guardandoFirma || !firmaDataUrl} style={{
+                        flex: 1, background: firmaDataUrl ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : 'transparent',
+                        border: firmaDataUrl ? 'none' : `0.5px solid ${border}`,
+                        color: firmaDataUrl ? '#fff' : textMuted,
+                        fontSize: 12, fontWeight: 600, borderRadius: 8, padding: '4px 12px', cursor: firmaDataUrl ? 'pointer' : 'not-allowed'
+                      }}>
+                        {guardandoFirma ? 'Guardando...' : '✓ Guardar firma'}
+                      </button>
+                    </div>
+                  </>
+                )}
 
                 {errorActa && (
                   <div style={{ color: dark ? '#f87171' : '#b91c1c', fontSize: 12, marginBottom: 12, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', padding: '8px 12px', borderRadius: 10, border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca' }}>{errorActa}</div>
@@ -909,7 +975,7 @@ const PreEntregaDepto: React.FC = () => {
 
                 <button onClick={generarActa} disabled={generando} style={{
                   width: '100%', height: 48, borderRadius: 12,
-                  background: generando ? (dark ? 'linear-gradient(135deg, #1a1a1a, #222)' : '#f1f5f9') : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+                  background: generando ? p.card2 : 'linear-gradient(135deg, #1e3a5f, #2563eb)',
                   border: 'none', color: generando ? textMuted : '#fff',
                   fontSize: 14, fontWeight: 700, cursor: generando ? 'not-allowed' : 'pointer'
                 }}>

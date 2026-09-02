@@ -324,7 +324,10 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.error('[OfflineContext] Error comprimiendo foto:', e);
       }
     }
-    const obsId = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Respetar el id que ya trae datos (si existe). Solo generar uno nuevo si
+    // no viene — evita duplicar la observación si el insert original llegó
+    // tarde pero sí se completó en Supabase.
+    const obsId = datos.id || ((crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
     const registro: RegistroPendiente = {
       id: `obs_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -365,7 +368,11 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.error('[OfflineContext] Error comprimiendo foto Pre Entrega:', e);
       }
     }
-    const obsId = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Respetar el id que ya trae datos (generado en guardar()). Solo generar
+    // uno nuevo si datos no tiene id — así el upsert por onConflict:'id' es
+    // verdaderamente idempotente y no duplica la observación cuando el insert
+    // original llegó tarde (timeout) pero sí se insertó en Supabase.
+    const obsId = datos.id || ((crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
     const registro: RegistroPendiente = {
       id: `pv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -422,7 +429,8 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const { data: urlData } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
             foto_url = urlData.publicUrl;
           } else {
-            console.warn('[OfflineContext] Error subiendo foto:', uploadError.message);
+            // FIX: No sincronizar el registro sin su foto — reintentar.
+            throw new Error('Foto no subió: ' + uploadError.message);
           }
         }
 
@@ -474,14 +482,18 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (reg.foto_blob) {
           const fileName = `${userId}/pre-entrega/${Date.now()}_${Math.random().toString(36).substr(2, 5)}.jpg`;
           const { error: uploadError } = await supabase.storage
-            .from('observaciones')
+            .from('fotos-registros')
             .upload(fileName, reg.foto_blob, { contentType: 'image/jpeg' });
 
           if (!uploadError) {
-            const { data: urlData } = supabase.storage.from('observaciones').getPublicUrl(fileName);
+            const { data: urlData } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
             foto_url = urlData.publicUrl;
           } else {
-            console.warn('[OfflineContext] Error subiendo foto Pre Entrega:', uploadError.message);
+            // FIX: Si la foto no subió, NO sincronizar la obs sin ella.
+            // Antes la obs se guardaba con foto_url=null y se borraba de la
+            // cola, perdiendo la foto para siempre sin aviso. Ahora se trata
+            // como un fallo del registro completo → reintento.
+            throw new Error('Foto no subió: ' + uploadError.message);
           }
         }
 
@@ -584,7 +596,8 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const { data: urlData } = supabase.storage.from('fotos-registros').getPublicUrl(fileName);
             foto_url = urlData.publicUrl;
           } else {
-            console.warn('[OfflineContext] Error subiendo foto ZC:', uploadError.message);
+            // FIX: No sincronizar el registro sin su foto — reintentar.
+            throw new Error('Foto ZC no subió: ' + uploadError.message);
           }
         }
 

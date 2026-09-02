@@ -587,10 +587,34 @@ const Revision: React.FC = () => {
   const confirmarEliminar = async () => {
     if (!regEliminar) return;
     if (esEliminarZC) { await confirmarEliminarZC(); return; }
-    const registrosActualizados = registros.filter(r => r.id !== regEliminar.id);
-    setRegistros(registrosActualizados); cache.setRegistros(deptoId, registrosActualizados); setAlertEliminar(false);
-    if (online) { const { error } = await supabase.from('registros').delete().eq('id', regEliminar.id); if (error) { setRegistros(registros); cache.setRegistros(deptoId, registros); } }
-    else { agregarCambioPendiente('eliminacion', regEliminar.id, {}); }
+
+    // Detectar si la obs viene de observacionesinformepv (pre-entrega/PV)
+    const esDelInforme = regEliminar.usuario_email !== undefined && regEliminar.partida_afectada !== undefined;
+
+    if (esDelInforme) {
+      // Pre-entrega / PV → borrar de observacionesinformepv
+      const obsActualizadas = observacionesInforme.filter(o => o.id !== regEliminar.id);
+      setObservacionesInforme(obsActualizadas);
+      setAlertEliminar(false);
+      if (online) {
+        const { error } = await supabase.from('observacionesinformepv').delete().eq('id', regEliminar.id);
+        if (error) {
+          console.error('[Revision] Error eliminando obs pre-entrega:', error.message);
+          setObservacionesInforme(observacionesInforme); // Revertir
+        }
+      }
+    } else {
+      // Obra → borrar de registros
+      const registrosActualizados = registros.filter(r => r.id !== regEliminar.id);
+      setRegistros(registrosActualizados); cache.setRegistros(deptoId, registrosActualizados);
+      setAlertEliminar(false);
+      if (online) {
+        const { error } = await supabase.from('registros').delete().eq('id', regEliminar.id);
+        if (error) { setRegistros(registros); cache.setRegistros(deptoId, registros); }
+      } else {
+        agregarCambioPendiente('eliminacion', regEliminar.id, {});
+      }
+    }
     setRegEliminar(null);
   };
 
@@ -805,7 +829,11 @@ const Revision: React.FC = () => {
     // motivo figurara como "creador" de la fila (no debería pasar, ya que no
     // tiene acceso a crear observaciones de pre entrega ni de post venta
     // desde acá).
-    const puedeEditarEliminar: boolean = !esMaestro && esCreador && (r.estado === 'PENDIENTE' || r.estado === 'pendiente');
+    // Obs de obra (tabla registros): creador puede editar/eliminar si pendiente.
+    // Obs de pre-entrega (observacionesinformepv): solo admin puede eliminar.
+    const esAdmin: boolean = usuario?.rol === 'administrador';
+    const puedeEditarEliminar: boolean = !esMaestro && !esDelInforme && esCreador && (r.estado === 'PENDIENTE' || r.estado === 'pendiente');
+    const puedeEliminarPreEntrega: boolean = esAdmin && esDelInforme && (r.tipo === 'PRE-E' || r.etapa === 'pre_entrega');
     // Observación de Pre Entrega proveniente de observacionesinformepv — el
     // único tipo de fila donde maestro_postventa puede tocar el estado.
     const esObsPreEntrega: boolean = esDelInforme && (r.tipo === 'PRE-E' || r.etapa === 'pre_entrega');
@@ -857,6 +885,9 @@ const Revision: React.FC = () => {
               <button onClick={() => abrirEditar(r)} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>✏️ Editar</button>
               <button onClick={() => { setRegEliminar(r); setEsEliminarZC(false); setAlertEliminar(true); }} style={{ height: 34, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 12, cursor: 'pointer' }}>🗑️</button>
             </>
+          )}
+          {puedeEliminarPreEntrega && (
+            <button onClick={() => { setRegEliminar(r); setEsEliminarZC(false); setAlertEliminar(true); }} style={{ height: 34, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 12, cursor: 'pointer' }}>🗑️ Eliminar</button>
           )}
           {puedeSolucionar && ((r.estado === 'PENDIENTE' || r.estado === 'pendiente') || r.estado === 'rechazado') && (
             <button onClick={() => cambiarEstado(r, 'solucionado')} disabled={guardando} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.2)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>🔧 Solucionado</button>

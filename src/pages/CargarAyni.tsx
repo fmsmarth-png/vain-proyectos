@@ -9,22 +9,22 @@ import { parsearAyni, type ResultadoParseo } from '../utils/parsearAyni';
 interface Proyecto { id: string; nombre: string; codigo: string; }
 
 const CargarAyni: React.FC = () => {
-  const { theme } = useTheme();
+  const { theme, palette: p } = useTheme();
   const dark = theme === 'dark';
   const mounted = useRef(false);
   const location = useLocation<{ proyecto?: Proyecto }>();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const bg           = dark ? '#000000' : '#f0f4f8';
-  const cardGrad     = dark ? 'linear-gradient(135deg, #0e0e0e 0%, #141414 100%)' : '#ffffff';
-  const border       = dark ? '#1e1e1e'  : '#e2e8f0';
-  const textPrimary  = dark ? '#f9fafb'  : '#0f172a';
-  const textSecondary= dark ? '#6b7280'  : '#64748b';
-  const textMuted    = dark ? '#444444'  : '#94a3b8';
-  const toolbar      = dark ? '#000000'  : '#1e3a5f';
-  const azul         = dark ? '#60a5fa'  : '#1d4ed8';
-  const verde        = dark ? '#4ade80'  : '#15803d';
-  const amarillo     = dark ? '#fbbf24'  : '#a16207';
+  const bg           = p.bg;
+  const cardGrad     = p.card;
+  const border       = p.line;
+  const textPrimary  = p.textPrimary;
+  const textSecondary= p.textSecondary;
+  const textMuted    = p.textMuted;
+  const toolbar      = dark ? p.panel : '#1e3a5f';
+  const azul         = p.kpiBlue;
+  const verde        = p.kpiGreen;
+  const amarillo     = p.kpiAmber;
 
   const sCard: React.CSSProperties = {
     background: cardGrad, borderRadius: 16, border: `0.5px solid ${border}`,
@@ -107,7 +107,7 @@ const CargarAyni: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar style={{ '--background': toolbar, '--color': '#ffffff', '--border-color': 'transparent' } as any}>
-          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': dark ? '#555' : 'rgba(255,255,255,0.7)' } as any} />
+          <IonMenuButton slot="start" menu="menu-lateral" style={{ '--color': 'rgba(255,255,255,0.7)' } as any} />
           <IonTitle style={{ fontSize: 16, fontWeight: 600 }}>Cargar planilla AYNI</IonTitle>
         </IonToolbar>
       </IonHeader>
