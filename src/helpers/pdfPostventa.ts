@@ -12,7 +12,7 @@
 import jsPDF from 'jspdf';
 
 // ─── logo VAIN (PNG base64, recortado, fondo blanco) ───────────────────────────
-const LOGO_VAIN =
+export const LOGO_VAIN =
   'data:image/png;base64,' +
   'iVBORw0KGgoAAAANSUhEUgAAAlgAAAFBCAIAAAAkNUZFAABhOElEQVR42u2ddXhUR9vGR866JQR3dwoFimtxdyuUUkpbSoFSoNAC' +
   'xR0KLVJvaaG4u4TgWtzdLUhIsi5nZr4/DuTjrXHC7oYkPL8rFy/lTU722NxzzzyChRAIAAAAAF5VCFwCAAAAAIQQAAAAAEAI0z6c' +

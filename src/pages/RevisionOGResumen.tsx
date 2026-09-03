@@ -15,6 +15,7 @@ import {
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
+import { CheckCircle2, Circle } from 'lucide-react';
 
 // ─── Dimensiones base del calibrador de plano (vertical original) ────────────
 const PLANO_W = 674;
@@ -33,6 +34,8 @@ interface OgRegistro {
   creado_en: string;
   usuarios: { nombre: string }[] | null;
   accion: string | null; // reparación (desde og_reparaciones), cruzada por id
+  codigo: string | null; // código corto de la reparación (PI, PU, C, Y...), cruzado por id
+  estado: string;        // 'PENDIENTE' | 'SOLUCIONADO'
 }
 
 // ─── Vistas por tipo de reparación (FIX ago-2026) ─────────────────────────────
@@ -47,24 +50,38 @@ const VISTAS: { key: Vista; label: string }[] = [
   { key: 'yeso',        label: 'Yeso' },
 ];
 
-// Clasifica una obs según su accion. Robusto a variantes de nombre.
-const obsEnVista = (accion: string | null, vista: Vista): boolean => {
+// Clasifica una obs según su código (PI/PU/C/Y). Ya no adivina por texto:
+// se basa en el código corto asignado en Calibrador de Elementos.
+const obsEnVista = (codigo: string | null, vista: Vista): boolean => {
   if (vista === 'general') return true;
-  const a = (accion || '').toLowerCase();
-  if (vista === 'copa')        return a === 'copa';
-  if (vista === 'yeso')        return a === 'yeso';
-  // albañilería: picado o puntereo (contiene 'albañileria'/'albanileria'), sin copa
-  return (a.includes('albañiler') || a.includes('albaniler')) && a !== 'copa';
+  const c = (codigo || '').toUpperCase();
+  if (vista === 'copa')        return c === 'C';
+  if (vista === 'yeso')        return c === 'Y';
+  // albañilería: picado (PI) o puntereo (PU)
+  return c === 'PI' || c === 'PU';
 };
 
 // Etiqueta + color para el chip de reparación en la tabla de fallas.
-const chipReparacion = (accion: string | null, dark: boolean) => {
-  const a = (accion || 'por definir').toLowerCase();
-  if (a.includes('picado'))    return { label: 'Picado',   color: dark ? '#f87171' : '#b91c1c', bg: dark ? 'rgba(239,68,68,0.12)' : '#fef2f2' };
-  if (a.includes('puntereo'))  return { label: 'Puntereo', color: dark ? '#60a5fa' : '#1d4ed8', bg: dark ? 'rgba(96,165,250,0.12)' : '#eff6ff' };
-  if (a === 'copa')            return { label: 'Copa',     color: dark ? '#fbbf24' : '#a16207', bg: dark ? 'rgba(251,191,36,0.12)' : '#fffbeb' };
-  if (a === 'yeso')            return { label: 'Yeso',     color: dark ? '#c084fc' : '#7c3aed', bg: dark ? 'rgba(192,132,252,0.12)' : '#f5f3ff' };
-  return { label: 'Por definir', color: dark ? '#6b7280' : '#6b7280', bg: dark ? 'rgba(107,114,128,0.12)' : '#f3f4f6' };
+// El código (PI/PU/C/Y) es la fuente de verdad; si no hay código asignado
+// se muestra "Por definir" aunque exista un texto de "accion" libre.
+const CODIGO_LABEL: Record<string, { label: string; color: string; bg: string }> = {
+  PI: { label: 'Picado',   color: '#b91c1c', bg: '#fef2f2' },
+  PU: { label: 'Puntereo', color: '#1d4ed8', bg: '#eff6ff' },
+  C:  { label: 'Copa',     color: '#a16207', bg: '#fffbeb' },
+  Y:  { label: 'Yeso',     color: '#7c3aed', bg: '#f5f3ff' },
+};
+const CODIGO_LABEL_DARK: Record<string, { color: string; bg: string }> = {
+  PI: { color: '#f87171', bg: 'rgba(239,68,68,0.12)' },
+  PU: { color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
+  C:  { color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
+  Y:  { color: '#c084fc', bg: 'rgba(192,132,252,0.12)' },
+};
+const chipReparacion = (codigo: string | null, dark: boolean) => {
+  const c = (codigo || '').toUpperCase();
+  const base = CODIGO_LABEL[c];
+  if (!base) return { codigo: '?', label: 'Por definir', color: dark ? '#6b7280' : '#6b7280', bg: dark ? 'rgba(107,114,128,0.12)' : '#f3f4f6' };
+  const tema = dark ? CODIGO_LABEL_DARK[c] : { color: base.color, bg: base.bg };
+  return { codigo: c, label: base.label, color: tema.color, bg: tema.bg };
 };
 
 interface AmbientePlano {
@@ -188,7 +205,7 @@ const RevisionOGResumen: React.FC = () => {
         { data: elementosData },
       ] = await Promise.all([
         supabase.from('og_registros')
-          .select('id, ambiente, tipo_elemento, tipo_revision, elemento, tolerancia, comentario, foto_url, creado_en, usuarios(nombre)')
+          .select('id, ambiente, tipo_elemento, tipo_revision, elemento, tolerancia, comentario, foto_url, creado_en, usuarios!og_registros_usuario_id_fkey(nombre)')
           .eq('departamento_id', depto.id)
           .order('ambiente').order('creado_en'),
 
@@ -227,15 +244,26 @@ const RevisionOGResumen: React.FC = () => {
       // departamento_id), evitando supuestos sobre su esquema.
       const idsDepto = registrosBase.map(r => r.id);
       const accionMap = new Map<string, string | null>();
+      const codigoMap = new Map<string, string | null>();
+      const estadoMap = new Map<string, string>();
       if (idsDepto.length > 0) {
         const { data: repData } = await supabase
           .from('og_reparaciones')
-          .select('id, accion')
+          .select('id, accion, codigo, estado')
           .in('id', idsDepto);
-        (repData ?? []).forEach((r: any) => { accionMap.set(r.id, r.accion ?? null); });
+        (repData ?? []).forEach((r: any) => {
+          accionMap.set(r.id, r.accion ?? null);
+          codigoMap.set(r.id, r.codigo ?? null);
+          estadoMap.set(r.id, r.estado ?? 'PENDIENTE');
+        });
       }
 
-      const registros = registrosBase.map(r => ({ ...r, accion: accionMap.get(r.id) ?? null }));
+      const registros = registrosBase.map(r => ({
+        ...r,
+        accion: accionMap.get(r.id) ?? null,
+        codigo: codigoMap.get(r.id) ?? null,
+        estado: estadoMap.get(r.id) ?? 'PENDIENTE',
+      }));
       setObs(registros);
       setPlanoUrl((planoData as any)?.plano_url ?? null);
       setAmbientesPlano((ambPlanoData ?? []) as AmbientePlano[]);
@@ -317,6 +345,39 @@ const RevisionOGResumen: React.FC = () => {
     }
   };
 
+  // Alterna el estado de una falla entre PENDIENTE y SOLUCIONADO.
+  // Actualización local (optimista): se guarda en la BD y se refleja de
+  // inmediato en el estado en memoria (obs + detalles), sin recargar todo
+  // el resumen desde la red — evita el parpadeo/recarga completa de la
+  // pantalla (plano, heatmap, tarjetas) por cambiar un solo chip.
+  const [guardandoEstado, setGuardandoEstado] = useState<string | null>(null);
+  const toggleEstado = async (ob: OgRegistro) => {
+    const nuevoEstado = ob.estado === 'SOLUCIONADO' ? 'PENDIENTE' : 'SOLUCIONADO';
+    setGuardandoEstado(ob.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from('og_registros')
+        .update({
+          estado: nuevoEstado,
+          solucionado_en: nuevoEstado === 'SOLUCIONADO' ? new Date().toISOString() : null,
+          solucionado_por: nuevoEstado === 'SOLUCIONADO' ? (user?.id ?? null) : null,
+        })
+        .eq('id', ob.id);
+      if (error) throw error;
+
+      setObs(prev => prev.map(r => (r.id === ob.id ? { ...r, estado: nuevoEstado } : r)));
+      setDetalles(prev => prev.map(det => ({
+        ...det,
+        obs: det.obs.map(r => (r.id === ob.id ? { ...r, estado: nuevoEstado } : r)),
+      })));
+    } catch (e) {
+      console.error('Error actualizando estado OG:', e);
+    } finally {
+      setGuardandoEstado(null);
+    }
+  };
+
   useIonViewDidEnter(() => {
     if (iniciado.current) return;
     iniciado.current = true;
@@ -338,7 +399,7 @@ const RevisionOGResumen: React.FC = () => {
   const [vista, setVista] = useState<Vista>('general');
 
   // Obs visibles según la vista (base para métricas, heatmap, tabla y tarjetas)
-  const obsVista = obs.filter(r => obsEnVista(r.accion, vista));
+  const obsVista = obs.filter(r => obsEnVista(r.codigo, vista));
 
   // ── Métricas ──────────────────────────────────────────────────────────────
   const totalObs        = obsVista.length;
@@ -378,7 +439,7 @@ const RevisionOGResumen: React.FC = () => {
   const maxObs = resumenTabla[0]?.count ?? 1;
 
   // Detalles visibles: solo ambientes con al menos 1 obs en la vista activa
-  const detallesVista = detalles.filter(d => d.obs.some(o => obsEnVista(o.accion, vista)));
+  const detallesVista = detalles.filter(d => d.obs.some(o => obsEnVista(o.codigo, vista)));
 
   // ── Guard sin depto ───────────────────────────────────────────────────────
   if (!depto) {
@@ -412,7 +473,7 @@ const RevisionOGResumen: React.FC = () => {
             ‹
           </button>
           <IonTitle style={{ fontSize: 15 }}>
-            Resumen · Depto {depto.numero} · {torre?.nombre}
+            Resumen · Depto {depto.id_obra ?? depto.numero} · {torre?.nombre}
           </IonTitle>
           <IonButtons slot="end">
             {cerrado && (
@@ -634,6 +695,8 @@ const RevisionOGResumen: React.FC = () => {
                   textPrimary={textPrimary}
                   textSecondary={textSecondary}
                   textMuted={textMuted}
+                  onToggleEstado={toggleEstado}
+                  guardandoEstado={guardandoEstado}
                 />
               ))}
 
@@ -663,10 +726,13 @@ interface AmbienteCardProps {
   textPrimary: string;
   textSecondary: string;
   textMuted: string;
+  onToggleEstado: (ob: OgRegistro) => void;
+  guardandoEstado: string | null;
 }
 
 const AmbienteCard: React.FC<AmbienteCardProps> = ({
   det, vista, dark, sCard, sSecLabel, border, textPrimary, textSecondary, textMuted,
+  onToggleEstado, guardandoEstado,
 }) => {
   // ── FIX ago-2026: mismo método de render que RevisionOGAmbiente (registro) ──
   //   El registro posiciona bien porque: altura del contenedor = aspecto exacto
@@ -703,7 +769,7 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
     orig > 0 ? (v / orig) * rendered : 0;
 
   // Obs y elementos filtrados por la vista activa
-  const obsVista = det.obs.filter(o => obsEnVista(o.accion, vista));
+  const obsVista = det.obs.filter(o => obsEnVista(o.codigo, vista));
   const nombresVista = new Set(obsVista.map(o => o.elemento));
   const elementosVista = det.elementos.filter(el => nombresVista.has(el.elemento));
 
@@ -795,11 +861,16 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
       </div>
 
       {/* Tabla de fallas */}
-      <div style={sSecLabel as any}>Fallas registradas</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ ...(sSecLabel as any), marginBottom: 0 }}>Fallas registradas</div>
+        <span style={{ fontSize: 9, color: textMuted, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
+          Toca el estado para cambiarlo
+        </span>
+      </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr>
-            {['#', 'Elemento', 'Tipo', 'Tolerancia', 'Reparación', 'Comentario'].map(h => (
+            {['#', 'Elemento', 'Tipo', 'Tolerancia', 'Reparación', 'Comentario', 'Estado'].map(h => (
               <th key={h} style={{
                 textAlign: 'left', fontSize: 10, fontWeight: 600,
                 color: textMuted, padding: '4px 5px 6px',
@@ -818,18 +889,61 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
               <td style={{ padding: '7px 5px', color: textPrimary, fontSize: 12 }}>{ob.tolerancia}</td>
               <td style={{ padding: '7px 5px' }}>
                 {(() => {
-                  const c = chipReparacion(ob.accion, dark);
+                  const c = chipReparacion(ob.codigo, dark);
                   return (
                     <span style={{
                       fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap',
                       padding: '2px 8px', borderRadius: 20,
                       background: c.bg, color: c.color,
-                    }}>{c.label}</span>
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                    }}>
+                      <span style={{
+                        fontWeight: 800, fontSize: 9, border: `1px solid ${c.color}`,
+                        borderRadius: 4, padding: '0 4px', lineHeight: '13px',
+                      }}>{c.codigo}</span>
+                      {c.label}
+                    </span>
                   );
                 })()}
               </td>
               <td style={{ padding: '7px 5px', color: textSecondary, fontSize: 11 }}>
                 {ob.comentario || '—'}
+              </td>
+              <td style={{ padding: '7px 5px' }}>
+                {(() => {
+                  const solucionado = ob.estado === 'SOLUCIONADO';
+                  const guardando = guardandoEstado === ob.id;
+                  const verde    = dark ? '#4ade80' : '#15803d';
+                  const verdeBg  = dark ? 'rgba(74,222,128,0.14)' : '#f0fdf4';
+                  const ambar    = dark ? '#fbbf24' : '#a16207';
+                  const ambarBg  = dark ? 'rgba(251,191,36,0.14)' : '#fffbeb';
+                  const color = solucionado ? verde : ambar;
+                  return (
+                    <button
+                      onClick={() => onToggleEstado(ob)}
+                      disabled={guardando}
+                      title={solucionado ? 'Toca para marcar como pendiente' : 'Toca para marcar como solucionado'}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap',
+                        padding: '4px 10px 4px 7px', borderRadius: 20,
+                        border: `1.5px solid ${color}`,
+                        background: solucionado ? verdeBg : ambarBg,
+                        color,
+                        cursor: guardando ? 'wait' : 'pointer',
+                        opacity: guardando ? 0.55 : 1,
+                        boxShadow: dark ? 'none' : '0 1px 2px rgba(0,0,0,0.06)',
+                      }}
+                    >
+                      {guardando
+                        ? '…'
+                        : solucionado
+                          ? <CheckCircle2 size={13} strokeWidth={2.5} />
+                          : <Circle size={13} strokeWidth={2.5} />}
+                      {guardando ? 'Guardando' : (solucionado ? 'Solucionado' : 'Pendiente')}
+                    </button>
+                  );
+                })()}
               </td>
             </tr>
           ))}

@@ -273,7 +273,7 @@ const RevisionOG: React.FC = () => {
     if (online) {
       const { data } = await supabase
         .from('og_registros')
-        .select('id, ambiente, tipo_elemento, tipo_revision, elemento, tolerancia, creado_en, foto_url, usuarios(nombre)')
+        .select('id, ambiente, tipo_elemento, tipo_revision, elemento, tolerancia, creado_en, foto_url, usuarios!og_registros_usuario_id_fkey(nombre)')
         .eq('departamento_id', deptoId)
         .order('creado_en', { ascending: false });
       remotas = data || [];

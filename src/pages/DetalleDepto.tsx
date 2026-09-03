@@ -176,10 +176,16 @@ const DetalleDepto: React.FC = () => {
     });
   }, [depto, proyecto]);
 
-  // useEffect SEPARADO para recalcular estado después de que se cargó de la BD
+  // useEffect SEPARADO para recalcular estado después de que se cargó de la BD.
+  // Nota: esto ahora es una segunda capa de defensa — el trigger de la base
+  // de datos (fn_recalcular_preentrega_estado) ya mantiene preentrega_estado
+  // sincronizado automáticamente ante cualquier cambio de observación, sin
+  // depender de que alguien visite esta pantalla. Aun así, se persiste acá
+  // también por si se abre esta pantalla justo antes de que el trigger corra,
+  // o para cubrir datos que quedaron desincronizados de antes.
   useEffect(() => {
     if (loading) return; // Esperar a que termine de cargar
-    
+
     // SOLO recalcular si el estado está en 1-3 (no fue marcado manualmente)
     if (preentregaEstado <= 3) {
       let nuevoEstado = 1;
@@ -190,13 +196,19 @@ const DetalleDepto: React.FC = () => {
       } else if (obsSolucionadas === obsTotal && obsTotal > 0) {
         nuevoEstado = 3; // Listo para entregar a inmobiliaria
       }
-      
+
       if (nuevoEstado !== preentregaEstado) {
         setPreentregaEstado(nuevoEstado);
-        console.log('Estado recalculado:', nuevoEstado);
+        supabase
+          .from('departamentos')
+          .update({ preentrega_estado: nuevoEstado })
+          .eq('id', depto.id)
+          .then(({ error }) => {
+            if (error) console.error('Error al persistir preentrega_estado recalculado:', error);
+          });
       }
     }
-  }, [loading, obsTotal, obsPendientes, obsSolucionadas, preentregaEstado]);
+  }, [loading, obsTotal, obsPendientes, obsSolucionadas, preentregaEstado, depto.id]);
 
   // El teléfono lo edita cualquiera: es un dato que se consigue después.
   // Nombre y RUT vienen del acta de pre-entrega y solo los toca un administrador.

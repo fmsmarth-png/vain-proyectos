@@ -24,6 +24,9 @@ import { useTheme } from '../Context/ThemeContext';
 import {
   generarFichaReparacion, FichaData, FichaAmbiente,
 } from '../utils/fichaReparacionCanvas';
+import {
+  generarReporteVisualOgPdf, ReportePdfDepto, PlanoAmbientePdf,
+} from '../utils/reporteVisualOgPdf';
 
 // ─── Vistas por tipo de reparación ────────────────────────────────────────────
 type Vista = 'general' | 'albanileria' | 'copa' | 'yeso';
@@ -82,9 +85,12 @@ interface RepRow {
   tipo_revision: string | null; // MURO | PIERNA | VANO
   ambiente: string | null;
   elemento: string | null;
+  tolerancia: string | null;
   id_obra: string | null;       // ej '1F24.2' → posición en planta
   frente: string | null;        // ej 'F23-24' → pares de la torre
   accion: string | null;
+  codigo: string | null;        // código corto de la reparación (PI, PU, C, Y...)
+  estado: string | null;        // PENDIENTE | SOLUCIONADO
   creado_en: string | null;     // fecha de la obs → precio vigente a esta fecha
 }
 interface Proyecto { id: string; nombre: string; }
@@ -191,6 +197,9 @@ const ReporteVisualOG: React.FC = () => {
   const [torreSel, setTorreSel]     = useState<{ id: string; nombre: string; frente: string | null } | null>(null);
   const [pisoSel, setPisoSel]       = useState<number | null>(null);
   const [vista, setVista]           = useState<Vista>('general');
+  // Sub-filtro: cuando está activo, se ocultan por completo las fallas ya
+  // solucionadas de todos los niveles (torre/piso/depto) y del desglose.
+  const [soloPendientes, setSoloPendientes] = useState(false);
   const [cargando, setCargando]     = useState(false);
 
   // ── Ficha WhatsApp (nivel depto) ────────────────────────────────────────────
@@ -199,6 +208,10 @@ const ReporteVisualOG: React.FC = () => {
   const [planoCache, setPlanoCache] = useState<Record<string, PlanoDepto>>({});
   const [generando, setGenerando]   = useState(false);
   const [fichaError, setFichaError] = useState('');
+
+  // ── Reporte PDF (nivel torre/piso/depto) ────────────────────────────────────
+  const [generandoReporte, setGenerandoReporte] = useState(false);
+  const [reporteError, setReporteError] = useState('');
 
   // ── Cargar proyectos al entrar ──────────────────────────────────────────────
   useIonViewWillEnter(() => { cargarProyectos(); });
@@ -257,16 +270,19 @@ const ReporteVisualOG: React.FC = () => {
   }, [torreSel, pisoSel]);
 
   // ── Cargar reparaciones del proyecto + cruzar piso ──────────────────────────
-  const elegirProyecto = async (p: Proyecto) => {
-    setProyectoSel(p);
-    setTorreSel(null);
-    setPisoSel(null);
+  // Extraído de elegirProyecto para poder también refrescar los datos al
+  // volver a esta pantalla (ionViewWillEnter), sin resetear la navegación
+  // torre/piso en la que ya estaba el usuario. Antes los datos se cargaban
+  // una sola vez al elegir el proyecto y nunca se refrescaban solos, así que
+  // volver desde el resumen de un depto (donde se pudo marcar algo como
+  // solucionado) mostraba números desactualizados.
+  const cargarReparaciones = async (proyectoId: string) => {
     setCargando(true);
     try {
       const { data: repData } = await supabase
         .from('og_reparaciones')
-        .select('departamento_id, torre_id, torre, depto, tipo_revision, ambiente, elemento, id_obra, frente, accion, creado_en')
-        .eq('proyecto_id', p.id);
+        .select('departamento_id, torre_id, torre, depto, tipo_revision, ambiente, elemento, tolerancia, id_obra, frente, accion, codigo, estado, creado_en')
+        .eq('proyecto_id', proyectoId);
 
       const reps = (repData ?? []) as any[];
 
@@ -295,9 +311,12 @@ const ReporteVisualOG: React.FC = () => {
           tipo_revision: r.tipo_revision ?? null,
           ambiente: r.ambiente ?? null,
           elemento: r.elemento ?? null,
+          tolerancia: r.tolerancia ?? null,
           id_obra: r.id_obra ?? null,
           frente: r.frente ?? null,
           accion: r.accion ?? null,
+          codigo: r.codigo ?? null,
+          estado: r.estado ?? 'PENDIENTE',
           creado_en: r.creado_en ?? null,
         };
       });
@@ -306,6 +325,22 @@ const ReporteVisualOG: React.FC = () => {
       setCargando(false);
     }
   };
+
+  const elegirProyecto = async (p: Proyecto) => {
+    setProyectoSel(p);
+    setTorreSel(null);
+    setPisoSel(null);
+    await cargarReparaciones(p.id);
+  };
+
+  // Al volver a entrar a esta pantalla (ej. después de marcar una falla como
+  // solucionada en el resumen del depto y navegar hacia atrás), se refrescan
+  // los datos del proyecto que ya estaba abierto, sin perder la posición en
+  // la navegación torre/piso.
+  useIonViewWillEnter(() => {
+    if (proyectoSel) cargarReparaciones(proyectoSel.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
 
   // ── Precarga del plano de un depto (para la ficha) ──────────────────────────
   // Carga imágenes de ambiente + coordenadas de elementos, resolviendo el
@@ -456,26 +491,104 @@ const ReporteVisualOG: React.FC = () => {
     }
   };
 
+  // ── Generar PDF del nivel actual (torre / piso / depto) ─────────────────────
+  const generarReportePdf = async () => {
+    if (!proyectoSel) return;
+    setGenerandoReporte(true);
+    setReporteError('');
+    try {
+      // Agrupa el subconjunto ya filtrado (vista + solo pendientes) por depto.
+      const porDepto = new Map<string, ReportePdfDepto>();
+      subsetNivel.forEach(r => {
+        if (!r.departamento_id) return;
+        let d = porDepto.get(r.departamento_id);
+        if (!d) {
+          d = {
+            departamento_id: r.departamento_id,
+            id_obra: r.id_obra,
+            numero: r.depto ?? 0,
+            piso: r.piso,
+            torre: r.torre,
+            plano_version_id: r.plano_version_id,
+            rows: [],
+          };
+          porDepto.set(r.departamento_id, d);
+        }
+        d.rows.push({
+          ambiente: r.ambiente,
+          elemento: r.elemento,
+          tolerancia: r.tolerancia,
+          accion: r.accion,
+          codigo: r.codigo,
+          estado: r.estado,
+        });
+      });
+      const deptos = [...porDepto.values()].sort((a, b) =>
+        (a.id_obra || '').localeCompare(b.id_obra || '', undefined, { numeric: true }));
+
+      if (deptos.length === 0) {
+        setReporteError('No hay observaciones para generar el reporte con los filtros actuales');
+        setGenerandoReporte(false);
+        return;
+      }
+
+      const contextoLabel = pisoSel !== null && torreSel
+        ? `Torre ${torreSel.frente || torreSel.nombre} · ${pisoSel === -1 ? 'Sin piso' : `Piso ${pisoSel}`}`
+        : torreSel
+          ? `Torre ${torreSel.frente || torreSel.nombre}`
+          : 'Todas las torres';
+
+      const blob = await generarReporteVisualOgPdf({
+        proyecto: proyectoSel.nombre,
+        contextoLabel,
+        vistaLabel: VISTAS.find(v => v.key === vista)?.label ?? 'General',
+        soloPendientes,
+        deptos,
+        obtenerPlano: async (departamentoId, planoVersionId) => {
+          const plano = planoCache[departamentoId] ?? await precargarPlano(departamentoId, planoVersionId);
+          return plano ? { ambientes: plano.ambientes as PlanoAmbientePdf[] } : null;
+        },
+      });
+
+      const parteNivel = pisoSel !== null ? `Piso${pisoSel}` : torreSel ? (torreSel.frente || torreSel.nombre) : 'Proyecto';
+      const fileName = `Reporte_OG_${parteNivel}_${Date.now()}.pdf`.replace(/\s+/g, '_');
+
+      if (Capacitor.isNativePlatform()) {
+        const base64 = await blobToBase64(blob);
+        await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
+        const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
+        try {
+          await Share.share({ title: fileName, url: uri, dialogTitle: 'Compartir reporte PDF' });
+        } catch { /* usuario cerró el diálogo */ }
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fileName; a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (e: any) {
+      console.error('[ReporteVisualOG] Error generando reporte PDF:', e);
+      setReporteError('Error al generar el reporte: ' + (e?.message ?? ''));
+    } finally {
+      setGenerandoReporte(false);
+    }
+  };
+
   // ── Drill-down a la pantalla visual de resumen del depto ────────────────────
-  const abrirDepto = (departamento_id: string, numero: number, plano_version_id: string | null) => {
+  const abrirDepto = (departamento_id: string, numero: number, plano_version_id: string | null, id_obra: string | null) => {
     if (!proyectoSel || !torreSel) return;
     sessionStorage.setItem('og_seleccion', JSON.stringify({
       proyecto: { id: proyectoSel.id, nombre: proyectoSel.nombre },
       torre:    { id: torreSel.id, nombre: torreSel.frente || torreSel.nombre },
-      depto:    { id: departamento_id, numero, plano_version_id },
+      depto:    { id: departamento_id, numero, plano_version_id, id_obra },
     }));
     history.push('/revision-og/resumen');
   };
 
   // ── Filtrado por vista ──────────────────────────────────────────────────────
-  const rowsVista = rows.filter(r => obsEnVista(r.accion, vista));
-
-  // Desglose por categoría de un subconjunto (para los chips)
-  const desglose = (subset: RepRow[]) => {
-    const m: Record<Cat, number> = { picado: 0, puntereo: 0, copa: 0, yeso: 0, pordefinir: 0 };
-    subset.forEach(r => { m[catAccion(r.accion)]++; });
-    return m;
-  };
+  const rowsVista = rows.filter(r =>
+    obsEnVista(r.accion, vista) && (!soloPendientes || (r.estado ?? 'PENDIENTE') !== 'SOLUCIONADO')
+  );
 
   // Monto total de un subconjunto (precio vigente por obs, según su creado_en)
   const montoDe = (subset: RepRow[]) =>
@@ -526,24 +639,65 @@ const ReporteVisualOG: React.FC = () => {
       (a.id_obra || '').localeCompare(b.id_obra || '', undefined, { numeric: true }));
   };
 
-  // ── UI: chips de desglose ───────────────────────────────────────────────────
-  const ChipsDesglose: React.FC<{ subset: RepRow[] }> = ({ subset }) => {
-    const d = desglose(subset);
-    const visibles = CATS.filter(c => d[c.key] > 0);
-    if (visibles.length === 0) return null;
+  // ── UI: desglose por tipo (total + pendientes) ──────────────────────────────
+  // Antes eran chips sueltos; luego una tabla con grilla que se veía pegada
+  // encima de la tarjeta. Ahora es una mini-lista integrada: un punto de
+  // color + la etiqueta a la izquierda, el total y los pendientes a la
+  // derecha, con una sola línea muy fina entre filas — mismo lenguaje visual
+  // que el resto de la tarjeta (sin bordes de tabla, sin mayúsculas).
+  const TablaDesglose: React.FC<{ subset: RepRow[] }> = ({ subset }) => {
+    const filas = CATS.map(c => {
+      const items = subset.filter(r => catAccion(r.accion) === c.key);
+      const pendientes = items.filter(r => (r.estado ?? 'PENDIENTE') !== 'SOLUCIONADO').length;
+      return { ...c, total: items.length, pendientes };
+    }).filter(f => f.total > 0);
+    if (filas.length === 0) return null;
+
+    const totalGeneral = filas.reduce((s, f) => s + f.total, 0);
+    const pendientesGeneral = filas.reduce((s, f) => s + f.pendientes, 0);
+    const verde = dark ? '#4ade80' : '#15803d';
+    const ambar = dark ? '#fbbf24' : '#a16207';
+    const lineaFina = dark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)';
+
+    const Fila: React.FC<{
+      label: string; color?: string; total: number; pendientes: number;
+      fuerte?: boolean; conLinea?: boolean;
+    }> = ({ label, color, total, pendientes, fuerte, conLinea }) => (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '5px 0', borderTop: conLinea ? `0.5px solid ${lineaFina}` : 'none',
+      }}>
+        {color && <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />}
+        <span style={{ flex: 1, fontSize: 12, fontWeight: fuerte ? 700 : 500, color: color ?? textPrimary }}>
+          {label}
+        </span>
+        <span style={{ width: 32, flexShrink: 0, fontSize: 12, fontWeight: fuerte ? 700 : 500, color: textPrimary, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+          {total}
+        </span>
+        <span style={{
+          width: 62, flexShrink: 0, fontSize: 11, fontWeight: 700, textAlign: 'right',
+          color: pendientes > 0 ? ambar : verde, fontVariantNumeric: 'tabular-nums',
+        }}>
+          {pendientes > 0 ? `${pendientes} pend.` : 'listo'}
+        </span>
+      </div>
+    );
+
     return (
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
-        {visibles.map(c => {
-          const col = catColor(c.key, dark);
-          return (
-            <span key={c.key} style={{
-              fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
-              background: col.bg, color: col.color, whiteSpace: 'nowrap',
-            }}>
-              {c.label}: {d[c.key]}
-            </span>
-          );
-        })}
+      <div style={{ marginTop: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 3 }}>
+          <span style={{ flex: 1 }} />
+          <span style={{ width: 32, flexShrink: 0, fontSize: 9, fontWeight: 700, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.3px', textAlign: 'right' }}>
+            Total
+          </span>
+          <span style={{ width: 62, flexShrink: 0, fontSize: 9, fontWeight: 700, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.3px', textAlign: 'right' }}>
+            Pend.
+          </span>
+        </div>
+        {filas.map(f => (
+          <Fila key={f.key} label={f.label} color={catColor(f.key, dark).color} total={f.total} pendientes={f.pendientes} />
+        ))}
+        <Fila label="Total" total={totalGeneral} pendientes={pendientesGeneral} fuerte conLinea />
       </div>
     );
   };
@@ -574,7 +728,7 @@ const ReporteVisualOG: React.FC = () => {
           <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>obs</div>
         </div>
       </div>
-      <ChipsDesglose subset={subset} />
+      <TablaDesglose subset={subset} />
       {monto > 0 && (
         <div style={{
           marginTop: 10, paddingTop: 8, borderTop: `0.5px solid ${border}`,
@@ -702,6 +856,51 @@ const ReporteVisualOG: React.FC = () => {
               <Breadcrumb />
               <SelectorVista />
 
+              {/* Sub-filtro: solo pendientes + generar reporte PDF */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: -4, gap: 8 }}>
+                <button
+                  onClick={() => setSoloPendientes(v => !v)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
+                    border: `1px solid ${soloPendientes ? (dark ? '#fbbf24' : '#a16207') : border}`,
+                    background: soloPendientes ? (dark ? 'rgba(251,191,36,0.14)' : '#fffbeb') : 'transparent',
+                    color: soloPendientes ? (dark ? '#fbbf24' : '#a16207') : textSecondary,
+                  }}
+                >
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                    background: soloPendientes ? (dark ? '#fbbf24' : '#a16207') : 'transparent',
+                    border: `1.5px solid ${soloPendientes ? (dark ? '#fbbf24' : '#a16207') : textMuted}`,
+                  }} />
+                  Solo pendientes
+                </button>
+
+                <button
+                  onClick={generarReportePdf}
+                  disabled={generandoReporte}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 999,
+                    border: `1px solid ${border}`, background: 'transparent', color: textSecondary,
+                    cursor: generandoReporte ? 'wait' : 'pointer', opacity: generandoReporte ? 0.6 : 1,
+                  }}
+                >
+                  {generandoReporte ? 'Generando…' : 'Generar PDF'}
+                </button>
+              </div>
+
+              {reporteError && (
+                <div style={{
+                  fontSize: 12, color: dark ? '#f87171' : '#b91c1c',
+                  background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2',
+                  border: `0.5px solid ${dark ? 'rgba(239,68,68,0.2)' : '#fecaca'}`,
+                  borderRadius: 10, padding: '8px 12px', marginBottom: 10,
+                }}>
+                  {reporteError}
+                </div>
+              )}
+
               {/* KPI del nivel */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
                 <div style={{ background: cardGrad, borderRadius: 12, border: `0.5px solid ${border}`, padding: '10px 12px' }}>
@@ -768,7 +967,7 @@ const ReporteVisualOG: React.FC = () => {
                           subtitulo="Toca para ver el plano y posiciones"
                           total={d.rows.length}
                           subset={d.rows}
-                          onClick={() => abrirDepto(d.departamento_id, d.numero, d.plano_version_id)}
+                          onClick={() => abrirDepto(d.departamento_id, d.numero, d.plano_version_id, d.id_obra)}
                         />
                         {(hayAlb || hayYeso) && (
                           <div style={{ display: 'flex', gap: 8, marginTop: -4 }}>

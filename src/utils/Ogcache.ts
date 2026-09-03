@@ -14,6 +14,7 @@ import { supabase } from '../supabase';
 
 // ─── Claves localStorage ─────────────────────────────────────────────────────
 const KEY_CATALOGO        = 'og_catalogo_cache';
+const KEY_REPARACIONES    = 'og_reparaciones_cache';
 const KEY_ELEMENTOS       = 'og_elementos_cache';
 const KEY_CONFIG          = 'og_config_cache';
 const KEY_TS              = 'og_cache_timestamp';
@@ -37,6 +38,15 @@ export interface OgCatalogoRow {
   tolerancia: string;
   fase: string;
   activo: boolean;
+}
+
+export interface OgReparacionRow {
+  id: string;
+  revision: string;
+  item_revision: string;
+  tolerancia: string;
+  accion: string | null;
+  codigo: string | null;
 }
 
 export interface OgElementoRow {
@@ -167,7 +177,7 @@ export async function descargarCacheOG(forzar = false): Promise<boolean> {
       desde += PAGE;
     }
 
-    const [resEle, resCfg, resPlanos, resAmbPlano, resImgAmb, resElAmb] =
+    const [resEle, resCfg, resPlanos, resAmbPlano, resImgAmb, resElAmb, resReparaciones] =
       await Promise.all([
         supabase
           .from('og_elementos_detalle')
@@ -194,6 +204,9 @@ export async function descargarCacheOG(forzar = false): Promise<boolean> {
           .select('id,grupo_imagen,elemento,tipo_elemento,subtipo_cod,pos_x,pos_y,ancho,alto')
           .eq('activo', true)
           .order('tipo_elemento'),
+        supabase
+          .from('og_tolerancia_reparacion')
+          .select('id,revision,item_revision,tolerancia,accion,codigo'),
       ]);
 
     const hayError = resEle.error || resCfg.error ||
@@ -211,6 +224,10 @@ export async function descargarCacheOG(forzar = false): Promise<boolean> {
     writeCache(KEY_AMBIENTES_PLANO, resAmbPlano.data);
     writeCache(KEY_IMAGENES_AMB,    resImgAmb.data);
     writeCache(KEY_ELEMENTOS_AMB,   resElAmb.data);
+    // No se bloquea la descarga si esta tabla falla — el código/reparación
+    // es un dato de apoyo visual, no crítico para poder registrar la
+    // observación (a diferencia del catálogo de tolerancias).
+    if (!resReparaciones.error) writeCache(KEY_REPARACIONES, resReparaciones.data);
 
     const { data: torres } = await supabase.from('torres').select('id');
     if (torres && torres.length > 0) {
@@ -310,6 +327,27 @@ export function getToleranciaCache(params: {
       norm(r.elemento)      === pEl   &&
       norm(r.ambiente)      === pAmb
   );
+}
+
+// og_tolerancia_reparacion trae revision/item_revision INTERCAMBIADOS respecto
+// a og_catalogo (mismo detalle ya documentado en Calibradorelementos.tsx) —
+// por eso se prueban ambas orientaciones antes de descartar la búsqueda.
+export function getReparacionCache(
+  revision: string,
+  itemRevision: string,
+  tolerancia: string,
+): { accion: string | null; codigo: string | null } | null {
+  const rows = readCache<OgReparacionRow[]>(KEY_REPARACIONES);
+  if (!rows) return null;
+  const norm = (s: string) => (s ?? '').trim().toLowerCase();
+  const pRev = norm(revision), pItem = norm(itemRevision), pTol = norm(tolerancia);
+  const rep = rows.find(r =>
+    norm(r.tolerancia) === pTol && (
+      (norm(r.revision) === pRev && norm(r.item_revision) === pItem) ||
+      (norm(r.revision) === pItem && norm(r.item_revision) === pRev)
+    )
+  );
+  return rep ? { accion: rep.accion, codigo: rep.codigo } : null;
 }
 
 export function getConfigAmbientesCache(tipoDepto: string, orientacion?: string): OgConfigAmbienteRow[] {

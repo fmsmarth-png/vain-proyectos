@@ -11,6 +11,7 @@ import {
 import { useIonViewDidEnter } from '@ionic/react';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
+import { Wrench, MapPin } from 'lucide-react';
 
 interface GrupoImagen {
   grupo_imagen: string;
@@ -49,6 +50,7 @@ interface Reparacion {
   item_revision: string;
   tolerancia: string;
   accion: string;
+  codigo: string | null;
 }
 
 type FiltroVista = 'Todos' | 'Muros' | 'Vanos';
@@ -112,6 +114,7 @@ const CalibradorElementos: React.FC = () => {
   const [nuevaTolTexto, setNuevaTolTexto]       = useState('');
   const [nuevaTolAmbiente, setNuevaTolAmbiente] = useState('');
   const [nuevaTolAccion, setNuevaTolAccion]     = useState('');
+  const [nuevaTolCodigo, setNuevaTolCodigo]     = useState('');
   const [clonarDesdeElem, setClonarDesdeElem]   = useState('');
   const [elemsSimilares, setElemsSimilares]     = useState<string[]>([]);
 
@@ -321,7 +324,7 @@ const CalibradorElementos: React.FC = () => {
     // Load all reparaciones for quick lookup
     const { data: reps } = await supabase
       .from('og_tolerancia_reparacion')
-      .select('id, revision, item_revision, tolerancia, accion');
+      .select('id, revision, item_revision, tolerancia, accion, codigo');
     setReparaciones(reps ?? []);
 
     // Load similar element names for cloning (from both catalogo and elementos_ambiente)
@@ -364,6 +367,16 @@ const CalibradorElementos: React.FC = () => {
     return rep?.accion ?? '—';
   };
 
+  const getCodigo = (revision: string, itemRevision: string, tolerancia: string): string => {
+    const rep = reparaciones.find(r =>
+      r.tolerancia === tolerancia && (
+        (r.revision === revision && r.item_revision === itemRevision) ||
+        (r.revision === itemRevision && r.item_revision === revision)
+      )
+    );
+    return rep?.codigo ?? '';
+  };
+
   const getRepId = (revision: string, itemRevision: string, tolerancia: string): string | null => {
     const rep = reparaciones.find(r =>
       r.tolerancia === tolerancia && (
@@ -399,12 +412,14 @@ const CalibradorElementos: React.FC = () => {
             item_revision: nuevaTolItem,
             tolerancia: nuevaTolTexto.trim(),
             accion: nuevaTolAccion.trim(),
+            codigo: nuevaTolCodigo.trim() || null,
           });
         }
       }
       setNuevaTolTexto('');
       setNuevaTolAmbiente('');
       setNuevaTolAccion('');
+      setNuevaTolCodigo('');
       await cargarTolerancias(elSel.elemento);
       setStatus({ msg: '✓ Tolerancia agregada', ok: true });
     }
@@ -842,10 +857,17 @@ const CalibradorElementos: React.FC = () => {
                               onChange={e => setNuevaTolAmbiente(e.target.value)}
                             />
                             <input
-                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11 }}
+                              style={{ ...sInput, flex: 2, height: 30, fontSize: 11 }}
                               placeholder="Acción reparación"
                               value={nuevaTolAccion}
                               onChange={e => setNuevaTolAccion(e.target.value)}
+                            />
+                            <input
+                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11, textTransform: 'uppercase' }}
+                              placeholder="Código (ej: PI)"
+                              maxLength={4}
+                              value={nuevaTolCodigo}
+                              onChange={e => setNuevaTolCodigo(e.target.value.toUpperCase())}
                             />
                           </div>
                           <button
@@ -871,6 +893,7 @@ const CalibradorElementos: React.FC = () => {
                         <div style={{ maxHeight: 200, overflowY: 'auto' }}>
                           {tolerancias.map(tol => {
                             const accion = getAccion(tol.revision, tol.item_revision, tol.tolerancia);
+                            const codigo = getCodigo(tol.revision, tol.item_revision, tol.tolerancia);
                             return (
                               <div
                                 key={tol.id}
@@ -887,17 +910,19 @@ const CalibradorElementos: React.FC = () => {
                                       borderRadius: 4, background: tol.revision === 'MURO' ? azul : naranja,
                                     }}>{tol.item_revision}</span>
                                     {tol.ambiente && (
-                                      <span style={{ fontSize: 9, color: textMuted }}>📍 {tol.ambiente}</span>
+                                      <span style={{ fontSize: 9, color: textMuted, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                        <MapPin size={9} strokeWidth={2.25} /> {tol.ambiente}
+                                      </span>
                                     )}
                                   </div>
                                   <div style={{ fontWeight: 600, color: textPrimary, fontSize: 11 }}>
                                     {tol.tolerancia}
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                                    <span style={{ fontSize: 10, color: textMuted, flexShrink: 0 }}>🔧</span>
+                                    <span style={{ fontSize: 10, color: textMuted, flexShrink: 0, display: 'inline-flex' }}><Wrench size={11} strokeWidth={2.25} /></span>
                                     <input
                                       style={{
-                                        flex: 1, border: `1px solid ${accion !== '—' ? verdeBord : rojoBord}`,
+                                        flex: 1, minWidth: 0, border: `1px solid ${accion !== '—' ? verdeBord : rojoBord}`,
                                         borderRadius: 4, padding: '2px 6px', fontSize: 10,
                                         background: 'transparent', color: accion !== '—' ? verde : rojo,
                                         outline: 'none', fontWeight: 600,
@@ -928,9 +953,50 @@ const CalibradorElementos: React.FC = () => {
                                         // Refresh reparaciones
                                         const { data: reps } = await supabase
                                           .from('og_tolerancia_reparacion')
-                                          .select('id, revision, item_revision, tolerancia, accion');
+                                          .select('id, revision, item_revision, tolerancia, accion, codigo');
                                         setReparaciones(reps ?? []);
                                         setStatus({ msg: `✓ Reparación "${nuevaAccionVal}" guardada`, ok: true });
+                                      }}
+                                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                    />
+                                    <input
+                                      style={{
+                                        width: 44, flexShrink: 0, border: `1px solid ${codigo ? verdeBord : inputBorder}`,
+                                        borderRadius: 4, padding: '2px 6px', fontSize: 10, textAlign: 'center',
+                                        background: 'transparent', color: codigo ? verde : textMuted,
+                                        outline: 'none', fontWeight: 700, textTransform: 'uppercase',
+                                      }}
+                                      defaultValue={codigo}
+                                      placeholder="cód."
+                                      maxLength={4}
+                                      title="Código corto para reconocer la reparación en terreno (ej: PI, PU, C, Y)"
+                                      onBlur={async (e) => {
+                                        const nuevoCodigo = e.target.value.trim().toUpperCase();
+                                        if (nuevoCodigo === codigo) return;
+                                        const existingId = getRepId(tol.revision, tol.item_revision, tol.tolerancia);
+                                        if (existingId) {
+                                          await supabase
+                                            .from('og_tolerancia_reparacion')
+                                            .update({ codigo: nuevoCodigo || null })
+                                            .eq('id', existingId);
+                                        } else if (nuevoCodigo) {
+                                          // No existe fila de reparación todavía (sin acción definida) — se crea igual
+                                          // con la acción vacía, para no perder el código que se acaba de escribir.
+                                          await supabase
+                                            .from('og_tolerancia_reparacion')
+                                            .insert({
+                                              revision: tol.item_revision,
+                                              item_revision: tol.revision,
+                                              tolerancia: tol.tolerancia,
+                                              accion: accion !== '—' ? accion : '',
+                                              codigo: nuevoCodigo,
+                                            });
+                                        }
+                                        const { data: reps } = await supabase
+                                          .from('og_tolerancia_reparacion')
+                                          .select('id, revision, item_revision, tolerancia, accion, codigo');
+                                        setReparaciones(reps ?? []);
+                                        setStatus({ msg: nuevoCodigo ? `✓ Código "${nuevoCodigo}" guardado` : 'Código quitado', ok: true });
                                       }}
                                       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                                     />

@@ -19,6 +19,10 @@ import {
   sincronizarBorradorConServidor,
 } from '../utils/postventaBorradorLocal';
 import { encolarFotoPendiente, contarFotosPendientes } from '../utils/postventaFotosPendientes';
+import {
+  Camera, Image as ImageIcon, Home, RefreshCw, FileText, AlertTriangle,
+  WifiOff, CheckCircle2, Save, Plus, User, PenLine, Trash2, Pencil, Check, Info,
+} from 'lucide-react';
 
 const SESSION_KEY = 'post_venta_depto_state';
 const OTRO = '__OTRO__';
@@ -1825,7 +1829,7 @@ const PostVenta: React.FC = () => {
             {!soloLectura && (
               <>
                 <button onClick={() => setAnotando({ idx, tipo, src })}
-                  style={{ position: 'absolute', top: 6, right: 40, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 13, cursor: 'pointer' }}>✏️</button>
+                  style={{ position: 'absolute', top: 6, right: 40, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={13} strokeWidth={2.25} /></button>
                 <button onClick={() => setFotoYGuardar(idx, tipo, null)}
                   style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 26, height: 26, color: '#fff', fontSize: 15, cursor: 'pointer' }}>×</button>
               </>
@@ -1848,7 +1852,7 @@ const PostVenta: React.FC = () => {
               height: 80, borderRadius: 12, border: `0.5px dashed ${border}`,
               cursor: 'pointer', color: textMuted, gap: 4, background: dark ? 'transparent' : '#f8fafc',
             }}>
-              <span style={{ fontSize: 20 }}>📷</span>
+              <Camera size={20} strokeWidth={1.75} />
               <span style={{ fontSize: 10 }}>Cámara</span>
               <input type="file" accept="image/*" capture="environment"
                 onChange={e => seleccionarFoto(idx, tipo, e)} style={{ display: 'none' }} />
@@ -1859,7 +1863,7 @@ const PostVenta: React.FC = () => {
               height: 80, borderRadius: 12, border: `0.5px dashed ${border}`,
               cursor: 'pointer', color: textMuted, gap: 4, background: dark ? 'transparent' : '#f8fafc',
             }}>
-              <span style={{ fontSize: 20 }}>🖼️</span>
+              <ImageIcon size={20} strokeWidth={1.75} />
               <span style={{ fontSize: 10 }}>Galería</span>
               <input type="file" accept="image/*"
                 onChange={e => seleccionarFoto(idx, tipo, e)} style={{ display: 'none' }} />
@@ -1883,7 +1887,9 @@ const PostVenta: React.FC = () => {
         </IonHeader>
         <IonContent style={{ '--background': bg } as any}>
           <div style={{ padding: 24, textAlign: 'center', marginTop: 60 }}>
-            <div style={{ fontSize: 40, marginBottom: 16 }}>🏠</div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16, color: textMuted }}>
+              <Home size={40} strokeWidth={1.5} />
+            </div>
             <div style={{ fontSize: 14, fontWeight: 600, color: textPrimary, marginBottom: 8 }}>
               Falta el departamento
             </div>
@@ -1913,7 +1919,9 @@ const PostVenta: React.FC = () => {
             {!soloLectura && (paso === 'revision' || paso === 'firma') && saveState !== 'idle' && (
               <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
                 color: saveState === 'error' ? '#fca5a5' : 'rgba(255,255,255,0.72)' }}>
-                {saveState === 'saving' ? 'Guardando…' : saveState === 'saved' ? 'Guardado ✓' : 'Sin guardar'}
+                {saveState === 'saving' ? 'Guardando…' : saveState === 'saved' ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Guardado <Check size={12} strokeWidth={2.5} /></span>
+                ) : 'Sin guardar'}
               </span>
             )}
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#4ade80' : '#fbbf24' }} />
@@ -1932,7 +1940,10 @@ const PostVenta: React.FC = () => {
               borderRadius: 10, padding: '8px 12px',
               fontSize: 11, color: dark ? '#93c5fd' : '#1d4ed8',
             }}>
-              🔄 Se actualizó con cambios de otra sesión
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <RefreshCw size={13} strokeWidth={2} />
+                Se actualizó con cambios de otra sesión
+              </span>
             </div>
           )}
 
@@ -1962,7 +1973,11 @@ const PostVenta: React.FC = () => {
 
                       <button onClick={() => fileInputRef.current?.click()}
                         disabled={leyendo} style={btnPrimary(leyendo)}>
-                        {leyendo ? 'Leyendo PDF...' : '📄 Seleccionar papeleta PDF'}
+                        {leyendo ? 'Leyendo PDF...' : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <FileText size={17} strokeWidth={2} /> Seleccionar papeleta PDF
+                          </span>
+                        )}
                       </button>
 
                       <div style={{ fontSize: 11, color: textMuted, marginTop: 10, lineHeight: 1.4 }}>
@@ -2003,8 +2018,8 @@ const PostVenta: React.FC = () => {
                   border: `0.5px solid ${dark ? 'rgba(251,191,36,0.25)' : '#fde68a'}`,
                   borderRadius: 12, padding: 14, marginBottom: 12,
                 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: dark ? '#fbbf24' : '#92400e', marginBottom: 6 }}>
-                    ⚠️ La papeleta no coincide
+                  <div style={{ fontSize: 12, fontWeight: 700, color: dark ? '#fbbf24' : '#92400e', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <AlertTriangle size={15} strokeWidth={2.25} /> La papeleta no coincide
                   </div>
                   <div style={{ fontSize: 12, color: dark ? '#fbbf24' : '#92400e', lineHeight: 1.5, marginBottom: 10 }}>
                     {desajuste}. Las observaciones se guardarán en la Torre {torre?.nombre} · Depto {depto?.numero}.
@@ -2031,7 +2046,10 @@ const PostVenta: React.FC = () => {
                   fontSize: 12, fontWeight: 600,
                   color: finalizadoOffline ? (dark ? '#fbbf24' : '#92400e') : (dark ? '#4ade80' : '#15803d'),
                 }}>
-                  {finalizadoOffline ? '📴 Guardado en el dispositivo — pendiente de sincronizar' : '✅ Visita completada'}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {finalizadoOffline ? <WifiOff size={14} strokeWidth={2.25} /> : <CheckCircle2 size={14} strokeWidth={2.25} />}
+                    {finalizadoOffline ? 'Guardado en el dispositivo — pendiente de sincronizar' : 'Visita completada'}
+                  </span>
                   {completadaInfo.fecha && (
                     <span style={{ fontWeight: 400, color: textMuted, fontSize: 11 }}>
                       · {new Date(completadaInfo.fecha).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -2087,7 +2105,7 @@ const PostVenta: React.FC = () => {
                 borderRadius: 10, padding: '8px 12px', marginBottom: 16,
                 fontSize: 11, color: dark ? '#4ade80' : '#15803d', lineHeight: 1.4,
               }}>
-                <span style={{ fontSize: 14 }}>💾</span>
+                <Save size={15} strokeWidth={2} style={{ flexShrink: 0 }} />
                 Esta visita se guarda sola. Puedes cerrar la app y retomarla más
                 tarde desde el detalle del departamento.
               </div>
@@ -2113,7 +2131,7 @@ const PostVenta: React.FC = () => {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11, fontWeight: 700,
                         color: ok ? (dark ? '#4ade80' : '#15803d') : textMuted,
-                      }}>{ok ? '✓' : (r.origen === 'adicional' ? '+' : idx + 1)}</div>
+                      }}>{ok ? <Check size={14} strokeWidth={2.75} /> : (r.origen === 'adicional' ? '+' : idx + 1)}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: amb ? textPrimary : textMuted, display: 'flex', alignItems: 'center', gap: 6 }}>
                           {amb || 'Elegir ambiente'}
@@ -2237,11 +2255,7 @@ const PostVenta: React.FC = () => {
                         <label style={labelStyle}>estado</label>
                         {soloLectura ? (
                           <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: textPrimary }}>
-                            {r.estado === 'SOLUCIONADO' ? 'Solucionado'
-                              : r.estado === 'EN_PROCESO' ? 'En Proceso'
-                              : r.estado === 'NO_APLICA' ? 'No Aplica'
-                              : r.estado === 'CLIENTE_NO_ATIENDE' ? 'Cliente no atiende visita'
-                              : 'Pendiente'}
+                            {r.estado === 'SOLUCIONADO' ? 'Solucionado' : 'Pendiente'}
                           </div>
                         ) : (
                           <select value={r.estado} onChange={e => setCampo(idx, 'estado', e.target.value)} style={inputStyle}>
@@ -2290,12 +2304,12 @@ const PostVenta: React.FC = () => {
 
               {!esMaestro && !soloLectura && (
                 sinPapeleta ? (
-                  <button onClick={agregarObs} style={{ ...btnGhost, marginBottom: 8, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe' }}>
-                    ➕ Agregar observación
+                  <button onClick={agregarObs} style={{ ...btnGhost, marginBottom: 8, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <Plus size={15} strokeWidth={2.25} /> Agregar observación
                   </button>
                 ) : (
-                  <button onClick={agregarAdicional} style={{ ...btnGhost, marginBottom: 8, color: dark ? '#fbbf24' : '#92400e', borderColor: dark ? 'rgba(251,191,36,0.3)' : '#fde68a' }}>
-                    ➕ Agregar trabajo no registrado en la papeleta
+                  <button onClick={agregarAdicional} style={{ ...btnGhost, marginBottom: 8, color: dark ? '#fbbf24' : '#92400e', borderColor: dark ? 'rgba(251,191,36,0.3)' : '#fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <Plus size={15} strokeWidth={2.25} /> Agregar trabajo no registrado en la papeleta
                   </button>
                 )
               )}
@@ -2306,8 +2320,8 @@ const PostVenta: React.FC = () => {
               <div style={cardStyle}>
                 {propietario.nombre ? (
                   <button onClick={usarDatosPropietario}
-                    style={{ ...btnGhost, marginBottom: 14, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe' }}>
-                    👤 Es el propietario ({propietario.nombre})
+                    style={{ ...btnGhost, marginBottom: 14, color: accent, borderColor: dark ? 'rgba(96,165,250,0.3)' : '#bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <User size={15} strokeWidth={2.25} /> Es el propietario ({propietario.nombre})
                   </button>
                 ) : (
                   <div style={{
@@ -2380,7 +2394,11 @@ const PostVenta: React.FC = () => {
                     }}>{errorPdf}</div>
                   )}
                   <button onClick={generarInformePdf} disabled={generandoPdf} style={btnPrimary(generandoPdf)}>
-                    {generandoPdf ? 'Generando informe…' : '📄 Generar informe PDF'}
+                    {generandoPdf ? 'Generando informe…' : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <FileText size={17} strokeWidth={2} /> Generar informe PDF
+                      </span>
+                    )}
                   </button>
                 </div>
               )}
@@ -2388,7 +2406,11 @@ const PostVenta: React.FC = () => {
               {!soloLectura && errorBox}
 
               {!soloLectura && (
-                <button onClick={irAFirma} style={btnPrimary(false)}>✍️ Continuar a la firma</button>
+                <button onClick={irAFirma} style={btnPrimary(false)}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <PenLine size={17} strokeWidth={2} /> Continuar a la firma
+                  </span>
+                </button>
               )}
               <button onClick={reiniciar} style={{ ...btnGhost, marginTop: 8, marginBottom: 40 }}>
                 {soloLectura ? '← Volver' : sinPapeleta ? 'Cancelar y volver' : 'Cargar otra papeleta'}
@@ -2400,7 +2422,9 @@ const PostVenta: React.FC = () => {
           {paso === 'firma' && (
             listo ? (
               <div style={{ textAlign: 'center', paddingTop: 80 }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>{finalizadoOffline ? '📴' : '✅'}</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16, color: finalizadoOffline ? (dark ? '#fbbf24' : '#92400e') : (dark ? '#4ade80' : '#15803d') }}>
+                  {finalizadoOffline ? <WifiOff size={48} strokeWidth={1.5} /> : <CheckCircle2 size={48} strokeWidth={1.5} />}
+                </div>
                 <div style={{ fontSize: 16, fontWeight: 500, color: dark ? '#4ade80' : '#15803d' }}>
                   {finalizadoOffline
                     ? 'Guardado en el dispositivo — se enviará solo cuando haya conexión'
@@ -2425,9 +2449,12 @@ const PostVenta: React.FC = () => {
                       borderRadius: 10, padding: '8px 12px', marginBottom: 16,
                       fontSize: 11, color: dark ? '#93c5fd' : '#1d4ed8', lineHeight: 1.4,
                     }}>
-                      ℹ️ Este informe quedará registrado a nombre de {titular.nombre}, profesional titular de post venta del proyecto.
-                    </div>
-                  )}
+                    <span style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 6 }}>
+                      <Info size={14} strokeWidth={2.25} style={{ flexShrink: 0, marginTop: 1 }} />
+                      Este informe quedará registrado a nombre de {titular.nombre}, profesional titular de post venta del proyecto.
+                    </span>
+                  </div>
+                )}
 
                   <label style={{ ...labelStyle, marginBottom: 8 }}>firma de quien recibe *</label>
                   <div style={{ border: `0.5px solid ${border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 8, background: '#ffffff' }}>
@@ -2440,14 +2467,18 @@ const PostVenta: React.FC = () => {
                     />
                   </div>
                   <button onClick={limpiarFirma}
-                    style={{ background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, borderRadius: 8, padding: '4px 12px', cursor: 'pointer', marginBottom: 18 }}>
-                    🗑️ Limpiar firma
+                    style={{ background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, borderRadius: 8, padding: '4px 12px', cursor: 'pointer', marginBottom: 18, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <Trash2 size={13} strokeWidth={2.25} /> Limpiar firma
                   </button>
 
                   {errorBox}
 
                   <button onClick={finalizar} disabled={guardando} style={btnPrimary(guardando)}>
-                    {guardando ? 'Guardando...' : '📄 Guardar y generar informe'}
+                    {guardando ? 'Guardando...' : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <FileText size={17} strokeWidth={2} /> Guardar y generar informe
+                      </span>
+                    )}
                   </button>
                   <button onClick={() => setPaso('revision')} style={{ ...btnGhost, marginTop: 8 }}>
                     Volver a revisión
@@ -2478,15 +2509,15 @@ const PostVenta: React.FC = () => {
             <div style={{ padding: 16, display: 'flex', gap: 10 }}>
               <button
                 onClick={() => { setAnotando({ idx: fotoAmpliada.idx, tipo: fotoAmpliada.tipo, src: fotoAmpliada.src }); setFotoAmpliada(null); }}
-                style={{ flex: 1, height: 46, borderRadius: 12, background: 'rgba(255,255,255,0.08)', border: '0.5px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                style={{ flex: 1, height: 46, borderRadius: 12, background: 'rgba(255,255,255,0.08)', border: '0.5px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
-                ✏️ Editar
+                <Pencil size={15} strokeWidth={2.25} /> Editar
               </button>
               <button
                 onClick={() => { setFotoYGuardar(fotoAmpliada.idx, fotoAmpliada.tipo, null); setFotoAmpliada(null); }}
-                style={{ flex: 1, height: 46, borderRadius: 12, background: 'rgba(239,68,68,0.15)', border: '0.5px solid rgba(239,68,68,0.35)', color: '#f87171', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                style={{ flex: 1, height: 46, borderRadius: 12, background: 'rgba(239,68,68,0.15)', border: '0.5px solid rgba(239,68,68,0.35)', color: '#f87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
-                🗑️ Eliminar foto
+                <Trash2 size={15} strokeWidth={2.25} /> Eliminar foto
               </button>
             </div>
           </div>
@@ -2496,4 +2527,4 @@ const PostVenta: React.FC = () => {
   );
 };
 
-export default PostVenta; 
+export default PostVenta;

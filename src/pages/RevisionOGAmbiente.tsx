@@ -17,7 +17,7 @@ import { useIonViewDidEnter, useIonViewWillEnter } from '@ionic/react';
 import { useHistory } from 'react-router-dom';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
-import { getToleranciaCache, getImagenAmbienteCache, getElementosAmbienteCache } from '../utils/Ogcache';          // ← FMS offline OG
+import { getToleranciaCache, getImagenAmbienteCache, getElementosAmbienteCache, getReparacionCache } from '../utils/Ogcache';          // ← FMS offline OG
 import { getImagenUrlDB } from '../utils/ogImageDB';                                                                // ← FMS offline OG (imágenes IndexedDB)
 import { encolarRegistroOG } from '../utils/Ogofflinequeue'; // ← FMS offline OG
 import { useOffline }                   from '../Context/OfflineContext';  // ← FMS offline OG
@@ -158,6 +158,10 @@ const RevisionOGAmbiente: React.FC = () => {
   const [tabActivo, setTabActivo]     = useState<Tab>('Muros');
   const [tipoSel, setTipoSel]         = useState<typeof TIPOS_POR_TAB[Tab][number] | null>(null);
   const [tolerancias, setTolerancia]  = useState<string[]>([]);
+  // Código corto (PI/PU/C/Y...) por cada tolerancia del dropdown actual —
+  // se muestra al tomar la observación, para reconocer la reparación en
+  // terreno sin tener que leer el texto completo de la acción.
+  const [codigosTol, setCodigosTol] = useState<Record<string, { accion: string | null; codigo: string | null }>>({});
   const [tolSel, setTolSel]           = useState<string>('');
   const [cargandoTols, setCargandoTols] = useState(false);
 
@@ -367,7 +371,9 @@ const RevisionOGAmbiente: React.FC = () => {
       console.log(`[OGAmb] getToleranciaCache — revision="${revisionReal}" item="${tipo.item}" elemento="${elSel.elemento}" ambiente="${ambiente.titulo}" → ${fromCache.length} resultados`);
 
       if (fromCache.length > 0) {
-        setTolerancia(fromCache.map(r => r.tolerancia).filter(Boolean));
+        const lista = fromCache.map(r => r.tolerancia).filter(Boolean);
+        setTolerancia(lista);
+        cargarCodigosTolerancia(revisionReal, tipo.item, lista);
         return;
       }
 
@@ -382,13 +388,46 @@ const RevisionOGAmbiente: React.FC = () => {
           .eq('item_revision', tipo.item)
           .eq('ambiente', ambiente.titulo)
           .eq('activo', true);
-        setTolerancia((data || []).map((d: any) => d.tolerancia).filter(Boolean));
+        const lista = (data || []).map((d: any) => d.tolerancia).filter(Boolean);
+        setTolerancia(lista);
+        cargarCodigosTolerancia(revisionReal, tipo.item, lista);
       } else {
         // Sin red y sin cache → lista vacía con mensaje claro
         setTolerancia([]);
+        setCodigosTol({});
       }
     } finally {
       setCargandoTols(false);
+    }
+  };
+
+  // Resuelve el código/acción de cada tolerancia del dropdown actual.
+  // Primero intenta con el cache offline; si falta algo y hay red, completa
+  // consultando og_tolerancia_reparacion directo (misma orientación
+  // intercambiada revision/item_revision que usa Calibrador de Elementos).
+  const cargarCodigosTolerancia = async (revision: string, itemRevision: string, lista: string[]) => {
+    const mapa: Record<string, { accion: string | null; codigo: string | null }> = {};
+    const faltantes: string[] = [];
+    lista.forEach(tol => {
+      const rep = getReparacionCache(revision, itemRevision, tol);
+      if (rep) mapa[tol] = rep; else faltantes.push(tol);
+    });
+    setCodigosTol(mapa);
+
+    if (faltantes.length > 0 && online) {
+      const { data } = await supabase
+        .from('og_tolerancia_reparacion')
+        .select('revision, item_revision, tolerancia, accion, codigo')
+        .in('tolerancia', faltantes);
+      if (data) {
+        const extra: Record<string, { accion: string | null; codigo: string | null }> = {};
+        (data as any[]).forEach(r => {
+          const coincideDirecto  = r.revision === revision && r.item_revision === itemRevision;
+          const coincideCruzado  = r.revision === itemRevision && r.item_revision === revision;
+          if (coincideDirecto || coincideCruzado) extra[r.tolerancia] = { accion: r.accion, codigo: r.codigo };
+        });
+        setCodigosTol(prev => ({ ...prev, ...extra }));
+      }
     }
   };
 
@@ -843,22 +882,40 @@ const RevisionOGAmbiente: React.FC = () => {
                         }
                       </div>
                     ) : (
-                      <select
-                        value={tolSel}
-                        onChange={e => setTolSel(e.target.value)}
-                        style={{
-                          width: '100%', boxSizing: 'border-box', marginBottom: 12,
-                          border: `0.5px solid ${tolSel ? azul : inputBorder}`,
-                          borderRadius: 10, padding: '10px 12px', fontSize: 14,
-                          background: inputBg, color: tolSel ? textPrimary : textMuted,
-                          outline: 'none', height: 44,
-                        }}
-                      >
-                        <option value="">— Selecciona tolerancia —</option>
-                        {tolerancias.map(t => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
+                      <>
+                        <select
+                          value={tolSel}
+                          onChange={e => setTolSel(e.target.value)}
+                          style={{
+                            width: '100%', boxSizing: 'border-box', marginBottom: tolSel ? 6 : 12,
+                            border: `0.5px solid ${tolSel ? azul : inputBorder}`,
+                            borderRadius: 10, padding: '10px 12px', fontSize: 14,
+                            background: inputBg, color: tolSel ? textPrimary : textMuted,
+                            outline: 'none', height: 44,
+                          }}
+                        >
+                          <option value="">— Selecciona tolerancia —</option>
+                          {tolerancias.map(t => {
+                            const codigo = codigosTol[t]?.codigo;
+                            return (
+                              <option key={t} value={t}>{t}{codigo ? `  ·  ${codigo}` : ''}</option>
+                            );
+                          })}
+                        </select>
+                        {tolSel && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                            <span style={{
+                              fontSize: 11, fontWeight: 800, padding: '2px 7px', borderRadius: 5,
+                              border: `1px solid ${azul}`, color: azul, letterSpacing: '0.3px',
+                            }}>
+                              {codigosTol[tolSel]?.codigo || '?'}
+                            </span>
+                            <span style={{ fontSize: 12, color: textSecondary }}>
+                              {codigosTol[tolSel]?.accion || 'Reparación por definir'}
+                            </span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </>
                 )}

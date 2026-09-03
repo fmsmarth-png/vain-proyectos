@@ -46,13 +46,14 @@ interface Row {
   item_revision: string | null;
   tolerancia: string | null;
   accion: string | null;
+  estado: string | null;
   creado_en: string | null;
   es_importado: boolean | null;
 }
 
 type DimKey =
   | 'frente' | 'tipo_depto' | 'ambiente' | 'elemento'
-  | 'item_revision' | 'accion' | 'id_obra' | 'tolerancia';
+  | 'item_revision' | 'accion' | 'id_obra' | 'tolerancia' | 'estado';
 
 const DIMENSIONES: { key: DimKey; label: string; buscador: boolean }[] = [
   { key: 'frente',        label: 'Torre',             buscador: false },
@@ -63,6 +64,7 @@ const DIMENSIONES: { key: DimKey; label: string; buscador: boolean }[] = [
   { key: 'accion',        label: 'Reparación',        buscador: false },
   { key: 'id_obra',       label: 'Depto',             buscador: true  },
   { key: 'tolerancia',    label: 'Tolerancia',        buscador: true  },
+  { key: 'estado',        label: 'Estado',            buscador: false },
 ];
 
 // Dimensiones para "Agrupar por" (tabla dinámica)
@@ -268,11 +270,12 @@ const ReporteOG: React.FC = () => {
       'Revisión': r.item_revision ?? '',
       Tolerancia: r.tolerancia ?? '',
       'Reparación': r.accion ?? '',
+      Estado: r.estado === 'SOLUCIONADO' ? 'Solucionado' : 'Pendiente',
       Fecha: r.creado_en ? new Date(r.creado_en).toLocaleDateString('es-CL') : '',
       Origen: r.es_importado ? 'Histórico' : 'App',
     }));
     const enc = ['Torre', 'Depto', 'Tipo depto', 'Ambiente', 'Elemento',
-      'Revisión', 'Tolerancia', 'Reparación', 'Fecha', 'Origen'];
+      'Revisión', 'Tolerancia', 'Reparación', 'Estado', 'Fecha', 'Origen'];
     const hoja = XLSX.utils.json_to_sheet(filas, { header: enc });
     hoja['!cols'] = enc.map((h) =>
       h === 'Tolerancia' ? { wch: 28 } : h === 'Elemento' ? { wch: 22 }
@@ -313,6 +316,16 @@ const ReporteOG: React.FC = () => {
     return (
       <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11,
         fontWeight: 700, color: c, background: c + '1f' }}>{a}</span>
+    );
+  };
+
+  const COLOR_ESTADO: Record<string, string> = { SOLUCIONADO: '#15803d', PENDIENTE: '#a16207' };
+  const badgeEstado = (estado: string | null) => {
+    const e = estado || 'PENDIENTE';
+    const c = COLOR_ESTADO[e] || textMuted;
+    return (
+      <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11,
+        fontWeight: 700, color: c, background: c + '1f' }}>{e === 'SOLUCIONADO' ? 'Solucionado' : 'Pendiente'}</span>
     );
   };
 
@@ -490,7 +503,7 @@ const ReporteOG: React.FC = () => {
                                       <input type="checkbox" checked={marcado} onChange={() => toggleValor(d.key, o)}
                                         style={{ accentColor: '#3b82f6', width: 16, height: 16 }} />
                                       <span style={{ fontSize: 13, color: textPrimary, flex: 1 }}>
-                                        {d.key === 'accion' ? badge(o) : o}
+                                        {d.key === 'accion' ? badge(o) : d.key === 'estado' ? badgeEstado(o) : o}
                                       </span>
                                       <span style={{ fontSize: 11, color: textMuted, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
                                     </label>
@@ -602,6 +615,7 @@ const ReporteOG: React.FC = () => {
                         <th style={th}>Revisión</th>
                         <th style={th}>Tolerancia</th>
                         <th style={{ ...th, textAlign: 'center' }}>Reparación</th>
+                        <th style={{ ...th, textAlign: 'center' }}>Estado</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -614,10 +628,11 @@ const ReporteOG: React.FC = () => {
                           <td style={td}>{r.item_revision ?? NULO}</td>
                           <td style={{ ...td, fontSize: 12, color: textSecondary }}>{r.tolerancia ?? NULO}</td>
                           <td style={{ ...td, textAlign: 'center' }}>{badge(r.accion)}</td>
+                          <td style={{ ...td, textAlign: 'center' }}>{badgeEstado(r.estado)}</td>
                         </tr>
                       ))}
                       {filtradas.length === 0 && (
-                        <tr><td style={td} colSpan={7}>Sin registros para los filtros actuales.</td></tr>
+                        <tr><td style={td} colSpan={8}>Sin registros para los filtros actuales.</td></tr>
                       )}
                     </tbody>
                   </table>

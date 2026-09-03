@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { IonSpinner } from '@ionic/react';
 import { supabase } from '../supabase';
+import { HardHat, MapPin, Hammer, Pickaxe, Drill, BrickWall, ClipboardList, HelpCircle } from 'lucide-react';
 
 const CIAN = '#06b6d4';
 
@@ -130,11 +131,15 @@ const DashboardOG: React.FC<Props> = ({ proyectoPrincipal, dark }) => {
       }}>
         <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 12 }}>🏗️</span>
+          <HardHat size={13} strokeWidth={2} color={dark ? '#6E86A6' : 'rgba(255,255,255,0.6)'} />
           <span style={{ fontSize: 9, color: dark ? '#6E86A6' : 'rgba(255,255,255,0.5)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600 }}>Obra Gruesa</span>
         </div>
         <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', letterSpacing: '-0.5px' }}>{proyectoPrincipal.nombre}</div>
-        {proyectoPrincipal.direccion && <div style={{ fontSize: 11, color: dark ? '#5D728F' : 'rgba(255,255,255,0.4)', marginTop: 4 }}>📍 {proyectoPrincipal.direccion}</div>}
+        {proyectoPrincipal.direccion && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: dark ? '#5D728F' : 'rgba(255,255,255,0.4)', marginTop: 4 }}>
+            <MapPin size={11} strokeWidth={2} /> {proyectoPrincipal.direccion}
+          </div>
+        )}
       </div>
 
       {/* Último depto revisado OG */}
@@ -167,10 +172,10 @@ const DashboardOG: React.FC<Props> = ({ proyectoPrincipal, dark }) => {
       {conteos && conteos.total > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
           {([
-            { key: 'picado',   icon: '🔨', label: 'Picado',   color: COLOR_ACCION.picado },
-            { key: 'puntereo', icon: '🪚', label: 'Puntereo', color: COLOR_ACCION.puntereo },
-            { key: 'copa',     icon: '🥤', label: 'Copa',     color: COLOR_ACCION.copa },
-            { key: 'yeso',     icon: '🧱', label: 'Yeso',     color: COLOR_ACCION.yeso },
+            { key: 'picado',   icon: Hammer,  label: 'Picado',   color: COLOR_ACCION.picado },
+            { key: 'puntereo', icon: Pickaxe, label: 'Puntereo', color: COLOR_ACCION.puntereo },
+            { key: 'copa',     icon: Drill,   label: 'Copa',     color: COLOR_ACCION.copa },
+            { key: 'yeso',     icon: BrickWall, label: 'Yeso',   color: COLOR_ACCION.yeso },
           ] as const).map(item => (
             <div key={item.key} style={{
               background: kpiCardBg, borderRadius: 16, padding: 16,
@@ -180,8 +185,8 @@ const DashboardOG: React.FC<Props> = ({ proyectoPrincipal, dark }) => {
                 position: 'absolute', bottom: -10, right: -10, width: 60, height: 60, borderRadius: '50%',
                 background: dark ? `radial-gradient(circle, ${item.color}10 0%, transparent 70%)` : `${item.color}08`
               }} />
-              <div style={{ fontSize: 9, color: item.color, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>
-                {item.icon} {item.label}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9, color: item.color, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600, marginBottom: 14 }}>
+                <item.icon size={13} strokeWidth={2.25} /> {item.label}
               </div>
               <div style={{ fontSize: 40, fontWeight: 800, color: kpiNumColor, lineHeight: 1, marginBottom: 3 }}>
                 {conteos[item.key]}
@@ -203,13 +208,17 @@ const DashboardOG: React.FC<Props> = ({ proyectoPrincipal, dark }) => {
       {conteos && (
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1, background: dark ? '#16233B' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
-            <div style={{ fontSize: 20, marginBottom: 6 }}>📋</div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6, color: CIAN }}>
+              <ClipboardList size={20} strokeWidth={2} />
+            </div>
             <div style={{ fontSize: 28, fontWeight: 800, color: CIAN, lineHeight: 1 }}>{conteos.total}</div>
             <div style={{ fontSize: 10, color: textMuted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Total OG</div>
           </div>
           {conteos.porDefinir > 0 && (
             <div style={{ flex: 1, background: dark ? '#16233B' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
-              <div style={{ fontSize: 20, marginBottom: 6 }}>❓</div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6, color: dark ? '#888' : '#94a3b8' }}>
+                <HelpCircle size={20} strokeWidth={2} />
+              </div>
               <div style={{ fontSize: 28, fontWeight: 800, color: dark ? '#888' : '#94a3b8', lineHeight: 1 }}>{conteos.porDefinir}</div>
               <div style={{ fontSize: 10, color: textMuted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Por definir</div>
             </div>
