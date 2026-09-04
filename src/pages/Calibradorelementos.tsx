@@ -774,7 +774,20 @@ const CalibradorElementos: React.FC = () => {
                             }}
                           >📋 Clonar</button>
                           <button
-                            onClick={() => { setShowAddTol(!showAddTol); setShowClonarTol(false); }}
+                            onClick={() => {
+                              const abrir = !showAddTol;
+                              setShowAddTol(abrir);
+                              setShowClonarTol(false);
+                              // Los elementos "PIERNA..." tienen una regla fija en la
+                              // pantalla de terreno (RevisionOGAmbiente.tsx): buscan la
+                              // tolerancia con revision="PIERNA" sin importar qué se elija
+                              // acá. Se preselecciona solo para que no quede guardada con
+                              // un valor (ej. "VANO") que la app de terreno nunca va a
+                              // encontrar.
+                              if (abrir && elSel?.elemento?.toUpperCase().startsWith('PIERNA')) {
+                                setNuevaTolRevision('PIERNA');
+                              }
+                            }}
                             style={{
                               padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
                               border: `1px solid ${verdeBord}`, background: showAddTol ? verdeBg : 'transparent',
@@ -817,31 +830,45 @@ const CalibradorElementos: React.FC = () => {
                       {/* Add new tolerance panel */}
                       {showAddTol && (
                         <div style={{ padding: 8, borderRadius: 8, background: verdeBg, border: `1px solid ${verdeBord}`, marginBottom: 8 }}>
+                          {elSel?.elemento?.toUpperCase().startsWith('PIERNA') && (
+                            <div style={{ fontSize: 10, color: naranja, marginBottom: 6, lineHeight: 1.4 }}>
+                              ⚠ Este elemento empieza con "PIERNA" — la app de terreno solo
+                              encuentra tolerancias guardadas con Revisión = PIERNA, por eso
+                              ese campo quedó fijo abajo.
+                            </div>
+                          )}
                           <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                            <select
-                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11 }}
-                              value={nuevaTolRevision}
-                              onChange={e => setNuevaTolRevision(e.target.value)}
-                            >
-                              <option value="MURO">MURO</option>
-                              <option value="PLANEIDAD">PLANEIDAD</option>
-                              <option value="PLOMO">PLOMO</option>
-                              <option value="VANO">VANO</option>
-                              <option value="PIERNA">PIERNA</option>
-                            </select>
-                            <select
-                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11 }}
-                              value={nuevaTolItem}
-                              onChange={e => setNuevaTolItem(e.target.value)}
-                            >
-                              <option value="PLANEIDAD">PLANEIDAD</option>
-                              <option value="CORNISA">CORNISA</option>
-                              <option value="OTROS">OTROS</option>
-                              <option value="PLOMO">PLOMO</option>
-                              <option value="ANCHO">ANCHO</option>
-                              <option value="LOSA">LOSA</option>
-                              <option value="POSICION SALIDA AGUA">POS. AGUA</option>
-                            </select>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>Revisión</div>
+                              <select
+                                style={{ ...sInput, width: '100%', height: 30, fontSize: 11 }}
+                                value={nuevaTolRevision}
+                                disabled={elSel?.elemento?.toUpperCase().startsWith('PIERNA')}
+                                onChange={e => setNuevaTolRevision(e.target.value)}
+                              >
+                                <option value="MURO">MURO</option>
+                                <option value="PLANEIDAD">PLANEIDAD</option>
+                                <option value="PLOMO">PLOMO</option>
+                                <option value="VANO">VANO</option>
+                                <option value="PIERNA">PIERNA</option>
+                              </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>Tipo (ítem)</div>
+                              <select
+                                style={{ ...sInput, width: '100%', height: 30, fontSize: 11 }}
+                                value={nuevaTolItem}
+                                onChange={e => setNuevaTolItem(e.target.value)}
+                              >
+                                <option value="PLANEIDAD">PLANEIDAD</option>
+                                <option value="CORNISA">CORNISA</option>
+                                <option value="OTROS">OTROS</option>
+                                <option value="PLOMO">PLOMO</option>
+                                <option value="ANCHO">ANCHO</option>
+                                <option value="LOSA">LOSA</option>
+                                <option value="POSICION SALIDA AGUA">POS. AGUA</option>
+                              </select>
+                            </div>
                           </div>
                           <input
                             style={{ ...sInput, height: 30, fontSize: 11, marginBottom: 4 }}

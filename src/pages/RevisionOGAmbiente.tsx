@@ -22,6 +22,7 @@ import { getImagenUrlDB } from '../utils/ogImageDB';                            
 import { encolarRegistroOG } from '../utils/Ogofflinequeue'; // ← FMS offline OG
 import { useOffline }                   from '../Context/OfflineContext';  // ← FMS offline OG
 import { comprimirImagen }              from '../utils/comprimirImagen';   // ← FMS offline OG
+import { Ruler, Lock, WifiOff, ImageOff, Camera, Save, Check, X } from 'lucide-react';
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,20 @@ const getRevisionReal = (
   if (elemento.toUpperCase().startsWith('PIERNA')) return 'PIERNA';
   if (tabActivo === 'Muros') return 'MURO';
   return tipoRevision;
+};
+
+// Tipo de revisión que se preselecciona solo al tocar un elemento, según su
+// nombre/categoría — así no hay que elegirlo a mano cada vez:
+//   Muro           → Planeidad
+//   Pierna (nombre empieza con "PIERNA") → Plomo
+//   Vano (el vano en sí, no una pierna)  → Ancho
+const tipoPorDefecto = (
+  tabActivo: Tab,
+  elemento: string,
+): typeof TIPOS_POR_TAB[Tab][number] => {
+  if (tabActivo === 'Muros') return TIPOS_POR_TAB.Muros[0]; // Planeidad
+  const esPierna = elemento.toUpperCase().startsWith('PIERNA');
+  return TIPOS_POR_TAB.Vanos.find(t => t.label === (esPierna ? 'Plomo' : 'Ancho'))!;
 };
 
 // ── Componente ────────────────────────────────────────────────────────────────
@@ -345,30 +360,45 @@ const RevisionOGAmbiente: React.FC = () => {
     limpiarFoto();
     setStatus(null);
 
-    if (el.tipo_elemento === 'Muros') setTabActivo('Muros');
-    else setTabActivo('Vanos');
+    const tab: Tab = el.tipo_elemento === 'Muros' ? 'Muros' : 'Vanos';
+    setTabActivo(tab);
+
+    // Preselecciona el tipo de revisión según el elemento — así no hay que
+    // elegirlo a mano cada vez (Muro → Planeidad, Pierna → Plomo, Vano → Ancho).
+    // Se le pasan el elemento y el tab recién calculados directo (sin esperar
+    // a que elSel/tabActivo terminen de propagarse en el estado).
+    onTipoClick(tipoPorDefecto(tab, el.elemento), el, tab);
   };
 
   // ── al tocar tipo de revisión ─────────────────────────────────────────────────
   // FMS offline OG: lee del cache local primero; si no hay resultado cae a Supabase (online).
-  const onTipoClick = async (tipo: typeof TIPOS_POR_TAB[Tab][number]) => {
-    if (!elSel || !ambiente) return;
+  // Acepta overrides de elemento/tab para poder llamarse justo después de
+  // seleccionar un elemento nuevo, sin esperar a que el estado (elSel/
+  // tabActivo) termine de propagarse — si no, usaría valores obsoletos.
+  const onTipoClick = async (
+    tipo: typeof TIPOS_POR_TAB[Tab][number],
+    elOverride?: Elemento,
+    tabOverride?: Tab,
+  ) => {
+    const elActual = elOverride ?? elSel;
+    const tabActual = tabOverride ?? tabActivo;
+    if (!elActual || !ambiente) return;
     setTipoSel(tipo);
     setTolSel('');
     setStatus(null);
     setCargandoTols(true);
     try {
-      const revisionReal = getRevisionReal(elSel.elemento, tabActivo, tipo.revision);
+      const revisionReal = getRevisionReal(elActual.elemento, tabActual, tipo.revision);
 
       // 1. Intentar desde cache local (disponible online y offline)
       const fromCache = getToleranciaCache({
         revision:     revisionReal,
         itemRevision: tipo.item,
-        elemento:     elSel.elemento,
+        elemento:     elActual.elemento,
         ambiente:     ambiente.titulo,
       });
 
-      console.log(`[OGAmb] getToleranciaCache — revision="${revisionReal}" item="${tipo.item}" elemento="${elSel.elemento}" ambiente="${ambiente.titulo}" → ${fromCache.length} resultados`);
+      console.log(`[OGAmb] getToleranciaCache — revision="${revisionReal}" item="${tipo.item}" elemento="${elActual.elemento}" ambiente="${ambiente.titulo}" → ${fromCache.length} resultados`);
 
       if (fromCache.length > 0) {
         const lista = fromCache.map(r => r.tolerancia).filter(Boolean);
@@ -383,7 +413,7 @@ const RevisionOGAmbiente: React.FC = () => {
         const { data } = await supabase
           .from('og_catalogo')
           .select('tolerancia')
-          .eq('elemento', elSel.elemento)
+          .eq('elemento', elActual.elemento)
           .eq('revision', revisionReal)
           .eq('item_revision', tipo.item)
           .eq('ambiente', ambiente.titulo)
@@ -484,7 +514,7 @@ const RevisionOGAmbiente: React.FC = () => {
           sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
         });
 
-        setStatus({ msg: '✓ Guardado offline — se sincronizará al reconectarte', ok: true });
+        setStatus({ msg: 'Guardado offline — se sincronizará al reconectarte', ok: true });
         setElementosConObs(prev => new Set(prev).add(elSel.elemento));
         resetRegistro();
         return;
@@ -529,7 +559,7 @@ const RevisionOGAmbiente: React.FC = () => {
         });
         if (error) throw error;
 
-        setStatus({ msg: '✓ Observación registrada', ok: true });
+        setStatus({ msg: 'Observación registrada', ok: true });
       } catch (e: any) {
         // Falló la subida de la foto o el insert (señal cortada a medio
         // camino, típico en obra): en vez de mostrar solo un error y perder
@@ -554,7 +584,7 @@ const RevisionOGAmbiente: React.FC = () => {
           usuario_id:       userIdRef.current || '',
           sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
         });
-        setStatus({ msg: '✓ Guardado offline — se sincronizará al reconectarte', ok: true });
+        setStatus({ msg: 'Guardado offline — se sincronizará al reconectarte', ok: true });
       }
 
       setElementosConObs(prev => new Set(prev).add(elSel.elemento));
@@ -603,7 +633,9 @@ const RevisionOGAmbiente: React.FC = () => {
         </IonHeader>
         <IonContent style={{ '--background': bg } as any}>
           <div style={{ padding: 32, textAlign: 'center', color: textSecondary, marginTop: 60 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📐</div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+              <Ruler size={32} strokeWidth={1.5} />
+            </div>
             Accede desde el selector de ambiente
           </div>
         </IonContent>
@@ -624,7 +656,9 @@ const RevisionOGAmbiente: React.FC = () => {
             ‹
           </button>
           <IonTitle style={{ fontSize: 15, fontWeight: 600 }}>
-            📐 {ambiente.titulo}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Ruler size={15} strokeWidth={2.25} /> {ambiente.titulo}
+            </span>
           </IonTitle>
         </IonToolbar>
       </IonHeader>
@@ -637,13 +671,13 @@ const RevisionOGAmbiente: React.FC = () => {
             background: cardGrad, borderRadius: 16,
             border: `0.5px solid ${border}`, padding: '10px 14px', marginBottom: 12,
           }}>
-            <div style={{ fontSize: 11, color: textSecondary, marginBottom: 2 }}>
-              {proyecto.nombre} · {torre.frente || torre.nombre} · {depto.id_obra || depto.numero}
+            <div style={{ fontSize: 11, color: textSecondary, marginBottom: 3 }}>
+              {proyecto.nombre} · {torre.frente || torre.nombre} · Depto {depto.numero}
             </div>
-            <div style={{ fontSize: 13, color: textMuted, marginBottom: 2 }}>
-              Torre {torre.nombre} · Depto {depto.numero}
+            <div style={{ fontSize: 21, fontWeight: 800, color: textPrimary, marginBottom: 2, letterSpacing: '-0.3px' }}>
+              {depto.id_obra || `Depto ${depto.numero}`}
             </div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: textPrimary }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: textSecondary }}>
               {ambiente.titulo}
             </div>
           </div>
@@ -655,7 +689,7 @@ const RevisionOGAmbiente: React.FC = () => {
               borderRadius: 12, padding: '10px 14px', marginBottom: 12,
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
-              <span style={{ fontSize: 18 }}>🔒</span>
+              <Lock size={18} strokeWidth={2} color={rojo} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: rojo }}>Departamento cerrado</div>
                 <div style={{ fontSize: 11, color: textSecondary }}>Solo lectura</div>
@@ -669,7 +703,9 @@ const RevisionOGAmbiente: React.FC = () => {
               background: amarilloBg, border: `0.5px solid ${amarilloBord}`,
               borderRadius: 12, padding: '8px 14px', marginBottom: 12,
             }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: amarillo }}>📶 Sin conexión</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: amarillo, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <WifiOff size={14} strokeWidth={2.25} /> Sin conexión
+              </span>
               <div style={{ fontSize: 12, color: textSecondary, marginTop: 3 }}>
                 Las observaciones se guardarán localmente y se sincronizarán al reconectarte.
                 {!imagen && ' El plano no está disponible offline.'}
@@ -688,7 +724,9 @@ const RevisionOGAmbiente: React.FC = () => {
               border: `0.5px solid ${border}`, padding: 32, textAlign: 'center',
               marginBottom: 12,
             }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🖼️</div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, color: textMuted }}>
+                <ImageOff size={32} strokeWidth={1.5} />
+              </div>
               <div style={{ fontSize: 14, color: textSecondary }}>
                 {!online ? 'Plano no disponible offline' : 'Sin imagen configurada'}
               </div>
@@ -803,8 +841,8 @@ const RevisionOGAmbiente: React.FC = () => {
                 {elSel && (
                   <button
                     onClick={resetSeleccion}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: textMuted, padding: 4 }}
-                  >✕</button>
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: textMuted, padding: 4, display: 'flex' }}
+                  ><X size={18} strokeWidth={2} /></button>
                 )}
               </div>
 
@@ -949,7 +987,7 @@ const RevisionOGAmbiente: React.FC = () => {
                     border: `0.5px solid ${inputBorder}`, background: inputBg,
                     fontSize: 13, color: textSecondary, flex: 1, justifyContent: 'center',
                   }}>
-                    <span style={{ fontSize: 20 }}>📷</span>
+                    <Camera size={17} strokeWidth={2} />
                     {fotoPreview ? 'Cambiar foto' : 'Tomar / Subir foto'}
                     <input
                       ref={fotoInputRef}
@@ -973,10 +1011,10 @@ const RevisionOGAmbiente: React.FC = () => {
                           position: 'absolute', top: -6, right: -6,
                           width: 18, height: 18, borderRadius: '50%',
                           background: rojo, border: 'none', color: '#fff',
-                          fontSize: 10, cursor: 'pointer', display: 'flex',
+                          cursor: 'pointer', display: 'flex',
                           alignItems: 'center', justifyContent: 'center',
                         }}
-                      >✕</button>
+                      ><X size={12} strokeWidth={2.5} /></button>
                     </div>
                   )}
                 </div>
@@ -989,7 +1027,9 @@ const RevisionOGAmbiente: React.FC = () => {
                     background: status.ok ? verdeBg : rojoBg,
                     border: `0.5px solid ${status.ok ? verdeBord : rojoBord}`,
                     color: status.ok ? verde : rojo,
+                    display: 'flex', alignItems: 'center', gap: 6,
                   }}>
+                    {status.ok && <Check size={15} strokeWidth={2.5} />}
                     {status.msg}
                   </div>
                 )}
@@ -1014,9 +1054,12 @@ const RevisionOGAmbiente: React.FC = () => {
                 >
                   {guardando
                     ? 'Guardando...'
-                    : online
-                      ? '💾 Registrar Observación'
-                      : '💾 Guardar offline'
+                    : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <Save size={16} strokeWidth={2} />
+                        {online ? 'Registrar Observación' : 'Guardar offline'}
+                      </span>
+                    )
                   }
                 </button>
 
