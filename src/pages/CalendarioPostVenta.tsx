@@ -733,6 +733,9 @@ const CalendarioPostVenta: React.FC = () => {
   /* ---------- reagendar (drag) ---------- */
   const reagendar = async (p: PapeletaCalendario, nuevaFecha: Date) => {
     if (esMaestro) return;
+    // Defensa adicional (además del guardia en iniciarPointerDown): una
+    // visita COMPLETADA es un informe cerrado, nunca se reagenda.
+    if (p.estado === 'COMPLETADA') return;
     const claveNueva = claveFecha(nuevaFecha);
     const fechaActual = parseFechaFlexible(p.fecha_atencion);
     if (fechaActual && claveFecha(fechaActual) === claveNueva) return; // soltó en el mismo día
@@ -749,7 +752,13 @@ const CalendarioPostVenta: React.FC = () => {
 
     const { error: err } = await supabase
       .from(tabla)
-      .update({ fecha_atencion: textoNuevo, updated_at: new Date().toISOString() })
+      .update({
+        fecha_atencion: textoNuevo,
+        // Reagendar (antes de la visita) también mueve la fecha programada
+        // — solo aplica a Post Venta, Pre Entrega no tiene esta columna.
+        ...(tabla === T_PAPELETA ? { fecha_atencion_programada: textoNuevo } : {}),
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', p.id);
 
     reagendandoRef.current.delete(p.id);
@@ -927,6 +936,7 @@ const CalendarioPostVenta: React.FC = () => {
         n_requerimiento: d.requerimiento || null,
         fecha_registro: d.fechaRegistro || null,
         fecha_atencion: d.fechaAtencion || null,
+        fecha_atencion_programada: d.fechaAtencion || null,
         hora_atencion: d.horaAtencion || null,
         condominio: d.condominio || null,
         estado: 'EN_PROGRESO',
@@ -1152,7 +1162,12 @@ const CalendarioPostVenta: React.FC = () => {
     // maestro_postventa solo navega tocando un chip: nunca entra en modo
     // arrastre para reagendar. No se activa el timer del long-press; el tap
     // normal sigue funcionando abajo en onUp (activado nunca pasa a true).
-    const timer = esMaestro ? null : setTimeout(() => {
+    // Igual para una visita YA COMPLETADA: es un informe cerrado, arrastrarla
+    // no debe poder pisar su fecha real (antes esto pasaba en silencio — un
+    // drag accidental sobre una visita cerrada reescribía fecha_atencion y
+    // fecha_atencion_programada como si se estuviera reagendando).
+    const bloqueaDrag = esMaestro || p.estado === 'COMPLETADA';
+    const timer = bloqueaDrag ? null : setTimeout(() => {
       activado = true;
       setArrastrandoId(p.id);
       setPosArrastre({ x: startX, y: startY });

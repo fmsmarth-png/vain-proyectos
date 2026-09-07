@@ -67,6 +67,7 @@ export interface BorradorLocal {
   n_requerimiento: string | null;
   fecha_registro: string | null;
   fecha_atencion: string | null;
+  fecha_atencion_programada: string | null;
   hora_atencion: string | null;
   condominio: string | null;
   receptor_nombre: string;
@@ -83,6 +84,34 @@ export interface BorradorLocal {
 let cache: BorradorLocal[] = [];
 let hydrated = false;
 let hydratingPromise: Promise<void> | null = null;
+
+// IDs de papeleta cuyo cierre (finalizar()) está en curso AHORA MISMO en esta
+// misma pestaña/dispositivo. Es un guardia en memoria (no persiste, no hace
+// falta: dura literalmente los segundos que toma cerrar la visita) para que
+// sincronizarTodosLosBorradoresLocales (el ciclo de fondo de OfflineContext)
+// no intente re-subir estado: 'EN_PROGRESO' justo mientras el cierre está
+// escribiendo estado: 'COMPLETADA' — sin esto, ambas escrituras compiten
+// (revisar estado remoto y luego escribir NO es atómico) y la que gane al
+// final puede dejar la visita "resucitada" como EN_PROGRESO.
+// Antes esto se evitaba borrando el borrador local apenas empezaba el cierre
+// — pero eso significa que si algo más falla a mitad de camino (sesión
+// vencida, error inesperado, etc.), el borrador ya no está en ningún lado:
+// se pierde la visita completa. Con este guardia, el borrador local se
+// mantiene intacto hasta que el cierre termina de verdad (en el servidor o
+// en la cola offline) — solo entonces se lo borra.
+const finalizando = new Set<string>();
+
+/** Marca que el cierre de esta papeleta está en curso: ver comentario arriba. */
+export function marcarFinalizando(id: string): void {
+  finalizando.add(id);
+}
+
+/** Quita la marca — SIEMPRE se debe llamar al terminar finalizar(), haya
+ * salido bien o mal, o el borrador queda invisible para el ciclo de fondo
+ * para siempre (nunca más se reintentaría su sincronización). */
+export function desmarcarFinalizando(id: string): void {
+  finalizando.delete(id);
+}
 
 export function initPostventaBorradorLocal(): Promise<void> {
   if (hydratingPromise) return hydratingPromise;
@@ -233,6 +262,7 @@ export async function sincronizarBorradorConServidor(borrador: BorradorLocal): P
       n_requerimiento: borrador.n_requerimiento,
       fecha_registro: borrador.fecha_registro,
       fecha_atencion: borrador.fecha_atencion,
+      fecha_atencion_programada: borrador.fecha_atencion_programada,
       hora_atencion: borrador.hora_atencion,
       condominio: borrador.condominio,
       estado: borrador.estado,
@@ -286,7 +316,7 @@ export async function sincronizarBorradorConServidor(borrador: BorradorLocal): P
  */
 export async function sincronizarTodosLosBorradoresLocales(): Promise<{ ok: number; fallidos: number }> {
   warnIfNotHydrated();
-  const pendientes = cache.filter(b => b.estado === 'EN_PROGRESO');
+  const pendientes = cache.filter(b => b.estado === 'EN_PROGRESO' && !finalizando.has(b.id));
   let ok = 0;
   let fallidos = 0;
   for (const b of pendientes) {

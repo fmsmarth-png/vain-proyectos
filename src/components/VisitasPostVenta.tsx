@@ -19,7 +19,8 @@ import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { eliminarBorradorLocal } from '../utils/postventaBorradorLocal';
-import { ClipboardList, Clock, CheckCircle2, Trash2, ChevronDown } from 'lucide-react';
+import { fechaDesdeDdMmAaaa } from '../utils/semanasVain';
+import { ClipboardList, Clock, CheckCircle2, Trash2, ChevronDown, AlertTriangle } from 'lucide-react';
 
 const RESUME_KEY = 'postventa_papeleta_id';    // debe coincidir con PostVenta.tsx
 const SESSION_KEY = 'post_venta_depto_state';   // debe coincidir con PostVenta.tsx
@@ -36,7 +37,20 @@ interface Visita {
   obs_resueltas: number;
   con_foto_antes: number;
   con_foto_despues: number;
+  fecha_atencion: string | null;
+  fecha_atencion_programada: string | null;
 }
+
+// Compara la fecha real vs la programada (ambas dd/mm/aaaa) — true si la
+// visita se hizo antes de lo agendado.
+const esAdelantada = (v: Visita): boolean => {
+  if (!v.fecha_atencion || !v.fecha_atencion_programada) return false;
+  if (v.fecha_atencion === v.fecha_atencion_programada) return false;
+  const real = fechaDesdeDdMmAaaa(v.fecha_atencion);
+  const programada = fechaDesdeDdMmAaaa(v.fecha_atencion_programada);
+  if (!real || !programada) return false;
+  return real.getTime() < programada.getTime();
+};
 
 interface Props {
   proyecto: { id: string; nombre?: string; codigo?: string };
@@ -76,7 +90,7 @@ const VisitasPostVenta: React.FC<Props> = ({
     try {
       const { data } = await supabase
         .from('v_postventa_visitas')
-        .select('id, estado, sin_papeleta, n_requerimiento, fecha_creacion, fecha_completada, usuario_nombre, obs_total, obs_resueltas, con_foto_antes, con_foto_despues')
+        .select('id, estado, sin_papeleta, n_requerimiento, fecha_creacion, fecha_completada, usuario_nombre, obs_total, obs_resueltas, con_foto_antes, con_foto_despues, fecha_atencion, fecha_atencion_programada')
         .eq('proyecto_id', proyecto.id)
         .eq('depto_numero', String(depto.numero))
         .order('fecha_creacion', { ascending: false });
@@ -306,6 +320,16 @@ const VisitasPostVenta: React.FC<Props> = ({
                 <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>
                   Completada {fmtFecha(v.fecha_completada)}{v.usuario_nombre ? ` · ${v.usuario_nombre}` : ''}
                 </div>
+                {esAdelantada(v) && (
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4,
+                    fontSize: 10, fontWeight: 700,
+                    color: dark ? '#fbbf24' : '#92400e',
+                  }}>
+                    <AlertTriangle size={11} strokeWidth={2.5} />
+                    Adelantada (programada {v.fecha_atencion_programada})
+                  </div>
+                )}
               </div>
               <span style={{ fontSize: 16, color: dark ? '#4ade80' : '#15803d', flexShrink: 0 }}>›</span>
             </div>

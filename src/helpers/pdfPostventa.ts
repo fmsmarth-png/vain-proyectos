@@ -375,6 +375,9 @@ export interface DatosPostventa {
    *  entrega, se deriva del nRequerimiento y el año. */
   nInforme?:       string;
   fechaAtencion?:  string;   // dd/mm/aaaa, tal como viene de la papeleta
+  /** Fecha ORIGINALMENTE programada (PDF/agenda), si difiere de fechaAtencion
+   *  (visita realizada antes de lo agendado) se imprime una nota aparte. */
+  fechaAtencionProgramada?: string;
   horaAtencion?:   string;
   /** Nombre y apellido de quien realizó la revisión */
   revisor:         string;
@@ -395,6 +398,19 @@ const FONDO_FICHA = '#f8fafc';
 const BORDE       = '#e2e8f0';
 const VERDE       = '#15803d';
 const AMBAR       = '#b45309';
+const AMBAR_BG    = '#fef3c7';
+
+// Etiquetas legibles por estado — mismo criterio que ESTADO_LABELS en
+// PostVenta.tsx. Sin esto, el PDF imprimía el valor crudo tal cual se
+// guarda en la base (ej. "NO_APLICA" con guion bajo) en vez de un texto
+// presentable ("NO APLICA").
+const ESTADO_LABELS_PDF: Record<string, string> = {
+  SOLUCIONADO: 'SOLUCIONADO',
+  EN_PROCESO: 'EN PROCESO',
+  PENDIENTE: 'PENDIENTE',
+  NO_APLICA: 'NO APLICA',
+  CLIENTE_NO_ATIENDE: 'CLIENTE NO ATIENDE',
+};
 
 const ML    = 20;
 const MR    = 20;
@@ -610,6 +626,33 @@ export const generatePdfPostventa = async (datos: DatosPostventa): Promise<Blob>
     [datos.fechaAtencion || formatFecha(datos.fecha), datos.horaAtencion || '—', datos.revisor || '—'],
   );
 
+  // Visita adelantada: se hizo antes de la fecha originalmente programada.
+  // Se deja constancia explícita en el informe (valor legal/contractual),
+  // en vez de que la fecha real quede como si siempre hubiese sido la
+  // acordada. Recuadro con el mismo lenguaje visual que las tablas de
+  // arriba (borde + fondo), no una línea de texto suelta.
+  if (
+    datos.fechaAtencionProgramada &&
+    datos.fechaAtencion &&
+    datos.fechaAtencionProgramada !== datos.fechaAtencion
+  ) {
+    const boxH = 9;
+    doc.check(boxH + 7);
+    const yBox = doc.y;
+    pdf.setFillColor(AMBAR_BG);
+    pdf.setDrawColor(AMBAR);
+    pdf.setLineWidth(0.3);
+    pdf.rect(ML, yBox, CW, boxH, 'FD');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8);
+    pdf.setTextColor(AMBAR);
+    pdf.text(
+      `VISITA ADELANTADA — originalmente programada para el ${datos.fechaAtencionProgramada}`,
+      ML + 4, yBox + boxH / 2 + 1.5,
+    );
+    doc.y = yBox + boxH + 7;
+  }
+
   // ── 3. requerimientos atendidos ────────────────────────────────────────────
   seccion(3, 'Requerimientos atendidos');
 
@@ -665,7 +708,8 @@ export const generatePdfPostventa = async (datos: DatosPostventa): Promise<Blob>
     const esSolucionado = String(o.estado).toUpperCase() === 'SOLUCIONADO';
     pdf.setFontSize(7);
     pdf.setTextColor(esSolucionado ? VERDE : AMBAR);
-    pdf.text(String(o.estado).toUpperCase(), ML + CW - 4, cardY + headH / 2 + 1.5, { align: 'right' });
+    const estadoTexto = ESTADO_LABELS_PDF[String(o.estado).toUpperCase()] ?? String(o.estado).toUpperCase();
+    pdf.text(estadoTexto, ML + CW - 4, cardY + headH / 2 + 1.5, { align: 'right' });
 
     // solicitud del cliente
     let cy = cardY + headH + padTop;

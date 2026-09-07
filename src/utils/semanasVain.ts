@@ -116,7 +116,12 @@ export const nombreSemanaActual = (): string | null => nombreSemana(new Date());
 
 /** Convierte "dd/mm/aaaa" a Date. null si el formato no calza. */
 export const fechaDesdeDdMmAaaa = (texto: string): Date | null => {
-  const m = (texto ?? '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  // Acepta tanto dd/mm/aaaa como dd-mm-aaaa (algunos orígenes de datos, o un
+  // copy/paste desde una hoja de cálculo, pueden guardar/mostrar la fecha
+  // con guion en vez de barra — sin esto, el parseo fallaba en silencio y
+  // cualquier comparación de fechas que dependiera de él (ej. detectar
+  // visitas adelantadas) simplemente no hacía nada, sin ningún error visible).
+  const m = (texto ?? '').match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
   if (!m) return null;
   const [, dd, mm, aaaa] = m;
   return new Date(Number(aaaa), Number(mm) - 1, Number(dd));

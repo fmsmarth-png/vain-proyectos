@@ -16,7 +16,7 @@ import { nombreSemana, fechaDesdeDdMmAaaa } from '../utils/semanasVain';
 import { encolarFinalizacionPostventa } from '../utils/postventaOfflineQueue';
 import {
   BorradorLocal, guardarBorradorLocal, leerBorradorLocal, eliminarBorradorLocal,
-  sincronizarBorradorConServidor,
+  sincronizarBorradorConServidor, marcarFinalizando, desmarcarFinalizando,
 } from '../utils/postventaBorradorLocal';
 import { encolarFotoPendiente, contarFotosPendientes } from '../utils/postventaFotosPendientes';
 import {
@@ -72,6 +72,19 @@ const GRUPOS_CAUSA: { tipo: Causa['tipo']; label: string }[] = [
   { tipo: 'tercero', label: 'Terceros' },
   { tipo: 'nombre_tercero', label: 'Especialidad / Cuadrilla' },
 ];
+
+// Etiquetas legibles para cada estado posible de una observación. Debe
+// cubrir las 5 opciones del <select> editable (más abajo) — si acá solo se
+// distinguiera 'SOLUCIONADO' de todo lo demás, una visita cerrada con
+// NO_APLICA o CLIENTE_NO_ATIENDE se mostraría incorrectamente como
+// "Pendiente" en el modo de solo lectura.
+const ESTADO_LABELS: Record<RevisionObs['estado'], string> = {
+  SOLUCIONADO: 'Solucionado',
+  EN_PROCESO: 'En Proceso',
+  PENDIENTE: 'Pendiente',
+  NO_APLICA: 'No Aplica',
+  CLIENTE_NO_ATIENDE: 'Cliente no atiende visita',
+};
 
 /* ------------------------------------------------------------------ */
 /*  Utilidades                                                         */
@@ -263,6 +276,26 @@ const PostVenta: React.FC = () => {
   // llegara desactualizado o manipulado, se corrige solo al cargar.
   const [soloLectura, setSoloLectura] = useState<boolean>(() => !!location.state?.soloLectura);
   const [completadaInfo, setCompletadaInfo] = useState<{ fecha: string | null; firmaUrl: string | null }>({ fecha: null, firmaUrl: null });
+  // Fecha ORIGINALMENTE programada (la que trae el PDF o la agenda), fija
+  // desde que se crea la papeleta — NUNCA se edita desde el formulario.
+  // `datos.fechaAtencion` sigue siendo la fecha REAL en que se hizo la
+  // visita (editable); comparando ambas se detectan visitas adelantadas.
+  const [fechaAtencionProgramada, setFechaAtencionProgramadaState] = useState('');
+  const fechaAtencionProgramadaRef = useRef('');
+  useEffect(() => { fechaAtencionProgramadaRef.current = fechaAtencionProgramada; }, [fechaAtencionProgramada]);
+  const setFechaAtencionProgramadaSync = (updater: string | ((prev: string) => string)) => {
+    setFechaAtencionProgramadaState(prev => {
+      const next = typeof updater === 'function' ? (updater as (p: string) => string)(prev) : updater;
+      fechaAtencionProgramadaRef.current = next;
+      return next;
+    });
+  };
+  // Banner "visita adelantada": se muestra al detectar que la fecha
+  // programada todavía no llega y el profesional/maestro ya está haciendo
+  // la visita. Se descarta al confirmar la fecha real (o si el usuario la
+  // cierra sin confirmar — no vuelve a insistir en la misma sesión).
+  const [avisoAdelantadaVisible, setAvisoAdelantadaVisible] = useState(false);
+  const [fechaRealInput, setFechaRealInput] = useState('');
   // Refs para leer el estado más reciente dentro de callbacks con debounce
   const revRef = useRef<RevisionObs[]>([]);
   const obsRef = useRef<ObservacionPdf[]>([]);
@@ -708,6 +741,30 @@ const PostVenta: React.FC = () => {
 
   const idxPorId = (id: string) => revRef.current.findIndex(r => r.id === id);
 
+  // Compara la fecha programada contra HOY (a nivel de día, sin hora) para
+  // saber si la visita se está haciendo antes de lo agendado. null si no
+  // hay fecha programada válida para comparar.
+  const esVisitaAdelantada = (programadaTexto: string): boolean => {
+    const programada = fechaDesdeDdMmAaaa(programadaTexto);
+    if (!programada) return false;
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    programada.setHours(0, 0, 0, 0);
+    return hoy.getTime() < programada.getTime();
+  };
+
+  // Igual que arriba, pero comparando dos fechas ya conocidas (para una
+  // visita YA CERRADA: la fecha real que quedó registrada vs la programada
+  // original) en vez de comparar contra hoy.
+  const fueAdelantada = (realTexto: string, programadaTexto: string): boolean => {
+    const real = fechaDesdeDdMmAaaa(realTexto);
+    const programada = fechaDesdeDdMmAaaa(programadaTexto);
+    if (!real || !programada) return false;
+    real.setHours(0, 0, 0, 0);
+    programada.setHours(0, 0, 0, 0);
+    return real.getTime() < programada.getTime();
+  };
+
   // Arma el snapshot completo del borrador a partir del estado actual, con
   // overrides puntuales para no depender de que React ya haya re-renderizado
   // cuando se llama justo después de un setX() (los refs se actualizan en un
@@ -733,6 +790,7 @@ const PostVenta: React.FC = () => {
       n_requerimiento: sinPapeletaActual ? null : (datosActual.requerimiento || null),
       fecha_registro: datosActual.fechaRegistro || null,
       fecha_atencion: datosActual.fechaAtencion || null,
+      fecha_atencion_programada: fechaAtencionProgramadaRef.current || null,
       hora_atencion: datosActual.horaAtencion || null,
       condominio: datosActual.condominio || null,
       receptor_nombre: over.recNombre ?? recNombreRef.current,
@@ -911,6 +969,19 @@ const PostVenta: React.FC = () => {
     sinPapeletaRef.current = esSinPapeleta;
     datosRef.current = d;
 
+    // La fecha programada se fija UNA vez, acá, con lo que trajo el PDF —
+    // de ahí en adelante nunca se vuelve a tocar (a diferencia de
+    // datos.fechaAtencion, que el profesional sí puede seguir editando como
+    // fecha REAL de la visita). Si la visita se está haciendo antes de esa
+    // fecha, se avisa de inmediato.
+    if (!esSinPapeleta && d.fechaAtencion) {
+      setFechaAtencionProgramadaSync(d.fechaAtencion);
+      if (esVisitaAdelantada(d.fechaAtencion)) {
+        setFechaRealInput(new Date().toISOString().slice(0, 10));
+        setAvisoAdelantadaVisible(true);
+      }
+    }
+
     await persistirBorrador({ rev: revsConId, obs: observaciones, sinPapeleta: esSinPapeleta, datos: d });
   };
 
@@ -983,6 +1054,12 @@ const PostVenta: React.FC = () => {
         setPapeletaId(pid);
         papeletaIdRef.current = pid;
 
+        setFechaAtencionProgramadaSync(local.fecha_atencion_programada ?? local.fecha_atencion ?? '');
+        if (esVisitaAdelantada(local.fecha_atencion_programada ?? local.fecha_atencion ?? '')) {
+          setFechaRealInput(new Date().toISOString().slice(0, 10));
+          setAvisoAdelantadaVisible(true);
+        }
+
         setObs(local.filas.map((h, i) => ({
           numero: String(i + 1), ambiente: h.solicitud_ambiente ?? '', descripcion: h.solicitud_cliente ?? '',
         } as ObservacionPdf)));
@@ -1030,6 +1107,14 @@ const PostVenta: React.FC = () => {
       const esVisitaCerrada = pap.estado === 'COMPLETADA';
       setSoloLectura(esVisitaCerrada);
       setCompletadaInfo({ fecha: pap.fecha_completada ?? null, firmaUrl: pap.receptor_firma_url ?? null });
+      setFechaAtencionProgramadaSync(pap.fecha_atencion_programada ?? pap.fecha_atencion ?? '');
+      // El aviso de "adelantada" solo tiene sentido mientras la visita
+      // sigue abierta — una ya COMPLETADA se muestra con su badge fijo más
+      // abajo (ver render), no con este banner interactivo.
+      if (!esVisitaCerrada && esVisitaAdelantada(pap.fecha_atencion_programada ?? pap.fecha_atencion ?? '')) {
+        setFechaRealInput(new Date().toISOString().slice(0, 10));
+        setAvisoAdelantadaVisible(true);
+      }
 
       const { data: hijos } = await supabase.from(T_BORRADOR)
         .select('*').eq('papeleta_id', pid)
@@ -1406,6 +1491,11 @@ const PostVenta: React.FC = () => {
     if (!firmaDataUrl) { setError('La firma de quien recibe es obligatoria'); return; }
 
     setGuardando(true); setError(''); setFinalizadoOffline(false);
+    // Evita que el ciclo de fondo (sincronizarTodosLosBorradoresLocales, en
+    // OfflineContext) intente re-subir esta misma papeleta como EN_PROGRESO
+    // mientras este finalizar() está en curso escribiendo su cierre — ver
+    // el comentario de marcarFinalizando en postventaBorradorLocal.ts.
+    if (papeletaId) marcarFinalizando(papeletaId);
     try {
       // Asegura que lo último tecleado quede persistido antes de cerrar.
       await flushGuardadoFilas();
@@ -1471,25 +1561,33 @@ const PostVenta: React.FC = () => {
         }
       }
 
-      // FIX: se borra el borrador LOCAL acá, ANTES de escribir en el
-      // servidor (no al final, como antes). Mientras el borrador siguiera
-      // existiendo localmente marcado EN_PROGRESO, el ciclo de
-      // sincronización de fondo de OfflineContext podía correr justo en esa
-      // ventana y volver a subir estado: 'EN_PROGRESO' — pisando el estado:
-      // 'COMPLETADA' que este mismo finalizar() recién había escrito (sin
-      // tocar fecha_completada/firma, que esa sincronización de fondo no
-      // incluye en su payload — por eso esos campos quedaban bien pero el
-      // estado se resucitaba solo). Si más abajo el guardado termina yendo
-      // por la cola offline, esa cola (postventaOfflineQueue, un store
-      // IndexedDB aparte) igual completa el cierre correctamente — no
-      // depende de este borrador de avance. Las fotos que hayan quedado
-      // pendientes ya están a salvo en su propia cola (arriba), así que
-      // borrar este borrador general no les afecta.
-      if (papeletaId) await eliminarBorradorLocal(papeletaId);
+      // El borrador local YA NO se borra acá (antes sí, ver historial): con
+      // marcarFinalizando ya no hay carrera con el ciclo de fondo, así que
+      // se puede dejar el borrador intacto hasta que este finalizar()
+      // termine de verdad — si algo de lo que sigue falla de forma
+      // inesperada, la visita sigue recuperable en vez de perderse.
+      // Se borra recién al final de la función (ver el finally más abajo).
 
-      const { data: sess } = await supabase.auth.getSession();
-      const user = sess?.session?.user;
-      if (!user?.id) throw new Error('No se pudo identificar el usuario');
+      // Todo este bloque de preparación (sesión, atribución, firma→blob) se
+      // protege con sus propios try/catch: si CUALQUIERA de estos pasos
+      // falla de forma inesperada (sesión vencida, error de memoria al
+      // convertir la firma, etc.), NO se aborta el cierre — se sigue con
+      // los datos que sí están disponibles (ya en memoria: rev/obs, que son
+      // el contenido real de la visita) y se cae al camino de la cola
+      // offline más abajo, en vez de perder todo el registro con solo un
+      // mensaje de error en pantalla (que es justo lo que pasaba antes).
+      let user: { id: string; email?: string | null } | null = null;
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        user = sess?.session?.user ?? null;
+      } catch (e) {
+        console.warn('[PostVenta] No se pudo leer la sesión al cerrar, se usa lo ya conocido:', e);
+      }
+      // Si no hay sesión resuelta ahora mismo (offline, token vencido), se
+      // recurre a lo que ya se resolvió al iniciar/reanudar la visita —
+      // usuarioIdRef/usuarioEmailRef se llenan en iniciarBorrador/hidratarBorrador.
+      const userId = user?.id ?? usuarioIdRef.current ?? null;
+      const userEmail = (user?.email ?? usuarioEmailRef.current ?? '') || '';
 
       // Si un maestro_postventa cierra la visita, el informe y la papeleta
       // quedan a nombre del profesional titular de post venta del proyecto
@@ -1500,8 +1598,8 @@ const PostVenta: React.FC = () => {
       // el guardado sale online como si termina encolado offline (ver
       // flushColaPostventa en postventaOfflineQueue.ts, que reconstruye la
       // papeleta leyendo estos mismos campos de la primera fila).
-      const attribUserId = (esMaestro && titular.id) ? titular.id : user.id;
-      const attribUserEmail = (esMaestro && titular.id) ? (titular.email ?? '') : (user.email ?? '').toLowerCase();
+      const attribUserId = (esMaestro && titular.id) ? titular.id : (userId ?? '');
+      const attribUserEmail = (esMaestro && titular.id) ? (titular.email ?? '') : userEmail.toLowerCase();
       const attribUserNombre = (esMaestro && titular.id) ? (titular.nombre ?? '') : inspectorNombre;
 
       // La fecha de atención es la fecha real de la visita, no el día en que se
@@ -1515,14 +1613,22 @@ const PostVenta: React.FC = () => {
       }
 
       // Blob de la firma, listo para subir a Storage o para guardar en la cola
-      // offline si no hay (o se pierde) la conexión.
-      const firmaBlobLocal = await fetch(firmaDataUrl).then(r => r.blob());
+      // offline si no hay (o se pierde) la conexión. Si la conversión misma
+      // falla (caso raro), se sigue sin blob — se pierde solo la firma como
+      // imagen, nunca el resto de la visita, y firmaDataUrl (en memoria) se
+      // sigue mostrando en pantalla en modo solo lectura de todas formas.
+      let firmaBlobLocal: Blob | null = null;
+      try {
+        firmaBlobLocal = await fetch(firmaDataUrl).then(r => r.blob());
+      } catch (e) {
+        console.warn('[PostVenta] No se pudo convertir la firma a Blob:', e);
+      }
 
       // Firma → storage. Solo se intenta si hay conexión; si falla o estamos
       // offline, el Blob local se guarda en la cola y se sube al reconectar
       // (mientras tanto, el PDF de abajo ya la incluye embebida igual).
       let firmaUrl: string | null = null;
-      if (online && firmaBlobLocal.size > 0) {
+      if (online && firmaBlobLocal && firmaBlobLocal.size > 0) {
         try {
           const nombre = `firma_pv_${depto.id}_${Date.now()}.png`;
           const { error: upErr } = await supabase.storage
@@ -1533,6 +1639,7 @@ const PostVenta: React.FC = () => {
           }
         } catch { /* se reintenta en la cola offline más abajo */ }
       }
+
 
       // Los datos del propietario NO se repiten acá: viven en `departamentos`
       // y se alcanzan por departamento_id. Lo que sí es propio de esta visita
@@ -1612,6 +1719,7 @@ const PostVenta: React.FC = () => {
               n_requerimiento: borradorActual?.n_requerimiento ?? (sinPapeleta ? null : (datos.requerimiento || null)),
               fecha_registro: borradorActual?.fecha_registro ?? (datos.fechaRegistro || null),
               fecha_atencion: borradorActual?.fecha_atencion ?? (datos.fechaAtencion || null),
+              fecha_atencion_programada: borradorActual?.fecha_atencion_programada ?? (fechaAtencionProgramadaRef.current || null),
               hora_atencion: borradorActual?.hora_atencion ?? (datos.horaAtencion || null),
               condominio: borradorActual?.condominio ?? (datos.condominio || null),
               usuario_id: esMaestro ? attribUserId : (borradorActual?.usuario_id ?? attribUserId),
@@ -1644,6 +1752,7 @@ const PostVenta: React.FC = () => {
           sin_papeleta: sinPapeleta,
           fecha_registro: datos.fechaRegistro || null,
           fecha_atencion: datos.fechaAtencion || null,
+          fecha_atencion_programada: fechaAtencionProgramadaRef.current || null,
           hora_atencion: datos.horaAtencion || null,
           condominio: datos.condominio || null,
         }));
@@ -1651,10 +1760,10 @@ const PostVenta: React.FC = () => {
         setFinalizadoOffline(true);
       }
 
-      // El borrador local ya se eliminó al principio de esta función (ver
-      // FIX más arriba) — la visita queda cerrada en el servidor o en la
-      // cola de finalización offline, que la lleva completa.
-      //
+      // Recién acá, con el cierre YA confirmado (en el servidor o en la cola
+      // offline completa), se borra el borrador local de avance — ver el
+      // comentario más arriba de por qué ya no se borra al principio.
+      if (papeletaId) await eliminarBorradorLocal(papeletaId);
       // En vez de la pantalla transitoria + reiniciar() de antes, se pasa
       // directo a modo SOLO LECTURA: el maestro_postventa ve de inmediato
       // la confirmación de cierre con la firma ya capturada, en la misma
@@ -1668,6 +1777,10 @@ const PostVenta: React.FC = () => {
     } catch (e: any) {
       setError('Error: ' + (e?.message ?? 'desconocido'));
     }
+    // Pase lo que pase (éxito, error, o quedó encolado offline), siempre se
+    // quita la marca de "finalizando" — si no, esta papeleta quedaría para
+    // siempre invisible para el ciclo de fondo (ver marcarFinalizando).
+    if (papeletaId) desmarcarFinalizando(papeletaId);
     setGuardando(false);
   };
 
@@ -1694,6 +1807,10 @@ const PostVenta: React.FC = () => {
         depto: String(depto.numero),
         nRequerimiento: datos.requerimiento,
         fechaAtencion: datos.fechaAtencion,
+        fechaAtencionProgramada:
+          fechaAtencionProgramada && fechaAtencionProgramada !== datos.fechaAtencion
+            ? fechaAtencionProgramada
+            : undefined,
         horaAtencion: datos.horaAtencion,
         revisor: inspectorNombre,
         receptorNombre: recNombre.trim(),
@@ -2055,12 +2172,78 @@ const PostVenta: React.FC = () => {
                       · {new Date(completadaInfo.fecha).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                   )}
+                  {fueAdelantada(datos.fechaAtencion, fechaAtencionProgramada) && (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      fontWeight: 700, fontSize: 11, marginLeft: 4,
+                      color: dark ? '#fbbf24' : '#92400e',
+                    }}>
+                      <AlertTriangle size={12} strokeWidth={2.5} />
+                      Visita adelantada (programada {fechaAtencionProgramada})
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {!soloLectura && avisoAdelantadaVisible && (
+                <div style={{
+                  marginBottom: 16, borderRadius: 10, padding: '12px 14px',
+                  background: dark ? 'rgba(251,191,36,0.08)' : '#fffbeb',
+                  border: `0.5px solid ${dark ? 'rgba(251,191,36,0.35)' : '#fde68a'}`,
+                }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700,
+                    color: dark ? '#fbbf24' : '#92400e', marginBottom: 6,
+                  }}>
+                    <AlertTriangle size={16} strokeWidth={2.25} />
+                    Visita adelantada
+                  </div>
+                  <div style={{ fontSize: 12, color: dark ? '#fbbf24' : '#92400e', marginBottom: 10 }}>
+                    Esta visita estaba programada para el <b>{fechaAtencionProgramada}</b>, pero se está
+                    haciendo antes. Confirma la fecha real en que se realizó:
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <input
+                      type="date"
+                      value={fechaRealInput}
+                      onChange={e => setFechaRealInput(e.target.value)}
+                      style={{ ...inputMetaStyle, flex: '1 1 160px' }}
+                    />
+                    <button
+                      onClick={() => {
+                        const nueva = isoAFechaTexto(fechaRealInput);
+                        setDatosSync(d => ({ ...d, fechaAtencion: nueva }));
+                        guardarFechaHoraDebounced();
+                        setAvisoAdelantadaVisible(false);
+                      }}
+                      style={{
+                        padding: '8px 14px', borderRadius: 8, border: 'none',
+                        background: dark ? '#fbbf24' : '#92400e', color: dark ? '#1c1917' : '#fff',
+                        fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      }}
+                    >
+                      Confirmar fecha real
+                    </button>
+                    <button
+                      onClick={() => setAvisoAdelantadaVisible(false)}
+                      style={{
+                        padding: '8px 14px', borderRadius: 8,
+                        background: 'transparent', border: `0.5px solid ${dark ? 'rgba(251,191,36,0.35)' : '#fde68a'}`,
+                        color: dark ? '#fbbf24' : '#92400e', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      }}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
                 </div>
               )}
 
               {!sinPapeleta && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                   {metaChip('registro', datos.fechaRegistro)}
+                  {fechaAtencionProgramada && fechaAtencionProgramada !== datos.fechaAtencion && (
+                    metaChip('programada', fechaAtencionProgramada)
+                  )}
                   {(esMaestro || soloLectura) ? (
                     <>
                       {metaChip('atención', datos.fechaAtencion)}
@@ -2255,7 +2438,7 @@ const PostVenta: React.FC = () => {
                         <label style={labelStyle}>estado</label>
                         {soloLectura ? (
                           <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: textPrimary }}>
-                            {r.estado === 'SOLUCIONADO' ? 'Solucionado' : 'Pendiente'}
+                            {ESTADO_LABELS[r.estado] ?? r.estado}
                           </div>
                         ) : (
                           <select value={r.estado} onChange={e => setCampo(idx, 'estado', e.target.value)} style={inputStyle}>

@@ -55,6 +55,7 @@ export interface FilaPostventaPendiente {
   sin_papeleta: boolean;
   fecha_registro: string | null;
   fecha_atencion: string | null;
+  fecha_atencion_programada: string | null;
   hora_atencion: string | null;
   condominio: string | null;
 }
@@ -226,6 +227,7 @@ export async function flushColaPostventa(): Promise<{ ok: number; fallidos: numb
           n_requerimiento: cab.n_requerimiento,
           fecha_registro: cab.fecha_registro,
           fecha_atencion: cab.fecha_atencion,
+          fecha_atencion_programada: cab.fecha_atencion_programada,
           hora_atencion: cab.hora_atencion,
           condominio: cab.condominio,
           usuario_id: cab.usuario_id,
