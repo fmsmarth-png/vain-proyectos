@@ -24,7 +24,7 @@ interface MaterialCentral {
 
 interface Despacho {
   id: string;
-  numero_guia: string;
+  numero_guia: string | null;
   fecha_despacho: string;
   notas: string | null;
   creado_en: string;
@@ -94,8 +94,10 @@ const BodegaCentral: React.FC = () => {
   const [teoricoNuevo, setTeoricoNuevo] = useState('');
   const [creando, setCreando] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [editNombreVal, setEditNombreVal] = useState('');
   const [editTeoricoVal, setEditTeoricoVal] = useState('');
   const [editUnidadVal, setEditUnidadVal] = useState('');
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null);
 
   // Despachos
   const [despachos, setDespachos] = useState<Despacho[]>([]);
@@ -207,21 +209,43 @@ const BodegaCentral: React.FC = () => {
     await cargarDatos(proyecto.id);
   };
 
-  // ── Catálogo: editar teórico y unidad ───────────────────────────────────
+  // ── Catálogo: editar nombre, teórico y unidad ───────────────────────────
   const iniciarEdicion = (m: MaterialCentral) => {
     setEditandoId(m.id);
+    setEditNombreVal(m.nombre);
     setEditTeoricoVal(String(m.total_teorico));
     setEditUnidadVal(m.unidad ?? '');
   };
 
   const guardarEdicion = async () => {
     if (!editandoId || !proyecto) return;
+    if (!editNombreVal.trim()) { setToastColor('danger'); setToastMsg('El nombre es obligatorio'); return; }
     const { error } = await supabase.from('bodega_materiales').update({
+      nombre: editNombreVal.trim().toUpperCase(),
       total_teorico: parseFloat(editTeoricoVal) || 0,
       unidad: editUnidadVal.trim().toUpperCase() || null,
     }).eq('id', editandoId);
-    if (error) { setToastColor('danger'); setToastMsg('No se pudo guardar'); return; }
+    if (error) { setToastColor('danger'); setToastMsg('No se pudo guardar: ' + error.message); return; }
     setEditandoId(null);
+    setToastColor('success'); setToastMsg('Material actualizado');
+    await cargarDatos(proyecto.id);
+  };
+
+  // ── Catálogo: eliminar (baja lógica, activo=false) ──────────────────────
+  // No se borra físicamente: preserva el historial de despachos que ya
+  // referencian este material. Queda fuera de bodega_stock_actual (la vista
+  // ya filtra por activo) y no aparece más en el catálogo ni en despachos.
+  const eliminarMaterial = async (m: MaterialCentral) => {
+    if (!proyecto) return;
+    if (!window.confirm(`¿Eliminar "${m.nombre}" del catálogo? Esta acción no se puede deshacer.`)) return;
+    setEliminandoId(m.id);
+    const { error } = await supabase.from('bodega_materiales')
+      .update({ activo: false })
+      .eq('id', m.id);
+    setEliminandoId(null);
+    if (error) { setToastColor('danger'); setToastMsg('No se pudo eliminar: ' + error.message); return; }
+    if (editandoId === m.id) setEditandoId(null);
+    setToastColor('success'); setToastMsg(`"${m.nombre}" eliminado del catálogo`);
     await cargarDatos(proyecto.id);
   };
 
@@ -241,7 +265,7 @@ const BodegaCentral: React.FC = () => {
   // ── Despachos: guardar ──────────────────────────────────────────────────
   const guardarDespacho = async () => {
     if (!proyecto) return;
-    if (!numGuia.trim()) { setToastColor('danger'); setToastMsg('Ingresa el N° de guía'); return; }
+    // N° de guía es opcional: compras por caja chica no siempre traen guía.
     const itemsValidos = itemsDespacho.filter(it => it.material_id && parseFloat(it.cantidad) > 0);
     if (itemsValidos.length === 0) { setToastColor('danger'); setToastMsg('Agrega al menos un material con cantidad'); return; }
 
@@ -251,7 +275,7 @@ const BodegaCentral: React.FC = () => {
     const { data: despacho, error: errDespacho } = await supabase
       .from('bodega_despachos')
       .insert({
-        proyecto_id: proyecto.id, numero_guia: numGuia.trim(),
+        proyecto_id: proyecto.id, numero_guia: numGuia.trim() || null,
         fecha_despacho: fechaDespacho, notas: notasDespacho.trim() || null,
         registrado_por: authData?.user?.id ?? null,
       })
@@ -278,9 +302,10 @@ const BodegaCentral: React.FC = () => {
       return;
     }
 
+    const etiqueta = numGuia.trim() ? `Guía ${numGuia.trim()}` : 'Registro (caja chica, sin guía)';
     setNumGuia(''); setNotasDespacho(''); setItemsDespacho([]);
     setFechaDespacho(new Date().toISOString().slice(0, 10));
-    setToastColor('success'); setToastMsg(`Guía ${numGuia.trim()} registrada con ${itemsValidos.length} material(es)`);
+    setToastColor('success'); setToastMsg(`${etiqueta} registrada con ${itemsValidos.length} material(es)`);
     await cargarDatos(proyecto.id);
   };
 
@@ -403,9 +428,11 @@ const BodegaCentral: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Edición inline de teórico y unidad */}
+                    {/* Edición inline de nombre, teórico y unidad */}
                     {editando ? (
                       <div style={{ marginTop: 10, paddingTop: 10, borderTop: `0.5px solid ${border}` }}>
+                        <input style={{ ...sInput, marginBottom: 8 }} placeholder="Nombre del material"
+                          value={editNombreVal} onChange={e => setEditNombreVal(e.target.value)} />
                         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                           <input style={{ ...sInput, flex: 1 }} placeholder="Unidad" value={editUnidadVal}
                             onChange={e => setEditUnidadVal(e.target.value)} />
@@ -416,11 +443,23 @@ const BodegaCentral: React.FC = () => {
                           <button onClick={guardarEdicion} style={{ ...sBtnPrimary, flex: 1, padding: '10px 0' }}>Guardar</button>
                           <button onClick={() => setEditandoId(null)} style={{ flex: 1, padding: '10px 0', borderRadius: 12, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
                         </div>
+                        <button
+                          onClick={() => eliminarMaterial(m)}
+                          disabled={eliminandoId === m.id}
+                          style={{
+                            width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 12,
+                            background: 'transparent', border: `0.5px solid ${rojo}`, color: rojo,
+                            cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                            opacity: eliminandoId === m.id ? 0.6 : 1,
+                          }}
+                        >
+                          {eliminandoId === m.id ? 'Eliminando...' : '🗑 Eliminar del catálogo'}
+                        </button>
                       </div>
                     ) : (
                       <div style={{ marginTop: 8, paddingTop: 8, borderTop: `0.5px solid ${border}` }}>
                         <span onClick={() => iniciarEdicion(m)} style={{ fontSize: 12, color: azul, cursor: 'pointer' }}>
-                          Editar teórico / unidad
+                          Editar / eliminar
                         </span>
                       </div>
                     )}
@@ -441,7 +480,7 @@ const BodegaCentral: React.FC = () => {
                   Registrar despacho
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                  <input style={{ ...sInput, flex: 2 }} placeholder="N° guía de despacho"
+                  <input style={{ ...sInput, flex: 2 }} placeholder="N° guía (opcional — vacío si es caja chica)"
                     value={numGuia} onChange={e => setNumGuia(e.target.value)} />
                   <input style={{ ...sInput, flex: 1 }} type="date"
                     value={fechaDespacho} onChange={e => setFechaDespacho(e.target.value)} />
@@ -500,7 +539,9 @@ const BodegaCentral: React.FC = () => {
                 <div key={d.id} style={sCard}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: textPrimary }}>Guía {d.numero_guia}</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: textPrimary }}>
+                        {d.numero_guia ? `Guía ${d.numero_guia}` : '🧾 Caja chica (sin guía)'}
+                      </div>
                       <div style={{ fontSize: 12, color: textSecondary, marginTop: 2 }}>
                         {fmtFecha(d.fecha_despacho)}
                         {d.usuarios?.nombre ? ` · ${d.usuarios.nombre}` : ''}

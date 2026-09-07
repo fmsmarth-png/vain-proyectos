@@ -93,3 +93,29 @@ export const normalizarAmbienteCatalogo = (ambiente: string): string => ambiente
 /** Devuelve el subtipoCod para el elemento seleccionado. '' si no aplica (muros). */
 export const getSubtipoCod = (elemento: string): string =>
   MAPA_SUBTIPOS[elemento] ?? '';
+
+/**
+ * Catálogo fijo de acciones de reparación → código corto.
+ * Fuente única de verdad: el texto de 'accion' debe coincidir EXACTO con lo
+ * que ya consumen los reportes (ReporteOG, ReporteVisualOG, DashboardOG) y el
+ * código corto (PI/PU/C/Y) es el que usa la app de terreno para clasificar
+ * la falla (ver CODIGO_LABEL en RevisionOGResumen.tsx).
+ * Al elegir la acción desde un desplegable en Calibrador de Elementos, el
+ * código se autocompleta desde aquí — ya no se escribe a mano.
+ */
+export interface AccionReparacion {
+  accion: string; // valor guardado en og_tolerancia_reparacion.accion
+  codigo: string; // valor guardado en og_tolerancia_reparacion.codigo
+  label: string;  // texto legible para el desplegable
+}
+
+export const ACCIONES_REPARACION: AccionReparacion[] = [
+  { accion: 'picado/albañilería',   codigo: 'PI', label: 'Picado / Albañilería' },
+  { accion: 'puntereo/albañilería', codigo: 'PU', label: 'Puntereo / Albañilería' },
+  { accion: 'copa',                 codigo: 'C',  label: 'Copa' },
+  { accion: 'yeso',                 codigo: 'Y',  label: 'Yeso' },
+];
+
+/** Busca la acción del catálogo que coincida exacto con un texto guardado (case-insensitive). */
+export const getAccionReparacionPorTexto = (accion: string | null | undefined): AccionReparacion | undefined =>
+  ACCIONES_REPARACION.find(a => a.accion.toLowerCase() === (accion ?? '').trim().toLowerCase());

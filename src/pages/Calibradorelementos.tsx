@@ -12,6 +12,7 @@ import { useIonViewDidEnter } from '@ionic/react';
 import { useTheme } from '../Context/ThemeContext';
 import { supabase } from '../supabase';
 import { Wrench, MapPin } from 'lucide-react';
+import { ACCIONES_REPARACION, getAccionReparacionPorTexto } from '../utils/ogSubtipos';
 
 interface GrupoImagen {
   grupo_imagen: string;
@@ -117,6 +118,7 @@ const CalibradorElementos: React.FC = () => {
   const [nuevaTolCodigo, setNuevaTolCodigo]     = useState('');
   const [clonarDesdeElem, setClonarDesdeElem]   = useState('');
   const [elemsSimilares, setElemsSimilares]     = useState<string[]>([]);
+  const [guardandoRepId, setGuardandoRepId]     = useState<string | null>(null);
 
   // Nuevo elemento
   const [nuevoNombre, setNuevoNombre]   = useState('');
@@ -128,6 +130,12 @@ const CalibradorElementos: React.FC = () => {
   const [espejoX, setEspejoX]                 = useState(true);
   const [espejoY, setEspejoY]                 = useState(false);
   const [aplicandoEspejo, setAplicandoEspejo] = useState(false);
+
+  // Clonar UN elemento individual a otro grupo (no reemplaza lo existente en destino)
+  const [grupoClonElem, setGrupoClonElem]         = useState('');
+  const [clonElemEspejoX, setClonElemEspejoX]     = useState(false);
+  const [clonElemEspejoY, setClonElemEspejoY]     = useState(false);
+  const [clonandoElemento, setClonandoElemento]   = useState(false);
 
   useIonViewDidEnter(() => {
     if (!mounted.current) { mounted.current = true; cargarGrupos(); }
@@ -175,6 +183,7 @@ const CalibradorElementos: React.FC = () => {
     setContenedorW(0);
     setStatus(null);
     setGrupoEspejo('');
+    setGrupoClonElem('');
     setFiltroVista('Todos');
     if (!g) return;
     await cargarElementos(gi);
@@ -555,6 +564,44 @@ const CalibradorElementos: React.FC = () => {
     }
   };
 
+  // Clona UN solo elemento (elSel) hacia otro grupo de imagen.
+  // A diferencia de aplicarEspejo, NO desactiva los elementos existentes en
+  // el destino — solo agrega este elemento puntual, útil cuando ya calibraste
+  // el resto del grupo destino y solo falta copiar uno.
+  const clonarElementoIndividual = async () => {
+    if (!grupoSel || !elSel || !grupoClonElem) return;
+    const destino = grupos.find(g => g.grupo_imagen === grupoClonElem);
+    if (!destino) return;
+    setClonandoElemento(true);
+    setStatus(null);
+    try {
+      let nx = elSel.pos_x;
+      let ny = elSel.pos_y;
+      if (clonElemEspejoX) nx = grupoSel.ancho_orig - elSel.pos_x - elSel.ancho;
+      if (clonElemEspejoY) ny = grupoSel.alto_orig  - elSel.pos_y - elSel.alto;
+      const { error } = await supabase.from('og_elementos_ambiente').insert({
+        grupo_imagen:  grupoClonElem,
+        orientacion:   grupoClonElem.includes('IZQ') ? 'IZQ' : 'DER',
+        ambiente_cod:  null,
+        tipo_elemento: elSel.tipo_elemento,
+        elemento:      elSel.elemento,
+        subtipo_cod:   elSel.subtipo_cod,
+        pos_x:         Math.max(0, nx),
+        pos_y:         Math.max(0, ny),
+        ancho:         elSel.ancho,
+        alto:          elSel.alto,
+        activo:        true,
+      });
+      if (error) throw error;
+      setStatus({ msg: `✓ "${elSel.elemento}" clonado a ${grupoClonElem}`, ok: true });
+      setGrupoClonElem('');
+    } catch (e: any) {
+      setStatus({ msg: 'Error clonando elemento: ' + (e.message || 'desconocido'), ok: false });
+    } finally {
+      setClonandoElemento(false);
+    }
+  };
+
   const colorPorTipo = (tipo: string, sel: boolean) => {
     if (sel) return { bg: 'rgba(245,158,11,0.35)', border: '#f59e0b' };
     switch (tipo) {
@@ -883,18 +930,30 @@ const CalibradorElementos: React.FC = () => {
                               value={nuevaTolAmbiente}
                               onChange={e => setNuevaTolAmbiente(e.target.value)}
                             />
-                            <input
+                            <select
                               style={{ ...sInput, flex: 2, height: 30, fontSize: 11 }}
-                              placeholder="Acción reparación"
                               value={nuevaTolAccion}
-                              onChange={e => setNuevaTolAccion(e.target.value)}
-                            />
+                              onChange={e => {
+                                const seleccion = ACCIONES_REPARACION.find(a => a.accion === e.target.value);
+                                setNuevaTolAccion(seleccion?.accion ?? '');
+                                setNuevaTolCodigo(seleccion?.codigo ?? '');
+                              }}
+                            >
+                              <option value="">-- Acción de reparación --</option>
+                              {ACCIONES_REPARACION.map(a => (
+                                <option key={a.accion} value={a.accion}>{a.label}</option>
+                              ))}
+                            </select>
                             <input
-                              style={{ ...sInput, flex: 1, height: 30, fontSize: 11, textTransform: 'uppercase' }}
-                              placeholder="Código (ej: PI)"
-                              maxLength={4}
+                              style={{
+                                ...sInput, flex: 1, height: 30, fontSize: 11,
+                                textTransform: 'uppercase', textAlign: 'center',
+                                color: textMuted, background: dark ? 'rgba(255,255,255,0.03)' : '#f1f5f9',
+                              }}
+                              placeholder="Cód."
                               value={nuevaTolCodigo}
-                              onChange={e => setNuevaTolCodigo(e.target.value.toUpperCase())}
+                              readOnly
+                              title="Se completa solo según la acción elegida"
                             />
                           </div>
                           <button
@@ -947,86 +1006,79 @@ const CalibradorElementos: React.FC = () => {
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
                                     <span style={{ fontSize: 10, color: textMuted, flexShrink: 0, display: 'inline-flex' }}><Wrench size={11} strokeWidth={2.25} /></span>
-                                    <input
-                                      style={{
-                                        flex: 1, minWidth: 0, border: `1px solid ${accion !== '—' ? verdeBord : rojoBord}`,
-                                        borderRadius: 4, padding: '2px 6px', fontSize: 10,
-                                        background: 'transparent', color: accion !== '—' ? verde : rojo,
-                                        outline: 'none', fontWeight: 600,
-                                      }}
-                                      defaultValue={accion !== '—' ? accion : ''}
-                                      placeholder="definir acción..."
-                                      onBlur={async (e) => {
-                                        const nuevaAccionVal = e.target.value.trim();
-                                        if (!nuevaAccionVal) return;
-                                        if (nuevaAccionVal === accion) return;
-                                        const existingId = getRepId(tol.revision, tol.item_revision, tol.tolerancia);
-                                        if (existingId) {
-                                          await supabase
-                                            .from('og_tolerancia_reparacion')
-                                            .update({ accion: nuevaAccionVal })
-                                            .eq('id', existingId);
-                                        } else {
-                                          // Use item_revision as revision (matching the swapped convention)
-                                          await supabase
-                                            .from('og_tolerancia_reparacion')
-                                            .insert({
-                                              revision: tol.item_revision,
-                                              item_revision: tol.revision,
-                                              tolerancia: tol.tolerancia,
-                                              accion: nuevaAccionVal,
-                                            });
-                                        }
-                                        // Refresh reparaciones
-                                        const { data: reps } = await supabase
-                                          .from('og_tolerancia_reparacion')
-                                          .select('id, revision, item_revision, tolerancia, accion, codigo');
-                                        setReparaciones(reps ?? []);
-                                        setStatus({ msg: `✓ Reparación "${nuevaAccionVal}" guardada`, ok: true });
-                                      }}
-                                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                                    />
-                                    <input
+                                    {(() => {
+                                      const accionActual = accion !== '—' ? accion : '';
+                                      const canonica = getAccionReparacionPorTexto(accionActual);
+                                      const valorSelect = canonica?.accion ?? accionActual;
+                                      const guardandoEsta = guardandoRepId === tol.id;
+                                      return (
+                                        <select
+                                          style={{
+                                            flex: 1, minWidth: 0, border: `1px solid ${accion !== '—' ? verdeBord : rojoBord}`,
+                                            borderRadius: 4, padding: '2px 6px', fontSize: 10,
+                                            background: 'transparent', color: accion !== '—' ? verde : rojo,
+                                            outline: 'none', fontWeight: 600,
+                                            cursor: guardandoEsta ? 'wait' : 'pointer',
+                                            opacity: guardandoEsta ? 0.6 : 1,
+                                          }}
+                                          value={valorSelect}
+                                          disabled={guardandoEsta}
+                                          onChange={async (e) => {
+                                            const seleccion = ACCIONES_REPARACION.find(a => a.accion === e.target.value);
+                                            if (!seleccion || seleccion.accion === canonica?.accion) return;
+                                            setGuardandoRepId(tol.id);
+                                            try {
+                                              const existingId = getRepId(tol.revision, tol.item_revision, tol.tolerancia);
+                                              if (existingId) {
+                                                const { error } = await supabase
+                                                  .from('og_tolerancia_reparacion')
+                                                  .update({ accion: seleccion.accion, codigo: seleccion.codigo })
+                                                  .eq('id', existingId);
+                                                if (error) throw error;
+                                              } else {
+                                                // Use item_revision as revision (matching the swapped convention)
+                                                const { error } = await supabase
+                                                  .from('og_tolerancia_reparacion')
+                                                  .insert({
+                                                    revision: tol.item_revision,
+                                                    item_revision: tol.revision,
+                                                    tolerancia: tol.tolerancia,
+                                                    accion: seleccion.accion,
+                                                    codigo: seleccion.codigo,
+                                                  });
+                                                if (error) throw error;
+                                              }
+                                              // Refresh reparaciones
+                                              const { data: reps } = await supabase
+                                                .from('og_tolerancia_reparacion')
+                                                .select('id, revision, item_revision, tolerancia, accion, codigo');
+                                              setReparaciones(reps ?? []);
+                                              setStatus({ msg: `✓ Reparación "${seleccion.label}" (${seleccion.codigo}) guardada`, ok: true });
+                                            } catch (err: any) {
+                                              setStatus({ msg: 'Error guardando reparación: ' + (err.message || 'desconocido'), ok: false });
+                                            } finally {
+                                              setGuardandoRepId(null);
+                                            }
+                                          }}
+                                        >
+                                          <option value="">-- definir acción --</option>
+                                          {!canonica && accionActual && (
+                                            <option value={accionActual}>{accionActual} (texto anterior)</option>
+                                          )}
+                                          {ACCIONES_REPARACION.map(a => (
+                                            <option key={a.accion} value={a.accion}>{a.label}</option>
+                                          ))}
+                                        </select>
+                                      );
+                                    })()}
+                                    <div
+                                      title="Código corto para reconocer la reparación en terreno — se completa solo según la acción elegida"
                                       style={{
                                         width: 44, flexShrink: 0, border: `1px solid ${codigo ? verdeBord : inputBorder}`,
                                         borderRadius: 4, padding: '2px 6px', fontSize: 10, textAlign: 'center',
-                                        background: 'transparent', color: codigo ? verde : textMuted,
-                                        outline: 'none', fontWeight: 700, textTransform: 'uppercase',
+                                        color: codigo ? verde : textMuted, fontWeight: 700,
                                       }}
-                                      defaultValue={codigo}
-                                      placeholder="cód."
-                                      maxLength={4}
-                                      title="Código corto para reconocer la reparación en terreno (ej: PI, PU, C, Y)"
-                                      onBlur={async (e) => {
-                                        const nuevoCodigo = e.target.value.trim().toUpperCase();
-                                        if (nuevoCodigo === codigo) return;
-                                        const existingId = getRepId(tol.revision, tol.item_revision, tol.tolerancia);
-                                        if (existingId) {
-                                          await supabase
-                                            .from('og_tolerancia_reparacion')
-                                            .update({ codigo: nuevoCodigo || null })
-                                            .eq('id', existingId);
-                                        } else if (nuevoCodigo) {
-                                          // No existe fila de reparación todavía (sin acción definida) — se crea igual
-                                          // con la acción vacía, para no perder el código que se acaba de escribir.
-                                          await supabase
-                                            .from('og_tolerancia_reparacion')
-                                            .insert({
-                                              revision: tol.item_revision,
-                                              item_revision: tol.revision,
-                                              tolerancia: tol.tolerancia,
-                                              accion: accion !== '—' ? accion : '',
-                                              codigo: nuevoCodigo,
-                                            });
-                                        }
-                                        const { data: reps } = await supabase
-                                          .from('og_tolerancia_reparacion')
-                                          .select('id, revision, item_revision, tolerancia, accion, codigo');
-                                        setReparaciones(reps ?? []);
-                                        setStatus({ msg: nuevoCodigo ? `✓ Código "${nuevoCodigo}" guardado` : 'Código quitado', ok: true });
-                                      }}
-                                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                                    />
+                                    >{codigo || '—'}</div>
                                   </div>
                                 </div>
                                 <button
@@ -1294,6 +1346,50 @@ const CalibradorElementos: React.FC = () => {
                 >
                   {aplicandoEspejo ? 'Aplicando...' : `🪞 Espejar ${elementos.length} elemento(s) → ${grupoEspejo || '...'}`}
                 </button>
+              </div>
+
+              {/* Clonar UN elemento individual */}
+              <div style={{ ...sCard, marginTop: 10, border: `0.5px solid ${verdeBord}` }}>
+                <div style={sLabel}>6 · CLONAR ESTE ELEMENTO A OTRO GRUPO</div>
+                {!elSel ? (
+                  <div style={{ fontSize: 12, color: textMuted, fontStyle: 'italic' }}>
+                    Selecciona un elemento arriba (en la imagen o en la lista) para poder clonarlo.
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: textSecondary, marginBottom: 10 }}>
+                      Copia solo <b style={{ color: textPrimary }}>{elSel.elemento}</b> ({elSel.tipo_elemento}) al grupo
+                      destino, sin tocar los demás elementos que ya existan ahí.
+                    </div>
+                    <select
+                      style={{ ...sInput, marginBottom: 8 }}
+                      value={grupoClonElem}
+                      onChange={e => setGrupoClonElem(e.target.value)}
+                    >
+                      <option value="">-- selecciona grupo destino --</option>
+                      {otrosGrupos.map(g => (
+                        <option key={g.grupo_imagen} value={g.grupo_imagen}>{g.grupo_imagen}</option>
+                      ))}
+                    </select>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                      <button onClick={() => setClonElemEspejoX(v => !v)} style={sToggle(clonElemEspejoX)}>↔ Espejo X {clonElemEspejoX ? '✓' : ''}</button>
+                      <button onClick={() => setClonElemEspejoY(v => !v)} style={sToggle(clonElemEspejoY)}>↕ Espejo Y {clonElemEspejoY ? '✓' : ''}</button>
+                    </div>
+                    <button
+                      onClick={clonarElementoIndividual}
+                      disabled={!grupoClonElem || clonandoElemento}
+                      style={{
+                        width: '100%', height: 42, borderRadius: 10, border: 'none',
+                        fontSize: 13, fontWeight: 700,
+                        background: grupoClonElem ? verde : (dark ? '#16233B' : '#e2e8f0'),
+                        color: grupoClonElem ? '#fff' : textMuted,
+                        cursor: grupoClonElem ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      {clonandoElemento ? 'Clonando...' : `📋 Clonar "${elSel.elemento}" → ${grupoClonElem || '...'}`}
+                    </button>
+                  </>
+                )}
               </div>
             </>
           )}
