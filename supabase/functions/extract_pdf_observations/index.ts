@@ -1,10 +1,23 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, authorization, x-client-info, apikey',
-};
+// FIX seguridad (sep 2026): CORS restringido a orígenes conocidos
+const ALLOWED_ORIGINS = [
+  'https://swjmqtnhdtiwopexbezx.supabase.co',
+  'capacitor://localhost',
+  'http://localhost',
+];
+
+function corsHeaders(req: Request) {
+  const origin = req.headers.get('origin') ?? '';
+  return {
+    'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, authorization, x-client-info, apikey',
+  };
+}
+
+// Máximo ~7.5 MB decodificado (10 MB en base64)
+const MAX_PDF_BASE64_LENGTH = 10_000_000;
 
 function extractTextFromPdf(pdfBase64: string): string {
   const binaryString = atob(pdfBase64);
@@ -24,14 +37,16 @@ function extractTextFromPdf(pdfBase64: string): string {
 }
 
 serve(async (req) => {
+  const headers = corsHeaders(req);
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: CORS_HEADERS });
+    return new Response('ok', { headers });
   }
 
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ success: false, error: "POST only" }), { 
       status: 405,
-      headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+      headers: { "Content-Type": "application/json", ...headers },
     });
   }
 
@@ -42,7 +57,15 @@ serve(async (req) => {
     if (!pdfBase64) {
       return new Response(
         JSON.stringify({ success: false, error: "Missing pdfBase64" }),
-        { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+        { status: 400, headers: { "Content-Type": "application/json", ...headers } }
+      );
+    }
+
+    // Validación de tamaño (sep 2026)
+    if (typeof pdfBase64 !== 'string' || pdfBase64.length > MAX_PDF_BASE64_LENGTH) {
+      return new Response(
+        JSON.stringify({ success: false, error: "PDF demasiado grande (máx ~7.5 MB)" }),
+        { status: 413, headers: { "Content-Type": "application/json", ...headers } }
       );
     }
 
@@ -106,9 +129,9 @@ serve(async (req) => {
         JSON.stringify({ 
           success: false, 
           error: "No observations extracted",
-          textPreview: text.substring(0, 2000)
+          // textPreview removido (sep 2026): exponía contenido interno del PDF
         }),
-        { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+        { status: 400, headers: { "Content-Type": "application/json", ...headers } }
       );
     }
 
@@ -118,15 +141,16 @@ serve(async (req) => {
         observations,
         count: observations.length
       }),
-      { headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+      { headers: { "Content-Type": "application/json", ...headers } }
     );
   } catch (error) {
+    console.error('extract_pdf_observations error:', error);
     return new Response(
       JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: "Error procesando el PDF",
       }),
-      { status: 500, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+      { status: 500, headers: { "Content-Type": "application/json", ...headers } }
     );
   }
 });

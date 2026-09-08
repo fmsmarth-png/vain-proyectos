@@ -15,7 +15,7 @@ import {
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
-import { CheckCircle2, Circle } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2, Camera, MessageSquare } from 'lucide-react';
 
 // ─── Dimensiones base del calibrador de plano (vertical original) ────────────
 const PLANO_W = 674;
@@ -27,6 +27,7 @@ interface OgRegistro {
   ambiente: string;
   tipo_elemento: string;
   tipo_revision: string;
+  subtipo_cod: string | null;
   elemento: string;
   tolerancia: string;
   comentario: string | null;
@@ -188,12 +189,34 @@ const RevisionOGResumen: React.FC = () => {
   const [detalles, setDetalles]             = useState<AmbienteDetalle[]>([]);
   const [planoW, setPlanoW]                 = useState(0);
   const planoRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLIonContentElement>(null);
+  const [esAdmin, setEsAdmin]               = useState(false);
+  const [eliminandoId, setEliminandoId]     = useState<string | null>(null);
+
+  const scrollToAmbiente = async (ambienteCod: string) => {
+    const el = document.getElementById(`amb-card-${ambienteCod}`);
+    if (!el || !contentRef.current) return;
+    const scrollEl = await contentRef.current.getScrollElement();
+    const top = el.offsetTop - 60; // offset para dejar espacio arriba
+    scrollEl.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  };
 
   // ── Carga de datos ────────────────────────────────────────────────────────
   const cargar = async () => {
     if (!depto?.id) return;
     setCargando(true);
     try {
+      // Verificar si es admin para habilitar eliminación
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email) {
+        const { data: u } = await supabase
+          .from('usuarios')
+          .select('rol')
+          .eq('email', session.user.email.toLowerCase())
+          .maybeSingle();
+        setEsAdmin(u?.rol === 'administrador');
+      }
+
       const planoVersionId = depto.plano_version_id as string | null;
 
       const [
@@ -205,7 +228,7 @@ const RevisionOGResumen: React.FC = () => {
         { data: elementosData },
       ] = await Promise.all([
         supabase.from('og_registros')
-          .select('id, ambiente, tipo_elemento, tipo_revision, elemento, tolerancia, comentario, foto_url, creado_en, usuarios!og_registros_usuario_id_fkey(nombre)')
+          .select('id, ambiente, tipo_elemento, tipo_revision, subtipo_cod, elemento, tolerancia, comentario, foto_url, creado_en, usuarios!og_registros_usuario_id_fkey(nombre)')
           .eq('departamento_id', depto.id)
           .order('ambiente').order('creado_en'),
 
@@ -366,6 +389,22 @@ const RevisionOGResumen: React.FC = () => {
         .eq('id', ob.id);
       if (error) throw error;
 
+      // Registrar en historial
+      if (user?.email) {
+        const { data: u } = await supabase
+          .from('usuarios')
+          .select('nombre')
+          .eq('email', user.email.toLowerCase())
+          .maybeSingle();
+        await supabase.from('og_historial_estados').insert({
+          registro_id: ob.id,
+          estado_anterior: ob.estado,
+          estado_nuevo: nuevoEstado,
+          usuario_id: user.id,
+          usuario_nombre: u?.nombre ?? user.email,
+        });
+      }
+
       setObs(prev => prev.map(r => (r.id === ob.id ? { ...r, estado: nuevoEstado } : r)));
       setDetalles(prev => prev.map(det => ({
         ...det,
@@ -375,6 +414,24 @@ const RevisionOGResumen: React.FC = () => {
       console.error('Error actualizando estado OG:', e);
     } finally {
       setGuardandoEstado(null);
+    }
+  };
+
+  const eliminarObservacion = async (ob: OgRegistro) => {
+    if (!confirm(`¿Eliminar observación "${ob.tolerancia}" de ${ob.elemento}?`)) return;
+    setEliminandoId(ob.id);
+    try {
+      const { error } = await supabase.from('og_registros').delete().eq('id', ob.id);
+      if (error) throw error;
+      setObs(prev => prev.filter(r => r.id !== ob.id));
+      setDetalles(prev => prev.map(det => ({
+        ...det,
+        obs: det.obs.filter(r => r.id !== ob.id),
+      })));
+    } catch (e) {
+      console.error('Error eliminando observación OG:', e);
+    } finally {
+      setEliminandoId(null);
     }
   };
 
@@ -488,7 +545,7 @@ const RevisionOGResumen: React.FC = () => {
         </IonToolbar>
       </IonHeader>
 
-      <IonContent style={{ '--background': bg } as any}>
+      <IonContent ref={contentRef} style={{ '--background': bg } as any}>
         <div style={{ padding: '12px 12px 32px' }}>
 
           {cargando ? (
@@ -573,7 +630,7 @@ const RevisionOGResumen: React.FC = () => {
                         />
                       )}
 
-                      {/* Overlays coloreados por ambiente */}
+                      {/* Overlays coloreados por ambiente — toca para ir al detalle */}
                       {ambientesPlano.map(amb => {
                         const count = obsPorCod.get(amb.ambiente_cod) ?? 0;
                         const col   = heatColor(count, dark);
@@ -581,6 +638,7 @@ const RevisionOGResumen: React.FC = () => {
                         return (
                           <div
                             key={amb.ambiente_cod}
+                            onClick={() => scrollToAmbiente(amb.ambiente_cod)}
                             style={{
                               position: 'absolute',
                               left: pos.left, top: pos.top,
@@ -591,21 +649,23 @@ const RevisionOGResumen: React.FC = () => {
                               display: 'flex', flexDirection: 'column',
                               alignItems: 'center', justifyContent: 'center',
                               overflow: 'hidden',
+                              cursor: 'pointer',
                             }}
                           >
                             <span style={{
-                              fontSize: Math.max(8, Math.min(12, pos.width / 6)),
-                              fontWeight: 600, color: col.text,
+                              fontSize: Math.max(8, Math.min(13, pos.width / 5)),
+                              fontWeight: 700, color: col.text,
                               lineHeight: 1.1, textAlign: 'center', padding: '0 2px',
                             }}>
-                              {count > 0 ? count : ''}
+                              {count > 0 ? count : '—'}
                             </span>
                             <span style={{
-                              fontSize: Math.max(7, Math.min(10, pos.width / 8)),
-                              color: col.text, opacity: 0.8,
-                              textAlign: 'center', padding: '0 2px', lineHeight: 1.1,
+                              fontSize: Math.max(6, Math.min(9, pos.width / 9)),
+                              color: col.text, opacity: 0.85,
+                              textAlign: 'center', padding: '0 2px', lineHeight: 1.15,
+                              wordBreak: 'break-word',
                             }}>
-                              {amb.titulo.length > 10 ? amb.titulo.split(' ')[0] : amb.titulo}
+                              {amb.titulo}
                             </span>
                           </div>
                         );
@@ -684,20 +744,24 @@ const RevisionOGResumen: React.FC = () => {
 
               {/* ── Detalle por ambiente (filtrado por vista) ───────────────── */}
               {detallesVista.map((det, idx) => (
-                <AmbienteCard
-                  key={det.ambiente_cod || idx}
-                  det={det}
-                  vista={vista}
-                  dark={dark}
-                  sCard={sCard}
-                  sSecLabel={sSecLabel}
-                  border={border}
-                  textPrimary={textPrimary}
-                  textSecondary={textSecondary}
-                  textMuted={textMuted}
-                  onToggleEstado={toggleEstado}
-                  guardandoEstado={guardandoEstado}
-                />
+                <div key={det.ambiente_cod || idx} id={`amb-card-${det.ambiente_cod}`}>
+                  <AmbienteCard
+                    det={det}
+                    vista={vista}
+                    dark={dark}
+                    sCard={sCard}
+                    sSecLabel={sSecLabel}
+                    border={border}
+                    textPrimary={textPrimary}
+                    textSecondary={textSecondary}
+                    textMuted={textMuted}
+                    onToggleEstado={toggleEstado}
+                    guardandoEstado={guardandoEstado}
+                    esAdmin={esAdmin}
+                    onEliminar={eliminarObservacion}
+                    eliminandoId={eliminandoId}
+                  />
+                </div>
               ))}
 
               {totalObs === 0 && (
@@ -728,12 +792,16 @@ interface AmbienteCardProps {
   textMuted: string;
   onToggleEstado: (ob: OgRegistro) => void;
   guardandoEstado: string | null;
+  esAdmin: boolean;
+  onEliminar: (ob: OgRegistro) => void;
+  eliminandoId: string | null;
 }
 
 const AmbienteCard: React.FC<AmbienteCardProps> = ({
   det, vista, dark, sCard, sSecLabel, border, textPrimary, textSecondary, textMuted,
-  onToggleEstado, guardandoEstado,
+  onToggleEstado, guardandoEstado, esAdmin, onEliminar, eliminandoId,
 }) => {
+  const [fotoAmpliada, setFotoAmpliada] = useState<string | null>(null);
   // ── FIX ago-2026: mismo método de render que RevisionOGAmbiente (registro) ──
   //   El registro posiciona bien porque: altura del contenedor = aspecto exacto
   //   de la imagen, <img objectFit:'fill'>, y hotspots escalados directo por
@@ -860,95 +928,179 @@ const AmbienteCard: React.FC<AmbienteCardProps> = ({
         })}
       </div>
 
-      {/* Tabla de fallas */}
+      {/* Fallas registradas — cards */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ ...(sSecLabel as any), marginBottom: 0 }}>Fallas registradas</div>
         <span style={{ fontSize: 9, color: textMuted, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
           Toca el estado para cambiarlo
         </span>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr>
-            {['#', 'Elemento', 'Tipo', 'Tolerancia', 'Reparación', 'Comentario', 'Estado'].map(h => (
-              <th key={h} style={{
-                textAlign: 'left', fontSize: 10, fontWeight: 600,
-                color: textMuted, padding: '4px 5px 6px',
-                borderBottom: `0.5px solid ${border}`,
-                background: dark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
-              }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {obsVista.map((ob, i) => (
-            <tr key={ob.id} style={{ borderBottom: `0.5px solid ${border}` }}>
-              <td style={{ padding: '7px 5px', color: textMuted, fontSize: 11 }}>{i + 1}</td>
-              <td style={{ padding: '7px 5px', color: textPrimary, fontSize: 12 }}>{ob.elemento}</td>
-              <td style={{ padding: '7px 5px', color: textSecondary, fontSize: 11 }}>{ob.tipo_revision}</td>
-              <td style={{ padding: '7px 5px', color: textPrimary, fontSize: 12 }}>{ob.tolerancia}</td>
-              <td style={{ padding: '7px 5px' }}>
-                {(() => {
-                  const c = chipReparacion(ob.codigo, dark);
-                  return (
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap',
-                      padding: '2px 8px', borderRadius: 20,
-                      background: c.bg, color: c.color,
-                      display: 'inline-flex', alignItems: 'center', gap: 5,
+      {obsVista.map((ob, i) => {
+        const c = chipReparacion(ob.codigo, dark);
+        const solucionado = ob.estado === 'SOLUCIONADO';
+        const guardando = guardandoEstado === ob.id;
+        const verde    = dark ? '#4ade80' : '#15803d';
+        const verdeBg  = dark ? 'rgba(74,222,128,0.14)' : '#f0fdf4';
+        const ambar    = dark ? '#fbbf24' : '#a16207';
+        const ambarBg  = dark ? 'rgba(251,191,36,0.14)' : '#fffbeb';
+        const color = solucionado ? verde : ambar;
+        const tipoLabel = ob.tipo_revision === 'PIERNA' ? 'Pierna'
+          : ob.tipo_revision === 'VANO' ? 'Vano' : 'Muro';
+        return (
+          <div key={ob.id} style={{
+            display: 'flex', gap: 10, padding: '10px 12px', marginBottom: 6, borderRadius: 10,
+            border: `0.5px solid ${border}`,
+            background: dark ? 'rgba(255,255,255,0.02)' : '#fafbfc',
+          }}>
+            {/* Número */}
+            <div style={{ fontSize: 11, color: textMuted, fontWeight: 700, paddingTop: 2, minWidth: 16, textAlign: 'center' }}>{i + 1}</div>
+
+            {/* Centro: info apilada */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {/* Título: elemento + tipo */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ob.elemento}
+                </span>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0,
+                  padding: '1px 6px', borderRadius: 4,
+                  background: ob.tipo_revision === 'MURO' ? '#2563eb' : ob.tipo_revision === 'PIERNA' ? '#7c3aed' : '#d97706',
+                }}>{tipoLabel}</span>
+              </div>
+              {/* Subtipo: Planeidad / Cornisa / Ancho / Plomo / etc. */}
+              <div style={{ fontSize: 11, fontWeight: 600, color: textSecondary, marginBottom: 1, textTransform: 'capitalize' }}>
+                {(ob.subtipo_cod || '—').toLowerCase()}
+              </div>
+              {/* Tolerancia */}
+              <div style={{ fontSize: 12, fontWeight: 600, color: textPrimary, marginBottom: 3 }}>
+                {ob.tolerancia}
+              </div>
+              {/* Reparación */}
+              <span style={{
+                fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap',
+                padding: '2px 7px', borderRadius: 12,
+                background: c.bg, color: c.color,
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+              }}>
+                <span style={{
+                  fontWeight: 800, fontSize: 8, border: `1px solid ${c.color}`,
+                  borderRadius: 3, padding: '0 3px', lineHeight: '11px',
+                }}>{c.codigo}</span>
+                {c.label}
+              </span>
+              {/* Comentario + Foto */}
+              {(ob.comentario || ob.foto_url) && (
+                <div style={{ marginTop: 5, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  {/* Comentario destacado */}
+                  {ob.comentario && (
+                    <div style={{
+                      flex: 1, minWidth: 0,
+                      display: 'flex', alignItems: 'flex-start', gap: 5,
+                      padding: '5px 8px', borderRadius: 6,
+                      background: dark ? 'rgba(251,191,36,0.08)' : '#fffbeb',
+                      border: `0.5px solid ${dark ? 'rgba(251,191,36,0.2)' : '#fde68a'}`,
                     }}>
-                      <span style={{
-                        fontWeight: 800, fontSize: 9, border: `1px solid ${c.color}`,
-                        borderRadius: 4, padding: '0 4px', lineHeight: '13px',
-                      }}>{c.codigo}</span>
-                      {c.label}
-                    </span>
-                  );
-                })()}
-              </td>
-              <td style={{ padding: '7px 5px', color: textSecondary, fontSize: 11 }}>
-                {ob.comentario || '—'}
-              </td>
-              <td style={{ padding: '7px 5px' }}>
-                {(() => {
-                  const solucionado = ob.estado === 'SOLUCIONADO';
-                  const guardando = guardandoEstado === ob.id;
-                  const verde    = dark ? '#4ade80' : '#15803d';
-                  const verdeBg  = dark ? 'rgba(74,222,128,0.14)' : '#f0fdf4';
-                  const ambar    = dark ? '#fbbf24' : '#a16207';
-                  const ambarBg  = dark ? 'rgba(251,191,36,0.14)' : '#fffbeb';
-                  const color = solucionado ? verde : ambar;
-                  return (
-                    <button
-                      onClick={() => onToggleEstado(ob)}
-                      disabled={guardando}
-                      title={solucionado ? 'Toca para marcar como pendiente' : 'Toca para marcar como solucionado'}
+                      <MessageSquare size={11} strokeWidth={2.5} style={{ flexShrink: 0, marginTop: 1, color: dark ? '#fbbf24' : '#a16207' }} />
+                      <span style={{ fontSize: 11, color: dark ? '#fbbf24' : '#92400e', fontWeight: 500, lineHeight: 1.3 }}>
+                        {ob.comentario}
+                      </span>
+                    </div>
+                  )}
+                  {/* Foto miniatura */}
+                  {ob.foto_url && (
+                    <div
+                      onClick={() => setFotoAmpliada(ob.foto_url)}
                       style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 5,
-                        fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap',
-                        padding: '4px 10px 4px 7px', borderRadius: 20,
-                        border: `1.5px solid ${color}`,
-                        background: solucionado ? verdeBg : ambarBg,
-                        color,
-                        cursor: guardando ? 'wait' : 'pointer',
-                        opacity: guardando ? 0.55 : 1,
-                        boxShadow: dark ? 'none' : '0 1px 2px rgba(0,0,0,0.06)',
+                        width: 44, height: 44, borderRadius: 6, flexShrink: 0,
+                        overflow: 'hidden', cursor: 'pointer',
+                        border: `1.5px solid ${dark ? '#374151' : '#cbd5e1'}`,
+                        position: 'relative',
                       }}
                     >
-                      {guardando
-                        ? '…'
-                        : solucionado
-                          ? <CheckCircle2 size={13} strokeWidth={2.5} />
-                          : <Circle size={13} strokeWidth={2.5} />}
-                      {guardando ? 'Guardando' : (solucionado ? 'Solucionado' : 'Pendiente')}
-                    </button>
-                  );
-                })()}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                      <img src={ob.foto_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <div style={{
+                        position: 'absolute', bottom: 0, right: 0,
+                        background: 'rgba(0,0,0,0.5)', borderRadius: '6px 0 0 0',
+                        padding: '1px 3px',
+                      }}>
+                        <Camera size={9} color="#fff" strokeWidth={2.5} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Derecha: estado + eliminar */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0, justifyContent: 'center' }}>
+              <button
+                onClick={() => onToggleEstado(ob)}
+                disabled={guardando}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                  fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap',
+                  padding: '6px 10px', borderRadius: 10,
+                  border: `1.5px solid ${color}`,
+                  background: solucionado ? verdeBg : ambarBg,
+                  color,
+                  cursor: guardando ? 'wait' : 'pointer',
+                  opacity: guardando ? 0.55 : 1,
+                  minWidth: 70,
+                }}
+              >
+                {guardando
+                  ? '…'
+                  : solucionado
+                    ? <CheckCircle2 size={16} strokeWidth={2.5} />
+                    : <Circle size={16} strokeWidth={2.5} />}
+                {guardando ? '...' : (solucionado ? 'Solucionado' : 'Pendiente')}
+              </button>
+              {esAdmin && (
+                <button
+                  onClick={() => onEliminar(ob)}
+                  disabled={eliminandoId === ob.id}
+                  title="Eliminar"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 26, height: 26, borderRadius: 6,
+                    border: `1px solid ${dark ? '#7f1d1d' : '#fca5a5'}`,
+                    background: dark ? 'rgba(239,68,68,0.1)' : '#fef2f2',
+                    color: dark ? '#f87171' : '#dc2626',
+                    cursor: eliminandoId === ob.id ? 'wait' : 'pointer',
+                    opacity: eliminandoId === ob.id ? 0.5 : 1,
+                  }}
+                >
+                  <Trash2 size={12} strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Modal foto ampliada */}
+      {fotoAmpliada && (
+        <div
+          onClick={() => setFotoAmpliada(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <img
+            src={fotoAmpliada}
+            alt=""
+            style={{ maxWidth: '92vw', maxHeight: '88vh', borderRadius: 8, objectFit: 'contain' }}
+          />
+          <div style={{
+            position: 'absolute', top: 16, right: 16,
+            color: '#fff', fontSize: 28, fontWeight: 300, lineHeight: 1,
+          }}>✕</div>
+        </div>
+      )}
     </div>
   );
 };

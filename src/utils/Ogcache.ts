@@ -311,7 +311,7 @@ export function getToleranciaCache(params: {
   revision: string;
   itemRevision: string;
   elemento: string;
-  ambiente: string;
+  ambiente?: string;
 }): OgCatalogoRow[] {
   const rows = readCache<OgCatalogoRow[]>(KEY_CATALOGO);
   if (!rows) return [];
@@ -319,13 +319,13 @@ export function getToleranciaCache(params: {
   const pRev  = norm(params.revision);
   const pItem = norm(params.itemRevision);
   const pEl   = norm(params.elemento);
-  const pAmb  = norm(params.ambiente);
+  const pAmb  = params.ambiente != null ? norm(params.ambiente) : null;
   return rows.filter(
     r =>
       norm(r.revision)      === pRev  &&
       norm(r.item_revision) === pItem &&
       norm(r.elemento)      === pEl   &&
-      norm(r.ambiente)      === pAmb
+      (pAmb === null || norm(r.ambiente) === pAmb)
   );
 }
 

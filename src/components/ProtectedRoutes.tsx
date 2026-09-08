@@ -61,7 +61,10 @@ import AdminAsignarPlanos from '../pages/AdminAsignarPlanos';
 import AdminGestionPlanos from '../pages/AdminGestionPlanos';
 import CambiarContrasena from '../pages/CambiarContrasena';
 
-const EMAILS_CERAMICOS = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
+// FIX seguridad (sep 2026): emails hardcoded reemplazados por permiso RBAC.
+// Crear permiso 'ceramicos_ver' en tabla permisos y asignarlo a los usuarios
+// correspondientes desde el panel Admin.
+// const EMAILS_CERAMICOS_LEGACY = ['jcaballero@vain.cl', 'cgarces@vain.cl', 'fmsmarth@gmail.com'];
 
 interface ProtectedRoutesProps {
   usuario: any;
@@ -93,7 +96,7 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
   }
 
   const esRolBodega = ['ayudante_bodega', 'jefe_bodega'].includes(usuario?.rol ?? '');
-  const puedeCeramicos = EMAILS_CERAMICOS.includes(usuario?.email ?? '');
+  const puedeCeramicos = tienePermiso('ceramicos_ver');
   // maestro_postventa: solo navega Pre Entrega (hub) + Deptos Filtrados +
   // Detalle Depto + Revisión (para marcar solucionado) + Calendario/Post
   // Venta. Varias rutas de abajo comparten el mismo permiso ('preentrega_ver'
@@ -173,7 +176,9 @@ const ProtectedRoutes: React.FC<ProtectedRoutesProps> = ({ usuario }) => {
           tienePermiso('preentrega_ver') ? <DeptosFiltrados /> : <Redirect to="/dashboard" />
         } />
 
-        <Route path="/detalle-depto/:id" component={DetalleDepto} />
+        <Route path="/detalle-depto/:id" render={() =>
+          tienePermiso('preentrega_ver') ? <DetalleDepto /> : <Redirect to="/dashboard" />
+        } />
 
         {/*
           Informe PV — Indicador de Producción. Es un informe: maestro_postventa

@@ -45,7 +45,12 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
       }
     }
   } catch {
-    /* no-op */
+    // Si falla el parseo, limpiar cualquier token parcial por seguridad
+    try {
+      sessionStorage.removeItem('recovery_otp');
+      sessionStorage.removeItem('recovery_code');
+      sessionStorage.removeItem('recovery_tokens');
+    } catch { /* no-op */ }
   }
 })();
 

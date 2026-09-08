@@ -44,6 +44,7 @@ interface PrestamoRow {
 interface AjusteRow {
   cantidad: number;
   motivo: string | null;
+  unidad_registro: string | null;
   creado_en: string;
   usuarios: { nombre: string | null } | null;
 }
@@ -187,6 +188,7 @@ const StockBodega: React.FC = () => {
   const [fichaCargando, setFichaCargando] = useState(false);
   const [ajusteCantidad, setAjusteCantidad] = useState('');
   const [ajusteMotivo, setAjusteMotivo] = useState('');
+  const [ajusteUnidad, setAjusteUnidad] = useState<'granular' | 'compra'>('granular');
   const [guardandoAjuste, setGuardandoAjuste] = useState(false);
 
   const [toastMsg, setToastMsg] = useState('');
@@ -303,7 +305,7 @@ const StockBodega: React.FC = () => {
   const cargarHistorialAjustes = async (materialId: string) => {
     const { data } = await supabase
       .from('bodega_ajustes')
-      .select('cantidad, motivo, creado_en, usuarios ( nombre )')
+      .select('cantidad, motivo, unidad_registro, creado_en, usuarios ( nombre )')
       .eq('material_id', materialId)
       .order('creado_en', { ascending: false });
     setFichaAjustes((data as unknown as AjusteRow[] | null) ?? []);
@@ -313,7 +315,7 @@ const StockBodega: React.FC = () => {
     setFichaMaterial(m);
     setFichaAbierta(true);
     setFichaCargando(true);
-    setAjusteCantidad(''); setAjusteMotivo('');
+    setAjusteCantidad(''); setAjusteMotivo(''); setAjusteUnidad('granular');
     const [ocs, entregas, actividades, prestamosData] = await Promise.all([
       supabase.rpc('bodega_material_ocs', { p_material_id: m.material_id }),
       supabase.rpc('bodega_material_entregas', { p_material_id: m.material_id }),
@@ -344,6 +346,7 @@ const StockBodega: React.FC = () => {
       proyecto_id: proyecto.id,
       material_id: fichaMaterial.material_id,
       cantidad: cant,
+      unidad_registro: ajusteUnidad,
       motivo,
       registrado_por: authData?.user?.id,
     });
@@ -351,7 +354,7 @@ const StockBodega: React.FC = () => {
     if (error) { setToastColor('danger'); setToastMsg('No se pudo guardar el ajuste: ' + error.message); }
     else {
       setToastColor('success'); setToastMsg('Ajuste registrado');
-      setAjusteCantidad(''); setAjusteMotivo('');
+      setAjusteCantidad(''); setAjusteMotivo(''); setAjusteUnidad('granular');
       await Promise.all([cargarStock(proyecto.id), cargarHistorialAjustes(fichaMaterial.material_id)]);
       setFichaAbierta(false);
     }
@@ -556,27 +559,56 @@ const StockBodega: React.FC = () => {
 
               {/* Toggle de unidad por material (solo si tiene conversión) */}
               {fichaMaterial.factor_conversion !== 1 && fichaMaterial.unidad_compra && (
-                <button
-                  onClick={() => toggleUnidadMaterial(fichaMaterial.material_id)}
-                  style={{
-                    marginTop: 8, fontSize: 12, padding: '6px 14px', borderRadius: 10, cursor: 'pointer',
-                    border: `0.5px solid ${azulBord}`, background: azulBg, color: azul, fontWeight: 600,
-                  }}
-                >
-                  {getUnidadDisplay(fichaMaterial.material_id) === 'granular'
-                    ? `Cambiar a ${fichaMaterial.unidad_compra}`
-                    : `Cambiar a ${fichaMaterial.unidad}`}
-                </button>
+                <div style={{
+                  marginTop: 10, padding: '8px 10px', borderRadius: 10,
+                  background: dark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
+                  border: `0.5px solid ${border}`,
+                }}>
+                  <div style={{ fontSize: 10, color: textMuted, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Mostrar cantidades en
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => { if (getUnidadDisplay(fichaMaterial.material_id) !== 'granular') toggleUnidadMaterial(fichaMaterial.material_id); }}
+                      style={{
+                        flex: 1, padding: '7px 8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        cursor: 'pointer',
+                        border: getUnidadDisplay(fichaMaterial.material_id) === 'granular' ? `1.5px solid ${azul}` : `0.5px solid ${border}`,
+                        background: getUnidadDisplay(fichaMaterial.material_id) === 'granular' ? azulBg : 'transparent',
+                        color: getUnidadDisplay(fichaMaterial.material_id) === 'granular' ? azul : textSecondary,
+                      }}
+                    >
+                      {fichaMaterial.unidad}
+                    </button>
+                    <button
+                      onClick={() => { if (getUnidadDisplay(fichaMaterial.material_id) !== 'compra') toggleUnidadMaterial(fichaMaterial.material_id); }}
+                      style={{
+                        flex: 1, padding: '7px 8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        cursor: 'pointer',
+                        border: getUnidadDisplay(fichaMaterial.material_id) === 'compra' ? `1.5px solid ${azul}` : `0.5px solid ${border}`,
+                        background: getUnidadDisplay(fichaMaterial.material_id) === 'compra' ? azulBg : 'transparent',
+                        color: getUnidadDisplay(fichaMaterial.material_id) === 'compra' ? azul : textSecondary,
+                      }}
+                    >
+                      {fichaMaterial.unidad_compra}
+                    </button>
+                  </div>
+                </div>
               )}
 
               {/* Actividades donde se usa este material */}
               {fichaActividades.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                  {fichaActividades.map(nombre => (
-                    <span key={nombre} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 10, background: azulBg, color: azul, border: `0.5px solid ${azulBord}` }}>
-                      {nombre}
-                    </span>
-                  ))}
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 10, color: textMuted, fontWeight: 600, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Actividades
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {fichaActividades.map(nombre => (
+                      <span key={nombre} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 10, background: dark ? 'rgba(255,255,255,0.05)' : '#f1f5f9', color: textSecondary, border: `0.5px solid ${border}` }}>
+                        {nombre}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
               {!fichaCargando && fichaActividades.length === 0 && (
@@ -735,9 +767,14 @@ const StockBodega: React.FC = () => {
                           {a.usuarios?.nombre ?? 'Usuario desconocido'} · {fmtFecha(a.creado_en)}
                         </div>
                       </div>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: a.cantidad >= 0 ? verde : rojo, marginLeft: 8, whiteSpace: 'nowrap' }}>
-                        {a.cantidad > 0 ? '+' : ''}{a.cantidad}
-                      </span>
+                      <div style={{ textAlign: 'right', marginLeft: 8, flexShrink: 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: a.cantidad >= 0 ? verde : rojo, whiteSpace: 'nowrap' }}>
+                          {a.cantidad > 0 ? '+' : ''}{a.cantidad}
+                        </span>
+                        <div style={{ fontSize: 10, color: textMuted }}>
+                          {a.unidad_registro === 'compra' ? (fichaMaterial?.unidad_compra ?? '') : (fichaMaterial?.unidad ?? '')}
+                        </div>
+                      </div>
                     </div>
                   ))}
                   </div>
@@ -751,7 +788,38 @@ const StockBodega: React.FC = () => {
                       <div style={{ fontSize: 11, color: textMuted, marginBottom: 8 }}>
                         Corrige diferencias con el conteo físico. Usa negativo para descontar (ej. -5), positivo para sumar. El motivo es obligatorio y queda guardado en el historial de arriba.
                       </div>
-                      <input type="number" placeholder="Cantidad (+/-)" style={{ ...sInput, height: 38, marginBottom: 8 }}
+
+                      {/* Selector de unidad */}
+                      {fichaMaterial.factor_conversion !== 1 && fichaMaterial.unidad_compra && (
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                          <button
+                            onClick={() => setAjusteUnidad('granular')}
+                            style={{
+                              flex: 1, padding: '7px 8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              cursor: 'pointer', transition: 'all 0.15s',
+                              border: ajusteUnidad === 'granular' ? `1.5px solid ${azul}` : `0.5px solid ${border}`,
+                              background: ajusteUnidad === 'granular' ? azulBg : 'transparent',
+                              color: ajusteUnidad === 'granular' ? azul : textSecondary,
+                            }}
+                          >
+                            {fichaMaterial.unidad}
+                          </button>
+                          <button
+                            onClick={() => setAjusteUnidad('compra')}
+                            style={{
+                              flex: 1, padding: '7px 8px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              cursor: 'pointer', transition: 'all 0.15s',
+                              border: ajusteUnidad === 'compra' ? `1.5px solid ${azul}` : `0.5px solid ${border}`,
+                              background: ajusteUnidad === 'compra' ? azulBg : 'transparent',
+                              color: ajusteUnidad === 'compra' ? azul : textSecondary,
+                            }}
+                          >
+                            {fichaMaterial.unidad_compra}
+                          </button>
+                        </div>
+                      )}
+
+                      <input type="number" placeholder={`Cantidad (+/-) en ${ajusteUnidad === 'compra' ? (fichaMaterial.unidad_compra ?? '') : (fichaMaterial.unidad ?? '')}`} style={{ ...sInput, height: 38, marginBottom: 8 }}
                         value={ajusteCantidad} onChange={e => setAjusteCantidad(e.target.value)} />
                       <input type="text" placeholder="Motivo del ajuste (obligatorio)" style={{ ...sInput, height: 38, marginBottom: 10 }}
                         value={ajusteMotivo} onChange={e => setAjusteMotivo(e.target.value)} />

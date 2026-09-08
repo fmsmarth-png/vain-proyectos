@@ -119,6 +119,8 @@ const CalibradorElementos: React.FC = () => {
   const [clonarDesdeElem, setClonarDesdeElem]   = useState('');
   const [elemsSimilares, setElemsSimilares]     = useState<string[]>([]);
   const [guardandoRepId, setGuardandoRepId]     = useState<string | null>(null);
+  const [ambientesDisponibles, setAmbientesDisponibles] = useState<string[]>([]);
+  const [guardandoAmbId, setGuardandoAmbId]     = useState<string | null>(null);
 
   // Nuevo elemento
   const [nuevoNombre, setNuevoNombre]   = useState('');
@@ -138,8 +140,17 @@ const CalibradorElementos: React.FC = () => {
   const [clonandoElemento, setClonandoElemento]   = useState(false);
 
   useIonViewDidEnter(() => {
-    if (!mounted.current) { mounted.current = true; cargarGrupos(); }
+    if (!mounted.current) { mounted.current = true; cargarGrupos(); cargarAmbientes(); }
   });
+
+  const cargarAmbientes = async () => {
+    const { data } = await supabase
+      .from('og_planos_ambientes')
+      .select('titulo')
+      .eq('activo', true);
+    const unicos = [...new Set((data ?? []).map(d => d.titulo))].sort();
+    setAmbientesDisponibles(unicos);
+  };
 
   const cargarGrupos = async () => {
     setCargando(true);
@@ -995,11 +1006,49 @@ const CalibradorElementos: React.FC = () => {
                                       fontSize: 9, fontWeight: 700, color: '#fff', padding: '1px 5px',
                                       borderRadius: 4, background: tol.revision === 'MURO' ? azul : naranja,
                                     }}>{tol.item_revision}</span>
-                                    {tol.ambiente && (
-                                      <span style={{ fontSize: 9, color: textMuted, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                                        <MapPin size={9} strokeWidth={2.25} /> {tol.ambiente}
-                                      </span>
-                                    )}
+                                    <span style={{ fontSize: 9, color: textMuted, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                      <MapPin size={9} strokeWidth={2.25} />
+                                      <select
+                                        style={{
+                                          border: `1px solid ${tol.ambiente ? verdeBord : rojoBord}`,
+                                          borderRadius: 3, padding: '0 4px', fontSize: 9,
+                                          background: 'transparent', color: tol.ambiente ? verde : rojo,
+                                          outline: 'none', fontWeight: 600, maxWidth: 100,
+                                          cursor: guardandoAmbId === tol.id ? 'wait' : 'pointer',
+                                          opacity: guardandoAmbId === tol.id ? 0.5 : 1,
+                                        }}
+                                        value={tol.ambiente ?? ''}
+                                        disabled={guardandoAmbId === tol.id}
+                                        onChange={async (e) => {
+                                          const nuevoAmb = e.target.value || null;
+                                          if (nuevoAmb === (tol.ambiente ?? '')) return;
+                                          setGuardandoAmbId(tol.id);
+                                          try {
+                                            const { error } = await supabase
+                                              .from('og_catalogo')
+                                              .update({ ambiente: nuevoAmb })
+                                              .eq('id', tol.id);
+                                            if (error) throw error;
+                                            setTolerancias(prev => prev.map(t =>
+                                              t.id === tol.id ? { ...t, ambiente: nuevoAmb } : t
+                                            ));
+                                            setStatus({ msg: `✓ Ambiente → ${nuevoAmb || '(vacío)'}`, ok: true });
+                                          } catch (err: any) {
+                                            setStatus({ msg: 'Error: ' + (err.message || 'desconocido'), ok: false });
+                                          } finally {
+                                            setGuardandoAmbId(null);
+                                          }
+                                        }}
+                                      >
+                                        <option value="">— sin ambiente —</option>
+                                        {ambientesDisponibles.map(a => (
+                                          <option key={a} value={a}>{a}</option>
+                                        ))}
+                                        {tol.ambiente && !ambientesDisponibles.includes(tol.ambiente) && (
+                                          <option value={tol.ambiente}>{tol.ambiente} (no estándar)</option>
+                                        )}
+                                      </select>
+                                    </span>
                                   </div>
                                   <div style={{ fontWeight: 600, color: textPrimary, fontSize: 11 }}>
                                     {tol.tolerancia}

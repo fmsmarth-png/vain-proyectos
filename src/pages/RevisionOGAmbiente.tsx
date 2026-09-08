@@ -391,14 +391,17 @@ const RevisionOGAmbiente: React.FC = () => {
       const revisionReal = getRevisionReal(elActual.elemento, tabActual, tipo.revision);
 
       // 1. Intentar desde cache local (disponible online y offline)
+      // Para vanos y piernas no filtrar por ambiente — pueden estar catalogados
+      // en un ambiente distinto al que se inspecciona
+      const usarAmbiente = revisionReal === 'MURO' ? ambiente.titulo : undefined;
       const fromCache = getToleranciaCache({
         revision:     revisionReal,
         itemRevision: tipo.item,
         elemento:     elActual.elemento,
-        ambiente:     ambiente.titulo,
+        ambiente:     usarAmbiente,
       });
 
-      console.log(`[OGAmb] getToleranciaCache — revision="${revisionReal}" item="${tipo.item}" elemento="${elActual.elemento}" ambiente="${ambiente.titulo}" → ${fromCache.length} resultados`);
+      console.log(`[OGAmb] getToleranciaCache — revision="${revisionReal}" item="${tipo.item}" elemento="${elActual.elemento}" ambiente="${usarAmbiente ?? '(sin filtro)'}" → ${fromCache.length} resultados`);
 
       if (fromCache.length > 0) {
         const lista = fromCache.map(r => r.tolerancia).filter(Boolean);
@@ -410,14 +413,21 @@ const RevisionOGAmbiente: React.FC = () => {
       // 2. Fallback a Supabase si hay red y el cache no tenía resultado
       //    (puede pasar si el cache tiene < 24h pero el catálogo fue actualizado)
       if (online) {
-        const { data } = await supabase
+        const query = supabase
           .from('og_catalogo')
           .select('tolerancia')
           .eq('elemento', elActual.elemento)
           .eq('revision', revisionReal)
           .eq('item_revision', tipo.item)
-          .eq('ambiente', ambiente.titulo)
           .eq('activo', true);
+
+        // Solo filtrar por ambiente en MUROS — vanos y piernas pueden
+        // estar catalogados en un ambiente distinto al que se inspecciona
+        if (revisionReal === 'MURO') {
+          query.eq('ambiente', ambiente.titulo);
+        }
+
+        const { data } = await query;
         const lista = (data || []).map((d: any) => d.tolerancia).filter(Boolean);
         setTolerancia(lista);
         cargarCodigosTolerancia(revisionReal, tipo.item, lista);

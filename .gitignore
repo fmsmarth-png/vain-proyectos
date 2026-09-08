@@ -29,3 +29,6 @@ yarn-error.log*
 
 # Optional eslint cache
 .eslintcache
+
+# Supabase local state (contiene ref de proyecto y org_id)
+supabase/.temp/

@@ -184,11 +184,19 @@ const ZonasComunes: React.FC = () => {
         }
 
         try {
-          const { data: planosData } = await supabase
-            .from('planos').select('*')
-            .or(`torre_id.eq.${torreActual.id},proyecto_id.eq.${proyectoActual?.id}`)
-            .order('creado_en', { ascending: false });
-          setPlanos(planosData ?? []);
+          // Validar UUIDs antes de interpolar en filtro PostgREST (prevención inyección A05)
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const tId = torreActual.id;
+          const pId = proyectoActual?.id;
+          if ((tId && !UUID_RE.test(tId)) || (pId && !UUID_RE.test(pId))) {
+            console.error('ID inválido detectado en planos query');
+          } else {
+            const { data: planosData } = await supabase
+              .from('planos').select('*')
+              .or(`torre_id.eq.${tId},proyecto_id.eq.${pId}`)
+              .order('creado_en', { ascending: false });
+            setPlanos(planosData ?? []);
+          }
         } catch (e) { console.warn('Error cargando planos:', e); }
 
       } else {

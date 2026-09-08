@@ -30,23 +30,18 @@ const RestablecerContrasena: React.FC = () => {
       const code = sessionStorage.getItem('recovery_code')
       const tokensRaw = sessionStorage.getItem('recovery_tokens')
 
-      // ===== LOGS DIAGNÓSTICO =====
-      console.log('[RESET] otpRaw:', otpRaw)
-      console.log('[RESET] code:', code)
-      console.log('[RESET] tokensRaw:', tokensRaw)
-      console.log('[RESET] URL actual:', window.location.href)
-      // ============================
+      // Logs de diagnóstico removidos (sep 2026) — exponían tokens en consola
 
       // Formato 1: ?token=...&type=recovery  -> verifyOtp({ token_hash, type })
       if (otpRaw) {
         try {
           const { token, type } = JSON.parse(otpRaw)
-          console.log('[RESET] Intentando verifyOtp con token_hash:', token, 'type:', type)
+          // Log de token removido por seguridad
           const { data, error } = await supabase.auth.verifyOtp({
             token_hash: token,
             type: (type || 'recovery') as any,
           })
-          console.log('[RESET] verifyOtp resultado →', { data, error })
+          if (import.meta.env.DEV) console.log('[RESET] verifyOtp ok:', !error)
           if (!error) {
             sessionStorage.removeItem('recovery_otp')
             marcarListo()

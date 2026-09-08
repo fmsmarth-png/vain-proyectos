@@ -3,6 +3,7 @@ import { lockClosedOutline } from 'ionicons/icons'
 import { useState } from 'react'
 import { useHistory } from 'react-router'
 import { cambiarContrasena } from '../helpers/authContrasena'
+import { validarContrasena } from '../helpers/validarContrasena'
 import { useTheme } from '../Context/ThemeContext'
 
 const CambiarContrasena: React.FC = () => {
@@ -21,7 +22,8 @@ const CambiarContrasena: React.FC = () => {
 
   const validar = (): boolean => {
     if (!actual.trim()) { mostrar('Ingresa tu contraseña actual.', false); return false }
-    if (nueva.length < 6) { mostrar('La nueva contraseña debe tener al menos 6 caracteres.', false); return false }
+    const errorPw = validarContrasena(nueva);
+    if (errorPw) { mostrar(errorPw, false); return false }
     if (nueva !== confirmar) { mostrar('Las contraseñas no coinciden.', false); return false }
     if (actual === nueva) { mostrar('La nueva contraseña debe ser distinta a la actual.', false); return false }
     return true

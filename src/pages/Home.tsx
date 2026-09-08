@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
+import { validarContrasena } from '../helpers/validarContrasena';
 import { sincronizarCache } from '../Context/CacheContext';
 import './Home.css';
 
@@ -136,7 +137,8 @@ const Home: React.FC = () => {
         !regPassword.trim() || !regRol || !regProyecto.trim()) {
       setRegError('Todos los campos son obligatorios'); return;
     }
-    if (regPassword.length < 6) { setRegError('La contraseña debe tener al menos 6 caracteres'); return; }
+    const errorPw = validarContrasena(regPassword);
+    if (errorPw) { setRegError(errorPw); return; }
     setRegLoading(true); setRegError('');
 
     try {
@@ -157,7 +159,8 @@ const Home: React.FC = () => {
         });
 
         if (perfilError) {
-          setRegError('Error al guardar perfil: ' + perfilError.message);
+          console.error('[Registro] Error perfil:', perfilError);
+          setRegError('Error al guardar perfil. Intenta nuevamente.');
           await supabase.auth.signOut();
           setRegLoading(false);
           return;
