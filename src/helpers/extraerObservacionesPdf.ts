@@ -1,7 +1,4 @@
-import * as pdfjsLib from 'pdfjs-dist';
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
+import { pdfjsLib } from './pdfWorkerSetup';
 
 export interface ObservacionPdf {
   numero: string;

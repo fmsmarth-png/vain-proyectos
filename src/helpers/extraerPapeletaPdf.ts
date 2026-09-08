@@ -1,11 +1,8 @@
-// pdfjs-dist se carga DINÁMICAMENTE dentro de extraerPapeletaPdf(), no aquí
-// arriba a nivel de módulo. Motivo: ProtectedRoutes importa PostVenta y
-// CalendarioPostVenta de forma estática, y esos importan este helper. Si
-// pdfjs se evalúa a nivel de módulo, se ejecuta al ARRANQUE de la app
-// (antes de que cualquier pantalla se monte), congelando Android y a veces
-// localhost. Al cargarlo solo cuando alguien realmente sube un PDF, la app
-// arranca sin tocar pdfjs. Build 'legacy' por compatibilidad con iOS < 17.4
-// (ver mozilla/pdf.js#20899).
+// pdfjs-dist se importaba dinámicamente para no cargar al arranque, pero
+// extraerActaPreEntregaPdf y extraerObservacionesPdf ya lo importan
+// estáticamente → el bundle ya lo incluye. Import estático elimina el
+// warning de Vite por mixed static/dynamic.
+import { pdfjsLib } from './pdfWorkerSetup';
 
 /**
  * Hay dos plantillas de papeleta distintas en circulación, con geometría y
@@ -109,10 +106,7 @@ function leerArchivoComoArrayBuffer(file: File): Promise<ArrayBuffer> {
 export async function extraerPapeletaPdf(file: File): Promise<PapeletaPdf> {
   // Carga pdfjs SOLO cuando se usa (no al arranque de la app).
   // Build 'legacy' para iOS < 17.4; worker con ?url para Vite (offline + MIME correcto).
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const PdfWorker = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
-
+  // Ambos vienen del mismo paquete pdfjs-dist pinned → misma versión garantizada.
   const buffer = await leerArchivoComoArrayBuffer(file);
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
 

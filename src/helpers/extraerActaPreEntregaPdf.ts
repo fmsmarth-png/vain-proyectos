@@ -1,10 +1,4 @@
-import * as pdfjsLib from 'pdfjs-dist';
-// Mismo motivo que en extraerPapeletaPdf.ts: el worker se importa con ?url
-// para que Vite lo empaquete (funciona sin conexión) y lo sirva con el
-// Content-Type correcto en iOS WebView.
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
+import { pdfjsLib } from './pdfWorkerSetup';
 
 /**
  * Lee el Acta de Pre Entrega ORIGINAL — el documento que ya trae la
