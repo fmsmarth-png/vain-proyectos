@@ -633,7 +633,7 @@ const PreEntregaDepto: React.FC = () => {
     if (!propRut.trim())    { setErrorActa('El RUT del propietario es obligatorio'); return; }
     if (!fechaPromesa)      { setErrorActa('La fecha de la promesa es obligatoria'); return; }
     if (!inspectorRut.trim()) { setErrorActa('El RUT del inspector es obligatorio'); return; }
-    if (!firmaGuardadaUrl && !firmaDataUrl) { setErrorActa('La firma del propietario es obligatoria — guárdala primero'); return; }
+    if (!firmaGuardadaUrl && !firmaDataUrl) { setErrorActa('La firma del propietario es obligatoria — confírmala primero'); return; }
 
     setGenerando(true); setErrorActa('');
     try {
@@ -933,8 +933,16 @@ const PreEntregaDepto: React.FC = () => {
                   <>
                     <div style={{ border: `0.5px solid ${dark ? 'rgba(74,222,128,0.3)' : '#bbf7d0'}`, borderRadius: 12, overflow: 'hidden', marginBottom: 8, background: '#ffffff', position: 'relative' }}>
                       <img src={firmaGuardadaUrl} style={{ display: 'block', width: '100%', height: 160, objectFit: 'contain' }} />
-                      <div style={{ position: 'absolute', top: 6, right: 6, background: dark ? 'rgba(74,222,128,0.15)' : '#f0fdf4', borderRadius: 8, padding: '2px 8px', fontSize: 10, color: dark ? '#4ade80' : '#15803d', fontWeight: 600, border: dark ? '0.5px solid rgba(74,222,128,0.3)' : '0.5px solid #bbf7d0' }}>
-                        ✓ Guardada
+                      <div style={{
+                        position: 'absolute', top: 10, right: 10,
+                        color: dark ? '#4ade80' : '#15803d',
+                        border: `2px solid ${dark ? 'rgba(74,222,128,0.55)' : '#15803d'}`,
+                        borderRadius: 6, padding: '3px 10px',
+                        fontSize: 10, fontWeight: 800, letterSpacing: '1.5px',
+                        transform: 'rotate(-8deg)', background: dark ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.6)',
+                        fontFamily: 'monospace',
+                      }}>
+                        FIRMA ✓
                       </div>
                     </div>
                     <button onClick={() => { setFirmaGuardadaUrl(null); setFirmaDataUrl(null); }} style={{ background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 12, borderRadius: 8, padding: '4px 12px', cursor: 'pointer', marginBottom: 20 }}>
@@ -959,11 +967,11 @@ const PreEntregaDepto: React.FC = () => {
                       </button>
                       <button onClick={guardarFirma} disabled={guardandoFirma || !firmaDataUrl} style={{
                         flex: 1, background: firmaDataUrl ? 'linear-gradient(135deg, #1e3a5f, #2563eb)' : 'transparent',
-                        border: firmaDataUrl ? 'none' : `0.5px solid ${border}`,
+                        border: firmaDataUrl ? 'none' : `0.5px dashed ${border}`,
                         color: firmaDataUrl ? '#fff' : textMuted,
-                        fontSize: 12, fontWeight: 600, borderRadius: 8, padding: '4px 12px', cursor: firmaDataUrl ? 'pointer' : 'not-allowed'
+                        fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', borderRadius: 8, padding: '4px 12px', cursor: firmaDataUrl ? 'pointer' : 'not-allowed'
                       }}>
-                        {guardandoFirma ? 'Guardando...' : '✓ Guardar firma'}
+                        {guardandoFirma ? 'Confirmando...' : '✓ Confirmar'}
                       </button>
                     </div>
                   </>
