@@ -241,6 +241,31 @@ const ReporteVisualOG: React.FC = () => {
     setProyectos((data ?? []) as Proyecto[]);
   };
 
+  // ── Pre-filtro desde DashboardOG (sessionStorage) ───────────────────────────
+  // Cuando el dashboard navega aquí con og_vista_filtro, auto-selecciona el
+  // proyecto, setea la vista (albanileria/copa/yeso) y activa soloPendientes.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('og_vista_filtro');
+      if (!raw) return;
+      const filtro = JSON.parse(raw);
+      // filtro: { vista, proyectoId, proyectoNombre, soloPendientes }
+      if (filtro.vista && ['general', 'albanileria', 'copa', 'yeso'].includes(filtro.vista)) {
+        setVista(filtro.vista as Vista);
+      }
+      if (filtro.soloPendientes) setSoloPendientes(true);
+      // Auto-seleccionar proyecto cuando la lista ya cargó
+      if (filtro.proyectoId && proyectos.length > 0) {
+        const match = proyectos.find(p => p.id === filtro.proyectoId);
+        if (match && !proyectoSel) {
+          elegirProyecto(match);
+        }
+        sessionStorage.removeItem('og_vista_filtro');
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectos]);
+
   // Tarifas de reparación (una vez; se resuelven por vigencia al costear)
   useEffect(() => { cargarTarifas(); /* eslint-disable-next-line */ }, []);
   const cargarTarifas = async () => {

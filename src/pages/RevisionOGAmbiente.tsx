@@ -20,6 +20,7 @@ import { supabase } from '../supabase';
 import { getToleranciaCache, getImagenAmbienteCache, getElementosAmbienteCache, getReparacionCache } from '../utils/Ogcache';          // ← FMS offline OG
 import { getImagenUrlDB } from '../utils/ogImageDB';                                                                // ← FMS offline OG (imágenes IndexedDB)
 import { encolarRegistroOG } from '../utils/Ogofflinequeue'; // ← FMS offline OG
+import { ACCIONES_REPARACION } from '../utils/ogSubtipos';  // ← reparación por observación (FALLA NO ESTANDARIZADA)
 import { useOffline }                   from '../Context/OfflineContext';  // ← FMS offline OG
 import { comprimirImagen }              from '../utils/comprimirImagen';   // ← FMS offline OG
 import { Ruler, Lock, WifiOff, ImageOff, Camera, Save, Check, X } from 'lucide-react';
@@ -184,6 +185,7 @@ const RevisionOGAmbiente: React.FC = () => {
   const [comentario, setComentario]   = useState('');
   const [fotoPreview, setFotoPreview] = useState<string | null>(null); // ← FMS: preview local
   const [fotoBlob, setFotoBlob]       = useState<Blob | null>(null);   // ← FMS: blob comprimido
+  const [reparacionSel, setReparacionSel] = useState<string>(''); // ← reparación manual para FALLA NO ESTANDARIZADA
   const [guardando, setGuardando]     = useState(false);
   const [status, setStatus]           = useState<{ msg: string; ok: boolean } | null>(null);
 
@@ -325,14 +327,14 @@ const RevisionOGAmbiente: React.FC = () => {
     setElSel(null);
     setTipoSel(null);
     setTolerancia([]);
-    setTolSel('');
+    setTolSel(''); setReparacionSel('');
     setComentario('');
     limpiarFoto();
     setStatus(null);
   };
 
   const resetRegistro = () => {
-    setTolSel('');
+    setTolSel(''); setReparacionSel('');
     setComentario('');
     limpiarFoto();
   };
@@ -355,7 +357,7 @@ const RevisionOGAmbiente: React.FC = () => {
     setElSel(el);
     setTipoSel(null);
     setTolerancia([]);
-    setTolSel('');
+    setTolSel(''); setReparacionSel('');
     setComentario('');
     limpiarFoto();
     setStatus(null);
@@ -384,7 +386,7 @@ const RevisionOGAmbiente: React.FC = () => {
     const tabActual = tabOverride ?? tabActivo;
     if (!elActual || !ambiente) return;
     setTipoSel(tipo);
-    setTolSel('');
+    setTolSel(''); setReparacionSel('');
     setStatus(null);
     setCargandoTols(true);
     try {
@@ -489,8 +491,35 @@ const RevisionOGAmbiente: React.FC = () => {
   // FMS offline OG:
   //   ONLINE  → sube foto a Storage (bucket fotos-registros) + INSERT directo en og_registros
   //   OFFLINE → convierte foto a base64 + encola en ogOfflineQueue (flush al reconectarse)
+  const esFallaNoEstandarizada = tolSel.toUpperCase().includes('FALLA NO ESTANDARIZADA');
+
+  // Resuelve accion/codigo de reparación para FALLA NO ESTANDARIZADA
+  const reparacionResuelta = (() => {
+    if (!esFallaNoEstandarizada || !reparacionSel) return { accion: null, codigo: null };
+    const found = ACCIONES_REPARACION.find(a => a.accion === reparacionSel);
+    if (found) return { accion: found.accion, codigo: found.codigo };
+    return { accion: reparacionSel, codigo: 'OR' }; // "Otra reparación"
+  })();
+
   const guardarObservacion = async () => {
     if (!elSel || !tipoSel || !tolSel || !proyecto || !torre || !depto || !ambiente) return;
+
+    // Falla no estandarizada requiere foto y comentario obligatorios
+    if (esFallaNoEstandarizada) {
+      if (!fotoBlob) {
+        setStatus({ msg: 'Falla no estandarizada requiere foto obligatoria', ok: false });
+        return;
+      }
+      if (!comentario.trim()) {
+        setStatus({ msg: 'Falla no estandarizada requiere comentario obligatorio', ok: false });
+        return;
+      }
+      if (!reparacionSel) {
+        setStatus({ msg: 'Falla no estandarizada requiere seleccionar reparación', ok: false });
+        return;
+      }
+    }
+
     setGuardando(true);
     setStatus(null);
     try {
@@ -522,6 +551,8 @@ const RevisionOGAmbiente: React.FC = () => {
           foto_blob:        fotoBlob ?? null,
           usuario_id:       userId,
           sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
+          accion_reparacion: reparacionResuelta.accion,
+          codigo_reparacion: reparacionResuelta.codigo,
         });
 
         setStatus({ msg: 'Guardado offline — se sincronizará al reconectarte', ok: true });
@@ -566,6 +597,8 @@ const RevisionOGAmbiente: React.FC = () => {
           foto_url,
           usuario_id:       userIdRef.current,
           sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
+          accion_reparacion: reparacionResuelta.accion,
+          codigo_reparacion: reparacionResuelta.codigo,
         });
         if (error) throw error;
 
@@ -593,6 +626,8 @@ const RevisionOGAmbiente: React.FC = () => {
           foto_blob:        fotoBlob ?? null,
           usuario_id:       userIdRef.current || '',
           sesion_id:        `${depto.id}_${ambiente.ambiente_cod}_${Date.now()}`,
+          accion_reparacion: reparacionResuelta.accion,
+          codigo_reparacion: reparacionResuelta.codigo,
         });
         setStatus({ msg: 'Guardado offline — se sincronizará al reconectarte', ok: true });
       }
@@ -870,7 +905,7 @@ const RevisionOGAmbiente: React.FC = () => {
                         setTabActivo(tab);
                         setTipoSel(null);
                         setTolerancia([]);
-                        setTolSel('');
+                        setTolSel(''); setReparacionSel('');
                       }}
                       style={{
                         flex: 1, padding: '7px 0', borderRadius: 8, border: 'none',
@@ -951,17 +986,42 @@ const RevisionOGAmbiente: React.FC = () => {
                           })}
                         </select>
                         {tolSel && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                            <span style={{
-                              fontSize: 11, fontWeight: 800, padding: '2px 7px', borderRadius: 5,
-                              border: `1px solid ${azul}`, color: azul, letterSpacing: '0.3px',
-                            }}>
-                              {codigosTol[tolSel]?.codigo || '?'}
-                            </span>
-                            <span style={{ fontSize: 12, color: textSecondary }}>
-                              {codigosTol[tolSel]?.accion || 'Reparación por definir'}
-                            </span>
-                          </div>
+                          esFallaNoEstandarizada ? (
+                            <>
+                            <div style={{ fontSize: 10, color: textMuted, letterSpacing: '1px', marginBottom: 6, fontWeight: 600 }}>
+                              REPARACIÓN <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: rojo }}>(obligatorio)</span>
+                            </div>
+                            <select
+                              value={reparacionSel}
+                              onChange={e => setReparacionSel(e.target.value)}
+                              style={{
+                                width: '100%', boxSizing: 'border-box', marginBottom: 12,
+                                border: `0.5px solid ${reparacionSel ? azul : inputBorder}`,
+                                borderRadius: 10, padding: '10px 12px', fontSize: 13,
+                                background: inputBg, color: reparacionSel ? textPrimary : textMuted,
+                                outline: 'none', height: 44,
+                              }}
+                            >
+                              <option value="">— Selecciona reparación —</option>
+                              {ACCIONES_REPARACION.map(a => (
+                                <option key={a.codigo} value={a.accion}>{a.codigo} · {a.label}</option>
+                              ))}
+                              <option value="otra reparación">OR · Otra reparación</option>
+                            </select>
+                            </>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                              <span style={{
+                                fontSize: 11, fontWeight: 800, padding: '2px 7px', borderRadius: 5,
+                                border: `1px solid ${azul}`, color: azul, letterSpacing: '0.3px',
+                              }}>
+                                {codigosTol[tolSel]?.codigo || '?'}
+                              </span>
+                              <span style={{ fontSize: 12, color: textSecondary }}>
+                                {codigosTol[tolSel]?.accion || 'Reparación por definir'}
+                              </span>
+                            </div>
+                          )
                         )}
                       </>
                     )}
@@ -970,7 +1030,7 @@ const RevisionOGAmbiente: React.FC = () => {
 
                 {/* Comentario */}
                 <div style={{ fontSize: 10, color: textMuted, letterSpacing: '1px', marginBottom: 6, fontWeight: 600 }}>
-                  COMENTARIO <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(opcional)</span>
+                  COMENTARIO <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: esFallaNoEstandarizada ? rojo : textMuted }}>{esFallaNoEstandarizada ? '(obligatorio)' : '(opcional)'}</span>
                 </div>
                 <textarea
                   value={comentario}
@@ -988,7 +1048,7 @@ const RevisionOGAmbiente: React.FC = () => {
 
                 {/* Foto — FMS: usa ref estable + comprimirImagen + preview local */}
                 <div style={{ fontSize: 10, color: textMuted, letterSpacing: '1px', marginBottom: 6, fontWeight: 600 }}>
-                  FOTO <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(opcional)</span>
+                  FOTO <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: esFallaNoEstandarizada ? rojo : textMuted }}>{esFallaNoEstandarizada ? '(obligatorio)' : '(opcional)'}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
                   <label style={{

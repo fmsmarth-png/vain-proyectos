@@ -7,6 +7,13 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { useTheme } from '../Context/ThemeContext';
 import { lineaConfig, lineas } from '../utils/lineas';
+import {
+  Users, Lock, Layers,
+  DoorOpen, Wrench, AlertTriangle, Building2,
+  Building, Landmark,
+  Ruler, Target, Map, Paperclip,
+  ClipboardList, Home, Briefcase, User, Trash2, Clock,
+} from 'lucide-react';
 
 // Etiquetas conocidas de roles. Los roles nuevos (creados desde la app)
 // caen al helper labelRol y muestran su descripcion o el codigo prettificado.
@@ -102,9 +109,9 @@ const ModalPerfil: React.FC<ModalPerfilProps> = ({
   const iniciales = (nombre: string) =>
     nombre?.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase() ?? 'U';
 
-  const StatCard = ({ icon, valor, label, color }: { icon: string; valor: any; label: string; color?: string }) => (
+  const StatCard = ({ icon, valor, label, color }: { icon: any; valor: any; label: string; color?: string }) => (
     <div style={{ flex: 1, background: dark ? '#16233B' : '#f8fafc', borderRadius: 14, padding: '14px 10px', textAlign: 'center', border: `0.5px solid ${border}` }}>
-      <div style={{ fontSize: 20, marginBottom: 6 }}>{icon}</div>
+      <div style={{ marginBottom: 6, display: "flex", justifyContent: "center" }}>{icon}</div>
       <div style={{ fontSize: 28, fontWeight: 800, color: color ?? textPrimary, lineHeight: 1 }}>
         {cargando ? <IonSpinner name="crescent" style={{ width: 20, height: 20 }} /> : valor}
       </div>
@@ -139,8 +146,8 @@ const ModalPerfil: React.FC<ModalPerfilProps> = ({
 
         <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Actividad histórica</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <StatCard icon="📋" valor={stats?.total ?? '—'} label="Obs registradas" color={dark ? '#60a5fa' : '#2563eb'} />
-          <StatCard icon="🏠" valor={stats?.deptosUnicos ?? '—'} label="Deptos inspeccionados" color={dark ? '#4ade80' : '#15803d'} />
+          <StatCard icon={<ClipboardList size={18} strokeWidth={2} />} valor={stats?.total ?? '—'} label="Obs registradas" color={dark ? '#60a5fa' : '#2563eb'} />
+          <StatCard icon={<Home size={18} strokeWidth={2} />} valor={stats?.deptosUnicos ?? '—'} label="Deptos inspeccionados" color={dark ? '#4ade80' : '#15803d'} />
         </div>
 
         <div style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 12 }}>Partida más observada</div>
@@ -148,7 +155,7 @@ const ModalPerfil: React.FC<ModalPerfilProps> = ({
           <div style={{ textAlign: 'center', padding: 20 }}><IonSpinner name="crescent" /></div>
         ) : stats?.partidaTop ? (
           <div style={{ background: dark ? '#16233B' : '#f8fafc', borderRadius: 14, padding: '14px 16px', border: `0.5px solid ${border}`, display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: dark ? 'rgba(251,191,36,0.08)' : '#fffbeb', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔧</div>
+            <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: dark ? 'rgba(251,191,36,0.08)' : '#fffbeb', border: dark ? '0.5px solid rgba(251,191,36,0.2)' : '0.5px solid #fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Wrench size={18} strokeWidth={2} /></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{stats.partidaTop.nombre}</div>
               <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>{stats.partidaTop.count} observación{stats.partidaTop.count > 1 ? 'es' : ''} registrada{stats.partidaTop.count > 1 ? 's' : ''}</div>
@@ -183,7 +190,35 @@ const Admin: React.FC = () => {
   const inputBorder   = dark ? '#243550' : '#cbd5e1';
   const sepLine       = dark ? 'linear-gradient(90deg, transparent, #243550, transparent)' : 'linear-gradient(90deg, transparent, #e2e8f0, transparent)';
 
-  const [seccion, setSeccion] = useState<'usuarios' | 'ambientes' | 'partidas' | 'causas' | 'proyectos' | 'ambientes_zc' | 'bancos' | 'permisos' | 'roles'>('usuarios');
+  type Categoria = 'personas' | 'catalogos' | 'negocio' | 'obra_gruesa';
+  type Seccion = 'usuarios' | 'ambientes' | 'partidas' | 'causas' | 'proyectos' | 'ambientes_zc' | 'bancos' | 'permisos' | 'roles';
+
+  const CATEGORIAS: { key: Categoria; label: string; icon: any; secciones: { key: Seccion | 'cal_planos' | 'cal_elem' | 'gestion_planos' | 'asignar_planos'; label: string; icon: any; route?: string }[] }[] = [
+    { key: 'personas', label: 'Personas y Accesos', icon: Users, secciones: [
+      { key: 'usuarios', label: 'Usuarios', icon: Users },
+      { key: 'roles', label: 'Roles', icon: Layers },
+      { key: 'permisos', label: 'Permisos', icon: Lock },
+    ]},
+    { key: 'catalogos', label: 'Catálogos de Obra', icon: Wrench, secciones: [
+      { key: 'ambientes', label: 'Ambientes', icon: DoorOpen },
+      { key: 'partidas', label: 'Partidas', icon: Wrench },
+      { key: 'causas', label: 'Causas', icon: AlertTriangle },
+      { key: 'ambientes_zc', label: 'Amb. ZC', icon: Building2 },
+    ]},
+    { key: 'negocio', label: 'Proyectos y Negocio', icon: Building, secciones: [
+      { key: 'proyectos', label: 'Proyectos', icon: Building },
+      { key: 'bancos', label: 'Bancos', icon: Landmark },
+    ]},
+    { key: 'obra_gruesa', label: 'Obra Gruesa', icon: Ruler, secciones: [
+      { key: 'cal_planos', label: 'Cal. Planos', icon: Ruler, route: '/calibrador-plano' },
+      { key: 'cal_elem', label: 'Cal. Elem.', icon: Target, route: '/calibrador-elementos' },
+      { key: 'gestion_planos', label: 'Gestión Planos', icon: Map, route: '/admin/gestion-planos' },
+      { key: 'asignar_planos', label: 'Asignar Planos', icon: Paperclip, route: '/admin/asignar-planos' },
+    ]},
+  ];
+
+  const [categoria, setCategoria] = useState<Categoria>('personas');
+  const [seccion, setSeccion] = useState<Seccion>('usuarios');
   const [usuarios, setUsuarios]       = useState<any[]>([]);
   const [pendientes, setPendientes]   = useState<any[]>([]);
   const [proyectos, setProyectos]     = useState<any[]>([]);
@@ -683,63 +718,65 @@ const Admin: React.FC = () => {
             </div>
           )}
 
-          {/* Tabs fila 1 */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-            {(['usuarios', 'ambientes', 'partidas'] as const).map(s => (
-              <button key={s} onClick={() => setSeccion(s)} style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: seccion === s ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent', color: seccion === s ? '#fff' : textMuted, border: `0.5px solid ${seccion === s ? (dark ? '#2E4468' : '#1e3a5f') : border}` }}>
-                {s === 'usuarios' ? `👥${pendientes.length > 0 ? ` (${pendientes.length})` : ''} Usuarios` : s === 'ambientes' ? '🚪 Ambientes' : '🔧 Partidas'}
+          {/* ── Categorías ── */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            {CATEGORIAS.map(cat => (
+              <button
+                key={cat.key}
+                onClick={() => {
+                  setCategoria(cat.key);
+                  const primera = cat.secciones[0];
+                  if (!primera.route) {
+                    setSeccion(primera.key as Seccion);
+                  }
+                }}
+                style={{
+                  flex: 1, height: 38, borderRadius: 12, cursor: 'pointer',
+                  fontSize: 10, fontWeight: 700, lineHeight: 1.2,
+                  background: categoria === cat.key
+                    ? (dark ? 'linear-gradient(135deg, #1E2E4A, #26395C)' : 'linear-gradient(135deg, #1e3a5f, #2a4a6f)')
+                    : 'transparent',
+                  color: categoria === cat.key ? '#fff' : textMuted,
+                  border: `0.5px solid ${categoria === cat.key ? (dark ? '#2E4468' : '#1e3a5f') : border}`,
+                  padding: '4px 2px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                }}
+              >
+                {(() => { const CatIcon = cat.icon; return <CatIcon size={16} strokeWidth={2} />; })()}
+                <span>{cat.label.split(' ')[0]}</span>
               </button>
             ))}
           </div>
 
-          {/* Tabs fila 2 */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-            {(['causas', 'proyectos', 'ambientes_zc'] as const).map(s => (
-              <button key={s} onClick={() => setSeccion(s)} style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: seccion === s ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent', color: seccion === s ? '#fff' : textMuted, border: `0.5px solid ${seccion === s ? (dark ? '#2E4468' : '#1e3a5f') : border}` }}>
-                {s === 'causas' ? '⚠️ Causas' : s === 'proyectos' ? '🏗️ Proyectos' : '🏢 ZC'}
-              </button>
-            ))}
-          </div>
-
-          {/* Tabs fila 3 */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-            {(['bancos', 'permisos', 'roles'] as const).map(s => (
-              <button key={s} onClick={() => setSeccion(s)} style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: seccion === s ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent', color: seccion === s ? '#fff' : textMuted, border: `0.5px solid ${seccion === s ? (dark ? '#2E4468' : '#1e3a5f') : border}` }}>
-                {s === 'bancos' ? '🏦 Bancos' : s === 'permisos' ? '🔐 Permisos' : '🧩 Roles'}
-              </button>
-            ))}
-          </div>
-
-          {/* Tabs fila 4 — Calibradores */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-            <button
-              onClick={() => router.push('/calibrador-plano')}
-              style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
-            >
-              📐 Cal. Planos
-            </button>
-            <button
-              onClick={() => router.push('/calibrador-elementos')}
-              style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
-            >
-              🎯 Cal. Elem.
-            </button>
-          </div>
-
-          {/* Tabs fila 5 — Admin OG Planos */}
+          {/* ── Sub-tabs de la categoría seleccionada ── */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-            <button
-              onClick={() => router.push('/admin/gestion-planos')}
-              style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
-            >
-              🗺️ Gestión Planos
-            </button>
-            <button
-              onClick={() => router.push('/admin/asignar-planos')}
-              style={{ flex: 1, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 10, fontWeight: 600, background: 'transparent', color: textMuted, border: `0.5px solid ${border}` }}
-            >
-              📎 Asignar Planos
-            </button>
+            {CATEGORIAS.find(c => c.key === categoria)!.secciones.map(sub => {
+              const isRoute = !!sub.route;
+              const isActive = !isRoute && seccion === sub.key;
+              return (
+                <button
+                  key={sub.key}
+                  onClick={() => {
+                    if (isRoute) {
+                      router.push(sub.route!);
+                    } else {
+                      setSeccion(sub.key as Seccion);
+                    }
+                  }}
+                  style={{
+                    flex: 1, height: 34, borderRadius: 10, cursor: 'pointer',
+                    fontSize: 11, fontWeight: 600,
+                    background: isActive ? (dark ? '#1E2E4A' : '#1e3a5f') : 'transparent',
+                    color: isActive ? '#fff' : textMuted,
+                    border: `0.5px solid ${isActive ? (dark ? '#2E4468' : '#1e3a5f') : border}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  }}
+                >
+                  {(() => { const SubIcon = sub.icon; return <SubIcon size={13} strokeWidth={2.25} />; })()}
+                  {sub.key === 'usuarios' && pendientes.length > 0 ? `(${pendientes.length}) ` : ''}{sub.label}
+                </button>
+              );
+            })}
           </div>
 
           {/* ── USUARIOS ── */}
@@ -747,7 +784,7 @@ const Admin: React.FC = () => {
             <>
               {pendientes.length > 0 && (
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 9, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 10 }}>⏳ Solicitudes pendientes ({pendientes.length})</div>
+                  <div style={{ fontSize: 9, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 600, marginBottom: 10 }}><Clock size={12} strokeWidth={2.5} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} /> Solicitudes pendientes ({pendientes.length})</div>
                   {pendientes.map(u => (
                     <div key={u.id} style={{ background: dark ? 'linear-gradient(135deg, #16233B, #1B2C48)' : '#fff', borderRadius: 16, padding: 14, marginBottom: 10, border: '0.5px solid rgba(251,191,36,0.25)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
@@ -757,7 +794,7 @@ const Admin: React.FC = () => {
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 14, fontWeight: 700, color: textPrimary }}>{u.nombre}</div>
                           <div style={{ fontSize: 11, color: textSecondary }}>{u.email}</div>
-                          <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 2 }}>💼 {labelRol(u.rol)}</div>
+                          <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 2 }}><Briefcase size={11} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} /> {labelRol(u.rol)}</div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -792,7 +829,7 @@ const Admin: React.FC = () => {
                           {proyPrincipal && <span style={{ fontSize: 10, color: dark ? '#60a5fa' : '#2563eb' }}>⭐ {proyPrincipal.nombre}</span>}
                           {tienePostventa && (
                             <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 6, background: dark ? 'rgba(74,222,128,0.08)' : '#f0fdf4', color: dark ? '#4ade80' : '#15803d', border: dark ? '0.5px solid rgba(74,222,128,0.2)' : '0.5px solid #bbf7d0' }}>
-                              🔧 Post Venta
+                              <Wrench size={12} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} /> Post Venta
                             </span>
                           )}
                         </div>
@@ -854,7 +891,7 @@ const Admin: React.FC = () => {
                         </div>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 600, color: tienePostventa ? (dark ? '#4ade80' : '#15803d') : textSecondary }}>
-                            🔧 Acceso a Post Venta
+                            <Wrench size={12} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} /> Acceso a Post Venta
                           </div>
                           <div style={{ fontSize: 10, color: textMuted, marginTop: 1 }}>
                             {tienePostventa ? 'Habilitado' : 'Deshabilitado'}
@@ -864,10 +901,10 @@ const Admin: React.FC = () => {
                     )}
 
                     <div style={{ display: 'flex', gap: 8, borderTop: `0.5px solid ${border}`, paddingTop: 10 }}>
-                      <button onClick={() => abrirAsignar(u)} style={{ flex: 1, height: 32, borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}>📋 Proyectos</button>
-                      <button onClick={() => abrirModalPermisos(u)} style={{ flex: 1, height: 32, borderRadius: 8, background: dark ? 'rgba(139,92,246,0.06)' : '#f3e8ff', border: dark ? '0.5px solid rgba(139,92,246,0.15)' : '0.5px solid #e9d5ff', color: dark ? '#a78bfa' : '#7c3aed', fontSize: 11, cursor: 'pointer' }}>🔐 Permisos</button>
-                      <button onClick={() => { setUsuarioPerfil(u); setModalPerfil(true); }} style={{ flex: 1, height: 32, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.15)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 11, cursor: 'pointer' }}>👤 Perfil</button>
-                      <button onClick={() => { setItemEliminar(u); setTipoEliminar('usuario'); setAlertEliminar(true); }} style={{ height: 32, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 11, cursor: 'pointer' }}>🗑️</button>
+                      <button onClick={() => abrirAsignar(u)} style={{ flex: 1, height: 32, borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}><ClipboardList size={12} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} /> Proyectos</button>
+                      <button onClick={() => abrirModalPermisos(u)} style={{ flex: 1, height: 32, borderRadius: 8, background: dark ? 'rgba(139,92,246,0.06)' : '#f3e8ff', border: dark ? '0.5px solid rgba(139,92,246,0.15)' : '0.5px solid #e9d5ff', color: dark ? '#a78bfa' : '#7c3aed', fontSize: 11, cursor: 'pointer' }}><Lock size={12} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} /> Permisos</button>
+                      <button onClick={() => { setUsuarioPerfil(u); setModalPerfil(true); }} style={{ flex: 1, height: 32, borderRadius: 8, background: dark ? 'rgba(96,165,250,0.06)' : '#eff6ff', border: dark ? '0.5px solid rgba(96,165,250,0.15)' : '0.5px solid #bfdbfe', color: dark ? '#60a5fa' : '#1d4ed8', fontSize: 11, cursor: 'pointer' }}><User size={12} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} /> Perfil</button>
+                      <button onClick={() => { setItemEliminar(u); setTipoEliminar('usuario'); setAlertEliminar(true); }} style={{ height: 32, padding: '0 12px', borderRadius: 8, background: dark ? 'rgba(239,68,68,0.06)' : '#fef2f2', border: dark ? '0.5px solid rgba(239,68,68,0.15)' : '0.5px solid #fecaca', color: dark ? '#f87171' : '#b91c1c', fontSize: 11, cursor: 'pointer' }}><Trash2 size={13} strokeWidth={2} /></button>
                     </div>
                   </div>
                 );
@@ -950,8 +987,8 @@ const Admin: React.FC = () => {
                       <div>
                         <label style={labelStyle}>etapa</label>
                         <select value={p.etapa ?? 'obra'} onChange={async e => { await supabase.from('proyectos').update({ etapa: e.target.value }).eq('id', p.id); cargar(); }} style={{ ...inputStyle, marginBottom: 0, height: 36, fontSize: 12 }}>
-                          <option value="obra">🏗️ Obra</option>
-                          <option value="pre_entrega_postventa">🏠 Pre-entrega/PV</option>
+                          <option value="obra">Obra</option>
+                          <option value="pre_entrega_postventa">Pre-entrega / PV</option>
                         </select>
                       </div>
                       <div>
@@ -995,7 +1032,7 @@ const Admin: React.FC = () => {
                       </select>
                       {!p.titular_postventa_id && p.etapa === 'pre_entrega_postventa' && (
                         <div style={{ fontSize: 10, color: dark ? '#fbbf24' : '#92400e', marginTop: 4 }}>
-                          ⚠️ Sin titular, el rol Maestro Post Venta no podrá cerrar visitas en este proyecto.
+                          <AlertTriangle size={12} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} /> Sin titular, el rol Maestro Post Venta no podrá cerrar visitas en este proyecto.
                         </div>
                       )}
                     </div>
@@ -1100,7 +1137,7 @@ const Admin: React.FC = () => {
                     <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, background: r.activo ? (dark ? 'rgba(74,222,128,0.1)' : '#f0fdf4') : (dark ? 'rgba(239,68,68,0.1)' : '#fef2f2'), color: r.activo ? (dark ? '#4ade80' : '#15803d') : (dark ? '#f87171' : '#b91c1c'), border: `0.5px solid ${r.activo ? (dark ? 'rgba(74,222,128,0.2)' : '#bbf7d0') : (dark ? 'rgba(239,68,68,0.2)' : '#fecaca')}` }}>{r.activo ? 'Activo' : 'Inactivo'}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => abrirPermisosRol(r)} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(139,92,246,0.06)' : '#f3e8ff', border: dark ? '0.5px solid rgba(139,92,246,0.15)' : '0.5px solid #e9d5ff', color: dark ? '#a78bfa' : '#7c3aed', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>🔐 Permisos por defecto</button>
+                    <button onClick={() => abrirPermisosRol(r)} style={{ flex: 1, height: 34, borderRadius: 8, background: dark ? 'rgba(139,92,246,0.06)' : '#f3e8ff', border: dark ? '0.5px solid rgba(139,92,246,0.15)' : '0.5px solid #e9d5ff', color: dark ? '#a78bfa' : '#7c3aed', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}><Lock size={12} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} /> Permisos por defecto</button>
                     <button onClick={() => toggleRolActivo(r)} style={{ height: 34, padding: '0 12px', borderRadius: 8, background: 'transparent', border: `0.5px solid ${border}`, color: textSecondary, fontSize: 11, cursor: 'pointer' }}>{r.activo ? 'Desactivar' : 'Activar'}</button>
                   </div>
                 </div>

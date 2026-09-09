@@ -51,6 +51,8 @@ export interface OgRegistroPendiente {
   comentario: string;
   usuario_id: string;
   sesion_id: string;
+  accion_reparacion: string | null;
+  codigo_reparacion: string | null;
 
   // Foto: Blob si está pendiente de subir, o null si no tiene / ya se subió.
   foto_url: string | null;
@@ -261,6 +263,8 @@ export async function flushColaOG(): Promise<{ ok: number; fallidos: number }> {
         foto_url,
         usuario_id:       uuid(pendiente.usuario_id),
         sesion_id:        pendiente.sesion_id        || null,
+        accion_reparacion: pendiente.accion_reparacion || null,
+        codigo_reparacion: pendiente.codigo_reparacion || null,
       }, { onConflict: 'id', ignoreDuplicates: true });
 
       if (error) {
